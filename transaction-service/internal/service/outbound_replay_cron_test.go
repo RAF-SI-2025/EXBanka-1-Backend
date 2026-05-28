@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/exbanka/contract/cronreg"
 	contractsitx "github.com/exbanka/contract/sitx"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -16,6 +17,12 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
+
+// nilRegistry returns a no-op Registry for unit tests that don't need
+// pause/trigger control (nil PauseStore is explicitly supported).
+func nilRegistry() *cronreg.Registry {
+	return cronreg.NewRegistry("test", nil)
+}
 
 func newCronTestDB(t *testing.T) (*gorm.DB, *repository.OutboundPeerTxRepository) {
 	t.Helper()
@@ -58,11 +65,71 @@ func TestOutboundReplayCron_RetriesPendingRow_OnYESCommits(t *testing.T) {
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
 	}
-	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup).
+	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 
 	got, _ := repo.GetByIdempotenceKey("cron-1")
+	if got.Status != "committed" {
+		t.Errorf("expected committed, got %s last_error=%q", got.Status, got.LastError)
+	}
+}
+
+// TestOutboundReplayCron_OTCRow_InvokesLocalCommitBeforePostCommit verifies the
+// gap-fix: on resume of an OTC-kind outbound row, the cron MUST call the
+// LocalCommitFunc hook to finalise the local CREDIT-leg reservation before
+// sending COMMIT_TX to the peer. Without it the peer commits while the local
+// reservation stays "pending" forever — stuck-state risk.
+func TestOutboundReplayCron_OTCRow_InvokesLocalCommitBeforePostCommit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var probe map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&probe)
+		if probe["messageType"] == contractsitx.MessageTypeNewTx {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"type":"YES"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	_, repo := newCronTestDB(t)
+	row := &model.OutboundPeerTx{
+		IdempotenceKey: "otc-row-1",
+		PeerBankCode:   "222",
+		TxKind:         "otc-accept",
+		PostingsJSON:   `[{"routingNumber":111,"accountId":"111-A","assetId":"RSD","amount":"100","direction":"DEBIT"},{"routingNumber":111,"accountId":"111-B","assetId":"AAPL","amount":"50","direction":"CREDIT"}]`,
+		Status:         "pending",
+	}
+	if err := repo.Create(row); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
+	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
+		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
+	}
+
+	var localCommitCalled bool
+	commitFn := func(ctx context.Context, r *model.OutboundPeerTx) error {
+		if r.IdempotenceKey != "otc-row-1" {
+			t.Fatalf("commitLocal called with wrong row: %s", r.IdempotenceKey)
+		}
+		if r.TxKind == "transfer" || r.TxKind == "" {
+			t.Fatal("commitLocal should not be called for transfer rows")
+		}
+		localCommitCalled = true
+		return nil
+	}
+
+	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup, nilRegistry()).
+		WithMinRetryGap(0).WithMaxAttempts(4).WithLocalCommit(commitFn)
+	cron.Tick(context.Background())
+
+	if !localCommitCalled {
+		t.Fatal("LocalCommit hook was not invoked on OTC row resume — stuck-reservation gap is back")
+	}
+	got, _ := repo.GetByIdempotenceKey("otc-row-1")
 	if got.Status != "committed" {
 		t.Errorf("expected committed, got %s last_error=%q", got.Status, got.LastError)
 	}
@@ -89,7 +156,7 @@ func TestOutboundReplayCron_PeerVotesNO_MarksRolledBack(t *testing.T) {
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
 	}
-	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup).
+	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 
@@ -118,7 +185,7 @@ func TestOutboundReplayCron_MaxAttemptsExceeded_MarksFailed(t *testing.T) {
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return nil, errors.New("should not be called")
 	}
-	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup).
+	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 

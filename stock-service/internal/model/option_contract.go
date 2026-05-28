@@ -47,6 +47,12 @@ type OptionContract struct {
 	// accept; CrossbankExerciseTxID is set on cross-bank exercise.
 	CrossbankTxID         *string   `gorm:"size:36;index" json:"crossbank_tx_id,omitempty"`
 	CrossbankExerciseTxID *string   `gorm:"size:36;index" json:"crossbank_exercise_tx_id,omitempty"`
+	// OnBehalfOfFundID, when non-nil, records that the BUYER side of this
+	// contract was placed on behalf of an investment fund (E2, Plan E).
+	// The fund's manager is the acting employee. On exercise, the acquired
+	// shares are credited to fund_holdings instead of the buyer's personal
+	// holdings.
+	OnBehalfOfFundID *uint64 `gorm:"index" json:"on_behalf_of_fund_id,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
 	Version               int64     `gorm:"not null;default:0" json:"-"`

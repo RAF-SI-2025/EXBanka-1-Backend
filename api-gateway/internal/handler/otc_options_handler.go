@@ -418,6 +418,9 @@ func (h *OTCOptionsHandler) GetContract(c *gin.Context) {
 
 type exerciseRequest struct {
 	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
+	// OnBehalfOfFundID, when non-zero, exercises this contract on behalf of a fund (E2).
+	// Caller must be the fund's manager (enforced in stock-service).
+	OnBehalfOfFundID uint64 `json:"on_behalf_of_fund_id,omitempty"`
 }
 
 // ExerciseContract godoc
@@ -445,6 +448,7 @@ func (h *OTCOptionsHandler) ExerciseContract(c *gin.Context) {
 		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
 		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
 		OnBehalfOfClientId: req.OnBehalfOfClientID,
+		OnBehalfOfFundId:   req.OnBehalfOfFundID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)

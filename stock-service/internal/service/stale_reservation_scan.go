@@ -22,6 +22,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -39,6 +40,7 @@ type StaleReservationScanner struct {
 
 	interval  time.Duration
 	threshold time.Duration
+	entry     *cronreg.Entry
 }
 
 // NewStaleReservationScanner constructs the scanner. interval=24h and
@@ -50,6 +52,7 @@ func NewStaleReservationScanner(
 	orders *repository.OrderRepository,
 	contracts *repository.OptionContractRepository,
 	interval, threshold time.Duration,
+	registry *cronreg.Registry,
 ) *StaleReservationScanner {
 	if interval <= 0 {
 		interval = 24 * time.Hour
@@ -57,7 +60,7 @@ func NewStaleReservationScanner(
 	if threshold <= 0 {
 		threshold = 24 * time.Hour
 	}
-	return &StaleReservationScanner{
+	s := &StaleReservationScanner{
 		db:            db,
 		resRepo:       res,
 		orderRepo:     orders,
@@ -65,6 +68,8 @@ func NewStaleReservationScanner(
 		interval:      interval,
 		threshold:     threshold,
 	}
+	s.entry = registry.Register("stale-reservation-scan", "Detect holding_reservations stuck active past threshold", interval)
+	return s
 }
 
 // WithPeerContracts wires the cross-bank option-contract repo so the
@@ -78,7 +83,10 @@ func (s *StaleReservationScanner) WithPeerContracts(p *repository.PeerOptionCont
 // Run blocks until ctx is cancelled. First scan fires immediately so
 // ops see baseline state; subsequent scans tick on s.interval.
 func (s *StaleReservationScanner) Run(ctx context.Context) {
-	s.scanOnce(ctx)
+	if s.entry.BeginRun() {
+		s.scanOnce(ctx)
+		s.entry.EndRun(nil)
+	}
 	t := time.NewTicker(s.interval)
 	defer t.Stop()
 	for {
@@ -86,7 +94,17 @@ func (s *StaleReservationScanner) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !s.entry.BeginRun() {
+				continue
+			}
 			s.scanOnce(ctx)
+			s.entry.EndRun(nil)
+		case <-s.entry.TriggerChan():
+			if !s.entry.BeginRun() {
+				continue
+			}
+			s.scanOnce(ctx)
+			s.entry.EndRun(nil)
 		}
 	}
 }

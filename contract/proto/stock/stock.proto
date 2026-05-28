@@ -522,6 +522,66 @@ service PortfolioGRPCService {
   // surfaces the full buy/sell history for that security across every
   // account the owner used.
   rpc ListHoldingTransactions(ListHoldingTransactionsRequest) returns (ListHoldingTransactionsResponse);
+  // GetUnifiedPortfolio returns all securities holdings and fund positions for
+  // one portfolio owner (client, bank, or investment fund), grouped by
+  // asset class with P/L totals computed on read.
+  rpc GetUnifiedPortfolio(GetUnifiedPortfolioRequest) returns (UnifiedPortfolioResponse);
+}
+
+// ── Unified Portfolio messages ──────────────────────────────────────────────
+
+message GetUnifiedPortfolioRequest {
+  string owner_type = 1; // "client" | "bank" | "investment_fund"
+  uint64 owner_id   = 2; // 0 when owner_type == "bank"
+}
+
+message PortfolioPosition {
+  string asset_type          = 1;  // "stock"|"option"|"future"|"investment_fund"
+  string symbol              = 2;  // for stocks/options/futures
+  uint64 fund_id             = 3;  // for fund positions
+  string fund_name           = 4;  // for fund positions
+  uint64 contract_id         = 5;  // for options/futures
+  int64  quantity            = 6;
+  string avg_cost_rsd        = 7;  // decimal as string
+  string current_price_rsd   = 8;
+  string current_value_rsd   = 9;
+  string p_l_rsd             = 10;
+  string p_l_pct             = 11;
+  string amount_invested_rsd = 12; // fund positions
+  string pct_of_fund         = 13;
+  string strike_rsd          = 14;
+  string premium_paid_rsd    = 15;
+  string intrinsic_value_rsd = 16;
+  string settlement_date     = 17;
+  string last_updated        = 18;
+  // E3 fields (Plan E 2026-05-28):
+  // dividends_received_rsd — caller's pro-rata share of dividends paid to
+  // this fund (investment_fund positions) or directly to the holder
+  // (stock positions). Real value from fund_dividend_payments /
+  // dividend_payouts (E4). "0" until E4 is payed out.
+  string dividends_received_rsd = 19;
+  // fund_status — lifecycle status of the fund (investment_fund positions only).
+  // active|fundraising|matured|liquidated|open (passthrough from InvestmentFund.FundStatus).
+  string fund_status            = 20;
+}
+
+message PortfolioGroup {
+  string total_value_rsd           = 1;
+  string total_profit_rsd          = 2;
+  string total_profit_pct          = 3;
+  repeated PortfolioPosition positions = 4;
+}
+
+message UnifiedPortfolioResponse {
+  string         portfolio_id     = 1;
+  string         owner_type       = 2;
+  uint64         owner_id         = 3;
+  string         owner_name       = 4;
+  string         total_value_rsd  = 5;
+  string         total_profit_rsd = 6;
+  string         total_profit_pct = 7;
+  PortfolioGroup securities       = 8;
+  PortfolioGroup funds            = 9;
 }
 
 message Holding {
@@ -973,6 +1033,12 @@ service InvestmentFundService {
   rpc ListMyPositions(ListMyPositionsRequest) returns (ListPositionsResponse);
   rpc ListBankPositions(ListBankPositionsRequest) returns (ListPositionsResponse);
   rpc GetActuaryPerformance(GetActuaryPerformanceRequest) returns (GetActuaryPerformanceResponse);
+
+  // E4 dividend RPCs
+  rpc DeclareDividend(DeclareDividendRequest) returns (DividendPaymentResponse);
+  rpc PayoutDividend(PayoutDividendRequest) returns (PayoutDividendResponse);
+  rpc ListMyDividends(ListMyDividendsRequest) returns (ListDividendPayoutsResponse);
+  rpc ListFundDividends(ListFundDividendsRequest) returns (ListFundDividendPaymentsResponse);
 }
 
 message OnBehalfOf {
@@ -1019,6 +1085,18 @@ message GetFundRequest { uint64 fund_id = 1; }
 message FundDetailResponse {
   FundResponse fund = 1;
   repeated FundHoldingItem holdings = 2;
+  // E1 enrichment fields (sub-plan E1, Plan E 2026-05-28)
+  int64  investor_count           = 3;
+  string total_contributed_rsd    = 4;
+  string liquid_rsd_balance       = 5;
+  string total_holdings_value_rsd = 6;
+  string total_value_rsd          = 7;
+  // total_dividends_paid_rsd is always "0" until E4 implements the
+  // fund_dividend_payments table. Kept in the proto so callers can rely on
+  // the field name regardless of whether E4 has landed.
+  string total_dividends_paid_rsd = 8;
+  string profit_rsd               = 9;
+  string profit_pct               = 10;
 }
 message FundHoldingItem {
   string security_type = 1;
@@ -1028,6 +1106,8 @@ message FundHoldingItem {
   string average_price_rsd = 5;
   string current_price_rsd = 6;
   string acquired_at = 7;
+  // current_value_rsd = quantity × current_price_rsd (computed server-side)
+  string current_value_rsd = 8;
 }
 
 message UpdateFundRequest {
@@ -1137,6 +1217,7 @@ service OTCOptionsService {
   rpc CancelListing(CancelListingRequest)             returns (CancelListingResponse);
   rpc ListMyNegotiations(ListMyNegotiationsRequest)   returns (ListNegotiationsResponse);
   rpc ListNegotiationsByListing(ListNegotiationsByListingRequest) returns (ListNegotiationsResponse);
+  rpc ListNegotiationRevisions(ListNegotiationRevisionsRequest) returns (ListNegotiationRevisionsResponse);
 }
 
 // OTCNegotiationResponse is the wire-form projection of an
@@ -1158,6 +1239,36 @@ message OTCNegotiationResponse {
   string created_at                  = 14;
   string updated_at                  = 15;
   int64  version                     = 16;
+  // minted_contract_id is 0 when no contract was minted (non-accepted
+  // terminal status, or accepted but formation saga failed). Non-zero
+  // only on status="accepted" rows where the contract formed successfully.
+  uint64 minted_contract_id          = 17;
+}
+
+// OTCNegotiationRevisionResponse is one entry in the revision chain.
+// Populated by ListNegotiationRevisions.
+message OTCNegotiationRevisionResponse {
+  uint64 id              = 1;
+  uint64 negotiation_id  = 2;
+  int32  revision_number = 3;
+  string action          = 4;  // BID|COUNTER|ACCEPT|REJECT
+  string quantity        = 5;
+  string strike_price    = 6;
+  string premium         = 7;
+  string settlement_date = 8;
+  string action_by_principal_type = 9;
+  uint64 action_by_principal_id   = 10;
+  string created_at               = 11;
+}
+
+message ListNegotiationRevisionsRequest {
+  uint64 negotiation_id    = 1;
+  string caller_owner_type = 2;
+  uint64 caller_owner_id   = 3;
+}
+
+message ListNegotiationRevisionsResponse {
+  repeated OTCNegotiationRevisionResponse revisions = 1;
 }
 
 message OpenNegotiationRequest {
@@ -1200,6 +1311,12 @@ message OTCAcceptNegotiationRequest {
   // buy_initiated). Required — accept now mints a contract and moves
   // money, both of which need a bound account on the accepter's side.
   uint64 acceptor_account_id   = 7;
+  // E2: when non-zero the buyer side of this accept is on behalf of a fund.
+  // Premium debit comes from the fund's RSD account; the resulting contract
+  // is fund-owned. Caller must be the fund's manager (acting_employee_id
+  // must equal fund.manager_employee_id). acceptor_account_id MUST equal
+  // fund.rsd_account_id.
+  uint64 on_behalf_of_fund_id  = 8;
 }
 
 // OTCAcceptNegotiationResponse — Phase 9 includes the minted contract.
@@ -1627,6 +1744,10 @@ message ExerciseContractRequest {
   string actor_system_type = 3;
   // Set when an employee acts on behalf of a client. 0 = acting as the bank.
   uint64 on_behalf_of_client_id = 4;
+  // E2: when non-zero the buyer side of this exercise is on behalf of a fund.
+  // Strike debit comes from the fund's RSD account; acquired shares land in
+  // fund_holdings. Caller must be the fund's manager.
+  uint64 on_behalf_of_fund_id = 5;
 }
 message ExerciseResponse {
   uint64 contract_id = 1;
@@ -1775,6 +1896,12 @@ message PeerNegotiationListItem {
   string status = 5;
   string role = 6;                    // "buyer" or "seller" — the caller's side
   string updated_at = 7;
+  // local_contract_id is the peer_option_contracts.id on this bank that
+  // was minted when the negotiation reached status="accepted". 0 when
+  // the negotiation is not yet accepted or no contract row exists on
+  // this bank (the contract always exists on at least one bank side;
+  // on the other bank it may be absent until the SI-TX commits).
+  uint64 local_contract_id = 8;
 }
 
 message PeerForeignBankId {
@@ -2194,4 +2321,82 @@ message WatchlistItemResponse {
 
 message ListMyWatchlistResponse {
   repeated WatchlistItemResponse items = 1;
+}
+
+// ==================== Dividends (E4, Plan E 2026-05-28) ====================
+
+message DeclareDividendRequest {
+  int64  declared_by_employee_id = 1;
+  uint64 security_id             = 2;
+  string ticker                  = 3;
+  string amount_per_share_rsd    = 4; // decimal as string
+  string payment_date            = 5; // ISO date "2026-06-15"
+}
+
+message DividendPaymentResponse {
+  uint64 id                       = 1;
+  uint64 security_id              = 2;
+  string ticker                   = 3;
+  string amount_per_share_rsd     = 4;
+  string payment_date             = 5;
+  string status                   = 6; // declared|paid_out|cancelled
+  int64  declared_by_employee_id  = 7;
+  string paid_out_at              = 8; // RFC3339 or empty
+  string created_at               = 9;
+}
+
+message PayoutDividendRequest {
+  uint64 dividend_payment_id = 1;
+}
+
+message PayoutDividendResponse {
+  int32  payouts_created    = 1;
+  int32  fund_payouts       = 2;
+  string total_amount_rsd   = 3; // decimal as string
+}
+
+message ListMyDividendsRequest {
+  string owner_type = 1;  // "client" | "bank"
+  uint64 owner_id   = 2;  // omitted/0 when bank
+  int32  page       = 3;
+  int32  page_size  = 4;
+}
+
+message DividendPayoutItem {
+  uint64 id                   = 1;
+  uint64 dividend_payment_id  = 2;
+  string holding_owner_type   = 3;
+  uint64 holding_owner_id     = 4;
+  uint64 holding_id           = 5;
+  int64  shares               = 6;
+  string gross_amount_rsd     = 7;
+  string tax_amount_rsd       = 8;
+  string net_amount_rsd       = 9;
+  uint64 credited_account_id  = 10;
+  string created_at           = 11;
+}
+
+message ListDividendPayoutsResponse {
+  repeated DividendPayoutItem payouts = 1;
+  int64 total                         = 2;
+}
+
+message ListFundDividendsRequest {
+  uint64 fund_id   = 1;
+  int32  page      = 2;
+  int32  page_size = 3;
+}
+
+message FundDividendPaymentItem {
+  uint64 id                    = 1;
+  uint64 dividend_payment_id   = 2;
+  uint64 fund_id               = 3;
+  string amount_rsd            = 4;
+  string per_investor_snapshot = 5; // JSON string
+  string created_at            = 6;
+}
+
+message ListFundDividendPaymentsResponse {
+  repeated FundDividendPaymentItem payments = 1;
+  int64 total                               = 2;
 }

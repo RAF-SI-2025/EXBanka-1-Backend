@@ -44,6 +44,11 @@ service AccountService {
   // Audit-trail reads. Returns changelog rows scoped by entity_type +
   // entity_id; pagination matches list endpoints (1-based page).
   rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
+
+  // ListAllChangelogs returns every changelog row for this service (global
+  // audit view, admin-only). Supports optional filters: since/until (unix
+  // seconds), actor_id (changed_by), action string, and pagination.
+  rpc ListAllChangelogs(ListAllChangelogsRequest) returns (ListAllChangelogsResponse);
 }
 
 message ListChangelogRequest {
@@ -69,6 +74,22 @@ message ChangelogEntry {
 message ListChangelogResponse {
   repeated ChangelogEntry entries = 1;
   int64                   total   = 2;
+}
+
+message ListAllChangelogsRequest {
+  int32  page      = 1;
+  int32  page_size = 2;
+  int64  since     = 3; // unix seconds, 0 = no lower bound
+  int64  until     = 4; // unix seconds, 0 = no upper bound
+  int64  actor_id  = 5; // changed_by filter, 0 = all
+  string action    = 6; // exact match, "" = all
+}
+
+message ListAllChangelogsResponse {
+  repeated ChangelogEntry entries   = 1;
+  int64                   total     = 2;
+  int32                   page      = 3;
+  int32                   page_size = 4;
 }
 
 message CreateAccountRequest {
@@ -249,6 +270,11 @@ message CreateBankAccountRequest {
   string currency_code = 1;
   string account_kind = 2;
   string account_name = 3;
+  // account_category is an optional tag for the created account (e.g.
+  // "investment_fund"). When set it is stored verbatim on the account row so
+  // downstream services (transaction-service) can inspect it without a
+  // cross-service lookup.
+  string account_category = 4;
 }
 
 message ListBankAccountsRequest {}

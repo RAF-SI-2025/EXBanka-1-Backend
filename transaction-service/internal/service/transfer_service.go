@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
 	sharedsaga "github.com/exbanka/contract/shared/saga"
@@ -49,6 +50,7 @@ type TransferService struct {
 	retryConfig       shared.RetryConfig
 	sagaRepo          *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
 	dlPublisher       sagaPublisher                 // nil-safe: dead-letter publishing skipped when nil
+	recoveryEntry     *cronreg.Entry                // nil until WithCronRegistry is called
 }
 
 func NewTransferService(
@@ -74,6 +76,14 @@ func NewTransferService(
 	if producer != nil {
 		s.notifier = producer
 	}
+	return s
+}
+
+// WithCronRegistry wires a cronreg Registry into the TransferService so
+// StartCompensationRecovery can register and gate its ticker via the
+// AdminCron control plane. Must be called before StartCompensationRecovery.
+func (s *TransferService) WithCronRegistry(registry *cronreg.Registry) *TransferService {
+	s.recoveryEntry = registry.Register("transfer-saga-recovery", "Retry stuck transfer/payment saga compensations (every 5 min)", 5*time.Minute)
 	return s
 }
 
@@ -145,6 +155,14 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		}
 		if fromAccount.OwnerId != toAccount.OwnerId {
 			return fmt.Errorf("transfers must be between accounts of the same client; use payments for different-client transactions")
+		}
+
+		// E0 — Fund RSD account outflow restriction.
+		// Money in a fund's RSD account may only leave via fund operations
+		// (buy-on-behalf-of-fund, dividend payout, investor redemption).
+		// Generic transfers are forbidden regardless of who initiates them.
+		if fromAccount.GetAccountCategory() == "investment_fund" {
+			return fmt.Errorf("fund accounts cannot be used as a transfer source; use fund operations only: %w", ErrFundAccountRestricted)
 		}
 
 		// Spending limit pre-check
@@ -633,20 +651,52 @@ func (s *TransferService) StartCompensationRecovery(ctx context.Context) {
 			log.Printf("saga recovery: startup check found %d pending compensation(s)", len(pending))
 		}
 	}
-	s.runRecoveryTick(ctx)
+	if s.recoveryEntry != nil && s.recoveryEntry.BeginRun() {
+		s.runRecoveryTick(ctx)
+		s.recoveryEntry.EndRun(nil)
+	} else if s.recoveryEntry == nil {
+		s.runRecoveryTick(ctx)
+	}
 
 	ticker := time.NewTicker(5 * time.Minute)
 	go func() {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ticker.C:
-				s.runRecoveryTick(ctx)
 			case <-ctx.Done():
 				return
+			case <-ticker.C:
+				if s.recoveryEntry != nil {
+					if !s.recoveryEntry.BeginRun() {
+						continue
+					}
+					s.runRecoveryTick(ctx)
+					s.recoveryEntry.EndRun(nil)
+				} else {
+					s.runRecoveryTick(ctx)
+				}
+			case trigger := <-s.safeRecoveryTrigger():
+				_ = trigger
+				if s.recoveryEntry != nil {
+					if !s.recoveryEntry.BeginRun() {
+						continue
+					}
+					s.runRecoveryTick(ctx)
+					s.recoveryEntry.EndRun(nil)
+				}
 			}
 		}
 	}()
+}
+
+// safeRecoveryTrigger returns the TriggerChan from recoveryEntry, or a
+// nil channel (blocks forever) when no entry is wired, so the select in
+// StartCompensationRecovery is always valid.
+func (s *TransferService) safeRecoveryTrigger() <-chan struct{} {
+	if s.recoveryEntry != nil {
+		return s.recoveryEntry.TriggerChan()
+	}
+	return nil // selecting on nil channel blocks forever — effectively disables this case
 }
 
 // findBankAccountByCurrency returns the account number of the first bank account

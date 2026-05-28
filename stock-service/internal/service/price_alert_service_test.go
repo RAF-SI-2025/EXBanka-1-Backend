@@ -111,3 +111,44 @@ func TestPriceAlert_EvaluateForListing_NoMatchNoFire(t *testing.T) {
 		t.Fatalf("notifier: want 0, got %d", len(notifier.calls))
 	}
 }
+
+// TestPriceAlert_EvaluateForListing_DailyChangePctNegativeThresholdFires
+// verifies the fix for the sign bug: a daily_change_pct_lte alert with a
+// negative threshold fires when the daily change drops below that value.
+// Before the fix, such alerts could not be created (BeforeSave rejected
+// threshold<0), so they never fired.
+func TestPriceAlert_EvaluateForListing_DailyChangePctNegativeThresholdFires(t *testing.T) {
+	svc, _, listings, notifier := newAlertFixture(t)
+	// Daily change: price went from 106 to 100, so change=-6, pct ≈ -5.66%.
+	listings.addListing(&model.Listing{
+		ID: 2, SecurityType: "stock", SecurityID: 51,
+		Price:  decimal.NewFromFloat(100),
+		Change: decimal.NewFromFloat(-6),
+	})
+	owner := uint64(9)
+	// Alert threshold is -5 (i.e., fire when daily change is ≤ -5%).
+	// daily_change_pct ≈ -5.66 which is ≤ -5, so the alert must fire.
+	a := &model.PriceAlert{
+		OwnerType: model.OwnerClient,
+		OwnerID:   &owner,
+		ListingID: 2,
+		Condition: model.PriceAlertConditionDailyChangePctLTE,
+		Threshold: decimal.NewFromFloat(-5),
+		Cooldown:  3600,
+		Active:    true,
+	}
+	if err := svc.Create(a); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	svc.EvaluateForListing(context.Background(), 2, decimal.NewFromFloat(100), decimal.NewFromFloat(-6))
+	if len(notifier.calls) != 1 {
+		t.Fatalf("notifier: want 1 call (alert should fire), got %d", len(notifier.calls))
+	}
+	call := notifier.calls[0]
+	if call.Type != "PRICE_ALERT_TRIGGERED" {
+		t.Fatalf("type: want PRICE_ALERT_TRIGGERED, got %s", call.Type)
+	}
+	if call.Data["condition"] != "daily_change_pct_lte" {
+		t.Fatalf("condition: want daily_change_pct_lte, got %s", call.Data["condition"])
+	}
+}

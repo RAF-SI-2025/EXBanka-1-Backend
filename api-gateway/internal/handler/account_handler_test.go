@@ -139,6 +139,9 @@ func (s *accountFullStub) ReleaseIncoming(_ context.Context, _ *accountpb.Releas
 func (s *accountFullStub) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return &accountpb.ListChangelogResponse{}, nil
 }
+func (s *accountFullStub) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 // Account handler tests
 func accountRouter(h *handler.AccountHandler) *gin.Engine {

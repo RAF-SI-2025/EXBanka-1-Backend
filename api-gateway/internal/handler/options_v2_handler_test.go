@@ -150,6 +150,10 @@ func (s *stubPortfolioClient) GetHolding(ctx context.Context, in *stockpb.GetHol
 	return &stockpb.HoldingWithOwner{Holding: &stockpb.Holding{Id: in.GetId()}, OwnerType: "client", OwnerId: 42}, nil
 }
 
+func (s *stubPortfolioClient) GetUnifiedPortfolio(_ context.Context, _ *stockpb.GetUnifiedPortfolioRequest, _ ...grpc.CallOption) (*stockpb.UnifiedPortfolioResponse, error) {
+	return &stockpb.UnifiedPortfolioResponse{}, nil
+}
+
 // --- helper ---
 
 func makeOptionsV2Router(h *handler.OptionsV2Handler) *gin.Engine {

@@ -252,6 +252,17 @@ func (m *mockTaxCapitalGainRepo) CountByOwnerYear(ownerType model.OwnerType, own
 	return count, nil
 }
 
+func (m *mockTaxCapitalGainRepo) DeleteByIdempotencyKey(key string) error {
+	remaining := m.gains[:0]
+	for _, g := range m.gains {
+		if g.IdempotencyKey == nil || *g.IdempotencyKey != key {
+			remaining = append(remaining, g)
+		}
+	}
+	m.gains = remaining
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Mock: ExchangeServiceClient
 // ---------------------------------------------------------------------------
@@ -428,6 +439,9 @@ func (m *mockTaxAccountClient) ReleaseIncoming(context.Context, *accountpb.Relea
 }
 func (m *mockTaxAccountClient) ListChangelog(context.Context, *accountpb.ListChangelogRequest, ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
+}
+func (m *mockTaxAccountClient) ListAllChangelogs(context.Context, *accountpb.ListAllChangelogsRequest, ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------

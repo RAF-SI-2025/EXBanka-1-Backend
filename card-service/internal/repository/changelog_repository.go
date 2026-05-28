@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/contract/changelog"
 	"gorm.io/gorm"
@@ -54,6 +56,44 @@ func (r *ChangelogRepository) ListByEntity(entityType string, entityID int64, pa
 	var entries []model.Changelog
 	var total int64
 	query := r.db.Model(&model.Changelog{}).Where("entity_type = ? AND entity_id = ?", entityType, entityID)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	offset := (page - 1) * pageSize
+	if err := query.Order("changed_at DESC").Offset(offset).Limit(pageSize).Find(&entries).Error; err != nil {
+		return nil, 0, err
+	}
+	return entries, total, nil
+}
+
+// ChangelogFilters holds optional filters for ListAll.
+type ChangelogFilters struct {
+	Since   int64  // unix seconds, 0 = no lower bound
+	Until   int64  // unix seconds, 0 = no upper bound
+	ActorID int64  // changed_by, 0 = all
+	Action  string // exact match, "" = all
+}
+
+// ListAll returns paginated changelog rows across all entities, ordered by
+// changed_at DESC. Filters are all optional.
+func (r *ChangelogRepository) ListAll(filters ChangelogFilters, page, pageSize int) ([]model.Changelog, int64, error) {
+	var entries []model.Changelog
+	var total int64
+
+	query := r.db.Model(&model.Changelog{})
+	if filters.Since > 0 {
+		query = query.Where("changed_at >= ?", time.Unix(filters.Since, 0))
+	}
+	if filters.Until > 0 {
+		query = query.Where("changed_at <= ?", time.Unix(filters.Until, 0))
+	}
+	if filters.ActorID > 0 {
+		query = query.Where("changed_by = ?", filters.ActorID)
+	}
+	if filters.Action != "" {
+		query = query.Where("action = ?", filters.Action)
+	}
+
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}

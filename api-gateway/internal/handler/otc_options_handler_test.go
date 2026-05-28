@@ -71,6 +71,7 @@ type stubOTCOptionsClient struct {
 	getTraderProfileFn       func(*stockpb.GetTraderProfileRequest) (*stockpb.TraderProfileResponse, error)
 	listReceivedRatingsFn    func(*stockpb.ListReceivedRatingsRequest) (*stockpb.ListOTCRatingsResponse, error)
 	cancelListingFn          func(*stockpb.CancelListingRequest) (*stockpb.CancelListingResponse, error)
+	listRevisionsFn          func(*stockpb.ListNegotiationRevisionsRequest) (*stockpb.ListNegotiationRevisionsResponse, error)
 }
 
 func (s *stubOTCOptionsClient) CreateOffer(_ context.Context, in *stockpb.CreateOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
@@ -181,6 +182,12 @@ func (s *stubOTCOptionsClient) ListMyNegotiations(_ context.Context, _ *stockpb.
 }
 func (s *stubOTCOptionsClient) ListNegotiationsByListing(_ context.Context, _ *stockpb.ListNegotiationsByListingRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
 	return &stockpb.ListNegotiationsResponse{}, nil
+}
+func (s *stubOTCOptionsClient) ListNegotiationRevisions(_ context.Context, in *stockpb.ListNegotiationRevisionsRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationRevisionsResponse, error) {
+	if s.listRevisionsFn != nil {
+		return s.listRevisionsFn(in)
+	}
+	return &stockpb.ListNegotiationRevisionsResponse{}, nil
 }
 
 var _ stockpb.OTCOptionsServiceClient = (*stubOTCOptionsClient)(nil)
@@ -636,4 +643,46 @@ func TestOTCOpt_CancelMyListing_BadID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/me/otc/options/abc", nil))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---- ListMyNegotiationRevisions gateway handler tests ----
+
+func otcRevisionsRouter(h *handler.OTCOptionsHandler) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	withCli := setClientIdentity(42)
+	r.GET("/me/otc/options/negotiations/:nid/revisions", withCli, h.ListMyNegotiationRevisions)
+	return r
+}
+
+// TestOTCOpt_ListRevisions_Success verifies the happy path: stub returns an
+// empty revision list and the handler responds 200 with a "revisions" key.
+func TestOTCOpt_ListRevisions_Success(t *testing.T) {
+	cl := &stubOTCOptionsClient{}
+	r := otcRevisionsRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/me/otc/options/negotiations/5/revisions", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"revisions"`)
+}
+
+// TestOTCOpt_ListRevisions_BadNID verifies that a non-numeric :nid yields 400.
+func TestOTCOpt_ListRevisions_BadNID(t *testing.T) {
+	r := otcRevisionsRouter(otcHandler(&stubOTCOptionsClient{}, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/me/otc/options/negotiations/abc/revisions", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestOTCOpt_ListRevisions_GRPCError verifies that gRPC errors from the
+// stock-service are mapped to appropriate HTTP status codes by handleGRPCError.
+func TestOTCOpt_ListRevisions_GRPCError(t *testing.T) {
+	cl := &stubOTCOptionsClient{}
+	cl.listRevisionsFn = func(_ *stockpb.ListNegotiationRevisionsRequest) (*stockpb.ListNegotiationRevisionsResponse, error) {
+		return nil, status.Error(codes.PermissionDenied, "not a party")
+	}
+	r := otcRevisionsRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/me/otc/options/negotiations/5/revisions", nil))
+	require.Equal(t, http.StatusForbidden, rec.Code)
 }

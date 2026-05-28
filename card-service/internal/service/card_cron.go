@@ -8,19 +8,37 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/exbanka/card-service/internal/repository"
+	"github.com/exbanka/contract/cronreg"
 	shared "github.com/exbanka/contract/shared"
 )
 
 // StartCardCron launches the card maintenance loop. It exits when ctx is cancelled.
-func StartCardCron(ctx context.Context, cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, db *gorm.DB) {
-	shared.RunScheduled(ctx, shared.ScheduledJob{
-		Name:     "card-maintenance",
-		Interval: 1 * time.Minute,
-		OnTick: func(ctx context.Context) error {
-			runCardCronTick(ctx, cardRepo, blockRepo, db)
-			return nil
-		},
-	})
+// Each tick is gated by the cronreg Entry so the job can be paused / manually
+// triggered via the AdminCron gRPC API.
+func StartCardCron(ctx context.Context, cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, db *gorm.DB, registry *cronreg.Registry) {
+	entry := registry.Register("card-maintenance", "Unblock expired temp-blocks and deactivate expired virtual cards (every 1 min)", time.Minute)
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !entry.BeginRun() {
+					continue
+				}
+				runCardCronTick(ctx, cardRepo, blockRepo, db)
+				entry.EndRun(nil)
+			case <-entry.TriggerChan():
+				if !entry.BeginRun() {
+					continue
+				}
+				runCardCronTick(ctx, cardRepo, blockRepo, db)
+				entry.EndRun(nil)
+			}
+		}
+	}()
 }
 
 func runCardCronTick(ctx context.Context, cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, db *gorm.DB) {

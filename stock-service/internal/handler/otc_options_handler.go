@@ -33,6 +33,10 @@ type OTCOptionsHandler struct {
 	ownRouting    int64
 	ratings       *service.OTCRatingService      // optional; backs SubmitRating / GetTraderProfile / ListReceivedRatings
 	negotiations  *service.OTCNegotiationService // optional; backs Phase-2 parallel-chain RPCs (Open/Counter/AcceptChain/Reject/Cancel/List*)
+	// fundRepo is optional; needed to validate on_behalf_of_fund_id
+	// on Accept/Exercise (E2 Plan E). Without it, on_behalf_of_fund_id
+	// requests are rejected with a clear error.
+	fundRepo *repository.FundRepository
 }
 
 func NewOTCOptionsHandler(svc *service.OTCOfferService, contracts *repository.OptionContractRepository) *OTCOptionsHandler {
@@ -54,6 +58,14 @@ func (h *OTCOptionsHandler) WithPeerContracts(peer *repository.PeerOptionContrac
 	cp := *h
 	cp.peerContracts = peer
 	cp.ownRouting = ownRouting
+	return &cp
+}
+
+// WithFundRepo wires the fund repository so AcceptNegotiationChain and
+// ExerciseContract can validate on_behalf_of_fund_id (E2, Plan E).
+func (h *OTCOptionsHandler) WithFundRepo(repo *repository.FundRepository) *OTCOptionsHandler {
+	cp := *h
+	cp.fundRepo = repo
 	return &cp
 }
 
@@ -335,8 +347,30 @@ func (h *OTCOptionsHandler) GetContract(ctx context.Context, in *stockpb.GetCont
 }
 
 func (h *OTCOptionsHandler) ExerciseContract(ctx context.Context, in *stockpb.ExerciseContractRequest) (*stockpb.ExerciseResponse, error) {
+	// E2: on_behalf_of_fund_id validation for exercise — manager-only check.
+	onBehalfOfFundID := in.GetOnBehalfOfFundId()
+	if onBehalfOfFundID != 0 {
+		if h.fundRepo == nil {
+			return nil, status.Error(codes.FailedPrecondition, "fund support not configured on OTC handler")
+		}
+		fund, ferr := h.fundRepo.GetByID(onBehalfOfFundID)
+		if ferr != nil {
+			return nil, status.Errorf(codes.NotFound, "fund %d not found", onBehalfOfFundID)
+		}
+		// Derive acting employee ID from the legacy (user_id, system_type) pair.
+		// For fund exercise, the actor must be the fund manager.
+		actingEmpID := in.GetActorUserId()
+		if in.GetActorSystemType() != "employee" {
+			return nil, status.Error(codes.PermissionDenied, "fund exercise requires employee actor")
+		}
+		if actingEmpID != fund.ManagerEmployeeID {
+			return nil, status.Error(codes.PermissionDenied, "fund_not_managed_by_actor")
+		}
+	}
+
 	c, err := h.svc.ExerciseContract(ctx, service.ExerciseInput{
 		ContractID: in.ContractId, ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
+		OnBehalfOfFundID: onBehalfOfFundID,
 	})
 	if err != nil {
 		return nil, mapOTCErr(err)

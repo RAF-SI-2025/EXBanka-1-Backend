@@ -140,6 +140,14 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			return fmt.Errorf("payments must be between accounts of different clients; use transfers for same-client transactions")
 		}
 
+		// E0 — Fund RSD account outflow restriction.
+		// Money in a fund's RSD account may only leave via fund operations
+		// (buy-on-behalf-of-fund, dividend payout, investor redemption).
+		// Generic payments are forbidden regardless of who initiates them.
+		if fromAccount.GetAccountCategory() == "investment_fund" {
+			return fmt.Errorf("fund accounts cannot be used as a transfer source; use fund operations only: %w", ErrFundAccountRestricted)
+		}
+
 		// 4. Spending limit pre-check (advisory only — the authoritative check happens
 		// atomically inside account-service's UpdateBalance within a FOR UPDATE transaction).
 		dailyLimit, _ := decimal.NewFromString(fromAccount.GetDailyLimit())

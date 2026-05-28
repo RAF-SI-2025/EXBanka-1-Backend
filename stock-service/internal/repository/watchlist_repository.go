@@ -63,6 +63,36 @@ func (r *WatchlistRepository) ListWithListings(ownerType model.OwnerType, ownerI
 	return rows, nil
 }
 
+// ListAllClientWatchlistItems returns every watchlist row owned by a client
+// (owner_type='client', owner_id IS NOT NULL) joined to its listing. Used
+// exclusively by the daily watchlist notification cron, which needs to scan
+// all users at once rather than per-user. listingType may be empty to scan
+// all security types.
+func (r *WatchlistRepository) ListAllClientWatchlistItems(listingType string) ([]WatchlistWithListing, error) {
+	q := r.db.Model(&model.WatchlistItem{}).
+		Where("watchlist_items.owner_type = ? AND watchlist_items.owner_id IS NOT NULL", string(model.OwnerClient)).
+		Joins("JOIN listings ON listings.id = watchlist_items.listing_id")
+	if listingType != "" {
+		q = q.Where("listings.security_type = ?", listingType)
+	}
+	q = q.Order("watchlist_items.owner_id, watchlist_items.listing_id")
+
+	var rows []WatchlistWithListing
+	if err := q.Select(
+		"watchlist_items.id AS id",
+		"watchlist_items.listing_id AS listing_id",
+		"watchlist_items.owner_id AS owner_id",
+		"watchlist_items.added_at AS added_at",
+		"listings.security_type AS security_type",
+		"listings.security_id AS security_id",
+		"listings.price AS price",
+		"listings.change AS daily_change",
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // Exists reports whether the (owner, listing) pair is already on the
 // watchlist. Useful for handlers that want a precise idempotent yes/no
 // rather than just letting Add absorb the conflict.
@@ -78,12 +108,15 @@ func (r *WatchlistRepository) Exists(ownerType model.OwnerType, ownerID *uint64,
 	return count > 0, nil
 }
 
-// WatchlistWithListing is the projection returned by ListWithListings —
-// flattened to keep service-layer enrichment simple. The service maps
-// security_id → ticker via the existing security repos.
+// WatchlistWithListing is the projection returned by ListWithListings and
+// ListAllClientWatchlistItems — flattened to keep service-layer enrichment
+// simple. The service maps security_id → ticker via the existing security
+// repos. OwnerID is populated only by ListAllClientWatchlistItems (nil in
+// the per-user query path).
 type WatchlistWithListing struct {
 	ID           uint64
 	ListingID    uint64
+	OwnerID      *uint64
 	AddedAt      time.Time
 	SecurityType string
 	SecurityID   uint64

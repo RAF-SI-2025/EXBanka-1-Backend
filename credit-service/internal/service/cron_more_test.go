@@ -45,7 +45,7 @@ func TestProcessInstallment_AlreadyPaid_NoCompensation(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,
@@ -90,7 +90,7 @@ func TestProcessInstallment_NoBankRSDAccount(t *testing.T) {
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
 	// Empty bankRSDAccount string → bank-credit step skipped
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,

@@ -15,6 +15,8 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	adminpb "github.com/exbanka/contract/adminpb"
+	"github.com/exbanka/contract/cronreg"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
@@ -62,9 +64,11 @@ func main() {
 		&model.PeerBank{},              // new (Phase 2 Task 8, SI-TX)
 		&model.PeerIdempotenceRecord{}, // new (Phase 2 Task 8, SI-TX)
 		&model.OutboundPeerTx{},        // new (Phase 3 Task 10, SI-TX)
+		&cronreg.CronPauseState{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("transaction-service", cronreg.NewGormPauseStore(db))
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -81,6 +85,7 @@ func main() {
 		"transaction.saga-dead-letter",
 		"notification.send-email",
 		"notification.general",
+		"admin.cron-action",
 	)
 
 	// Connect to account-service
@@ -181,7 +186,8 @@ func main() {
 	defer cancel()
 
 	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber, sagaLogRepo)
-	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, bankClient, feeSvc, producer, sagaLogRepo)
+	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, bankClient, feeSvc, producer, sagaLogRepo).
+		WithCronRegistry(cronRegistry)
 	transferSvc.StartCompensationRecovery(ctx)
 	recipientSvc := service.NewPaymentRecipientService(recipientRepo)
 
@@ -243,9 +249,19 @@ func main() {
 		peerTxHandler.SetOptionRecorder(optionRecorder)
 	}
 
-	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup)).
-		WithLocalReversal(peerTxHandler.ReverseOutboundLocal)
+	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup), cronRegistry).
+		WithLocalReversal(peerTxHandler.ReverseOutboundLocal).
+		WithLocalCommit(peerTxHandler.CommitOutboundLocal)
 	replayCron.Start(ctx)
+
+	// PeerTxReconciler: sender-side polling worker that asks the peer for
+	// the current state of stuck outbound TXs via CHECK_STATUS. Complements
+	// OutboundReplayCron (which resends NEW_TX/COMMIT_TX); the reconciler
+	// resolves rows where the commit already landed on the peer but we
+	// missed the confirmation (both-sides-stuck scenario, Celina-5 §"Retry").
+	reconciler := service.NewPeerTxReconciler(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup), cronRegistry).
+		WithLocalReversal(peerTxHandler.ReverseOutboundLocal)
+	reconciler.Start(ctx)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -270,6 +286,7 @@ func main() {
 			pb.RegisterFeeServiceServer(s, feeHandler)
 			pb.RegisterPeerBankAdminServiceServer(s, peerBankAdminHandler)
 			pb.RegisterPeerTxServiceServer(s, peerTxHandler)
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "transaction-service")
 			metrics.InitializeGRPCMetrics(s)
 		},

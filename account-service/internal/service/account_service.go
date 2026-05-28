@@ -349,6 +349,15 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 	return account, nil
 }
 
+// SetAccountCategory stamps an account_category value onto an existing account
+// row. Used by CreateBankAccount to propagate the optional category from the
+// gRPC request after the base create has already committed.
+func (s *AccountService) SetAccountCategory(accountID uint64, category string) error {
+	return s.db.Model(&model.Account{}).
+		Where("id = ?", accountID).
+		Update("account_category", category).Error
+}
+
 func (s *AccountService) ListBankAccounts() ([]model.Account, error) {
 	return s.repo.ListBankAccounts()
 }

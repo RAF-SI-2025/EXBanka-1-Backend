@@ -55,6 +55,11 @@ type MintFromNegotiationInput struct {
 	AcceptorAccountID  uint64
 	ActorPrincipalType string
 	ActorPrincipalID   uint64
+	// OnBehalfOfFundID, when non-zero, tags the minted contract so that on
+	// exercise the acquired shares land in fund_holdings. The fund manager
+	// enforcement and account-ID match are verified by the caller before
+	// this input is constructed.
+	OnBehalfOfFundID uint64
 }
 
 // MintContractFromAcceptedNegotiation runs the contract-formation saga
@@ -153,25 +158,32 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 	sagaID := uuid.NewString()
 	qty := neg.Quantity.IntPart()
 
+	var onBehalfFundPtr *uint64
+	if in.OnBehalfOfFundID != 0 {
+		fid := in.OnBehalfOfFundID
+		onBehalfFundPtr = &fid
+	}
+
 	contract := &model.OptionContract{
-		OfferID:         parent.ID,
-		BuyerOwnerType:  buyerOwnerType,
-		BuyerOwnerID:    buyerOwnerID,
-		SellerOwnerType: sellerOwnerType,
-		SellerOwnerID:   sellerOwnerID,
-		StockID:         parent.StockID,
-		Ticker:          parent.Ticker,
-		Quantity:        neg.Quantity,
-		StrikePrice:     neg.StrikePrice,
-		PremiumPaid:     neg.Premium,
-		PremiumCurrency: premiumCcy,
-		StrikeCurrency:  premiumCcy,
-		SettlementDate:  neg.SettlementDate,
-		Status:          model.OptionContractStatusActive,
-		SagaID:          sagaID,
-		PremiumPaidAt:   time.Now().UTC(),
-		BuyerAccountID:  buyerAccountID,
-		SellerAccountID: sellerAccountID,
+		OfferID:          parent.ID,
+		BuyerOwnerType:   buyerOwnerType,
+		BuyerOwnerID:     buyerOwnerID,
+		SellerOwnerType:  sellerOwnerType,
+		SellerOwnerID:    sellerOwnerID,
+		StockID:          parent.StockID,
+		Ticker:           parent.Ticker,
+		Quantity:         neg.Quantity,
+		StrikePrice:      neg.StrikePrice,
+		PremiumPaid:      neg.Premium,
+		PremiumCurrency:  premiumCcy,
+		StrikeCurrency:   premiumCcy,
+		SettlementDate:   neg.SettlementDate,
+		Status:           model.OptionContractStatusActive,
+		SagaID:           sagaID,
+		PremiumPaidAt:    time.Now().UTC(),
+		BuyerAccountID:   buyerAccountID,
+		SellerAccountID:  sellerAccountID,
+		OnBehalfOfFundID: onBehalfFundPtr, // E2: nil for personal, non-nil for fund
 	}
 
 	settleMemo := "OTC premium for contract"

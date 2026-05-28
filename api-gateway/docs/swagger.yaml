@@ -20,6 +20,12 @@ definitions:
     properties:
       acceptor_account_id:
         type: integer
+      on_behalf_of_fund_id:
+        description: |-
+          OnBehalfOfFundID, when non-zero, places this accept on behalf of a fund (E2).
+          The acceptor_account_id must equal the fund's RSD account.
+          Caller must be the fund's manager (acting_employee_id enforced in stock-service).
+        type: integer
     type: object
   handler.activateDeviceReq:
     properties:
@@ -595,6 +601,18 @@ definitions:
     - expiry_months
     - usage_type
     type: object
+  handler.declareDividendRequest:
+    properties:
+      amount_per_share_rsd:
+        type: string
+      payment_date:
+        description: '"2026-06-15"'
+        type: string
+      security_id:
+        type: integer
+      ticker:
+        type: string
+    type: object
   handler.executePaymentRequest:
     properties:
       challenge_id:
@@ -622,6 +640,11 @@ definitions:
   handler.exerciseRequest:
     properties:
       on_behalf_of_client_id:
+        type: integer
+      on_behalf_of_fund_id:
+        description: |-
+          OnBehalfOfFundID, when non-zero, exercises this contract on behalf of a fund (E2).
+          Caller must be the fund's manager (enforced in stock-service).
         type: integer
     type: object
   handler.initiateNegotiationRequest:
@@ -725,6 +748,11 @@ definitions:
         type: string
     required:
     - email
+    type: object
+  handler.pauseResumeBody:
+    properties:
+      reason:
+        type: string
     type: object
   handler.peerForeignBankIdReq:
     properties:
@@ -966,6 +994,13 @@ definitions:
         type: string
     required:
     - duration_hours
+    type: object
+  handler.triggerBody:
+    properties:
+      force:
+        type: boolean
+      reason:
+        type: string
     type: object
   handler.updateAccountLimitsRequest:
     properties:
@@ -1216,31 +1251,6 @@ paths:
       tags:
       - InvestmentFunds
   /api/v1/investment-funds/{id}:
-    get:
-      parameters:
-      - description: fund id
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get investment fund detail
-      tags:
-      - InvestmentFunds
     put:
       consumes:
       - application/json
@@ -6747,6 +6757,694 @@ paths:
       summary: List payments by account (path-scoped)
       tags:
       - payments
+  /api/v3/admin/audit/accounts-changelog:
+    get:
+      description: Returns all changelog entries for the account-service across all
+        accounts. Filterable by date range, actor, and action. Admin-only (requires
+        admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global accounts changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/cards-changelog:
+    get:
+      description: Returns all changelog entries for the card-service across all cards.
+        Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global cards changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/clients-changelog:
+    get:
+      description: Returns all changelog entries for the client-service across all
+        clients. Filterable by date range, actor, and action. Admin-only (requires
+        admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global clients changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/cron-actions:
+    get:
+      description: Returns all admin cron-control action entries (trigger/pause/resume)
+        persisted by notification-service. Filterable by date range, actor, and action.
+        Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (trigger|pause|resume)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global admin cron-action audit log (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/employees-changelog:
+    get:
+      description: Returns all changelog entries for the user-service across all employees.
+        Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global employees changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/loans-changelog:
+    get:
+      description: Returns all changelog entries for the credit-service across all
+        loans. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global loans changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/crons:
+    get:
+      description: Returns cron job information from every service that exposes the
+        AdminCron gRPC interface. Each service result carries status "ok" or "unreachable".
+        A single unreachable service does NOT fail the whole response.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all crons across services
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}:
+    get:
+      description: Returns the full CronInfo for a named cron on the specified service.
+      parameters:
+      - description: Service name (e.g. stock-service)
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name (e.g. tax-collection)
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one cron's detail
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}/pause:
+    post:
+      consumes:
+      - application/json
+      description: 'Pauses the named cron on the specified service. Optional body:
+        { "reason": string }.'
+      parameters:
+      - description: Service name
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Pause options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.pauseResumeBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Pause a cron
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}/resume:
+    post:
+      consumes:
+      - application/json
+      description: 'Resumes a previously paused cron on the specified service. Optional
+        body: { "reason": string }.'
+      parameters:
+      - description: Service name
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Resume options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.pauseResumeBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Resume a paused cron
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}/trigger:
+    post:
+      consumes:
+      - application/json
+      description: 'Forces an immediate execution of the named cron on the specified
+        service. Optional body: { "force": bool, "reason": string }.'
+      parameters:
+      - description: Service name
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Trigger options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.triggerBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Trigger a cron manually
+      tags:
+      - Admin
+  /api/v3/admin/dividends:
+    post:
+      consumes:
+      - application/json
+      description: Admin creates a declared DividendPayment row. Idempotent on (security_id,
+        payment_date).
+      parameters:
+      - description: dividend declaration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.declareDividendRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Declare a dividend for a security
+      tags:
+      - Dividends
+  /api/v3/admin/dividends/{id}/payout:
+    post:
+      description: Fans out dividend credits to all holders of the security. Idempotent.
+      parameters:
+      - description: dividend_payment_id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Trigger dividend payout
+      tags:
+      - Dividends
   /api/v3/bank-accounts/{id}/activity:
     get:
       description: Returns paginated ledger entries (debits/credits) for a bank-owned
@@ -7168,6 +7866,337 @@ paths:
       summary: List transfers by client (path-scoped)
       tags:
       - transfers
+  /api/v3/cross-bank-protocol/interbank:
+    post:
+      consumes:
+      - application/json
+      description: Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key
+        or HMAC). Forwards the envelope to transaction-service which classifies on
+        `type` and dispatches.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX /
+        VOTE)'
+      tags:
+      - PeerOTC
+  /api/v3/cross-bank-protocol/interbank/{transaction_id}/status:
+    get:
+      description: Allows a peer bank to query the state of a cross-bank SI-TX transaction
+        by its transactionId. Returns the state and our role (sender|receiver). Used
+        by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved
+        by either side.
+      parameters:
+      - description: SI-TX transaction UUID (idempotence key)
+        in: path
+        name: transaction_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: query cross-bank transaction status (CHECK_STATUS)'
+      tags:
+      - PeerOTC
+  /api/v3/cross-bank-protocol/negotiations:
+    post:
+      consumes:
+      - application/json
+      description: Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth
+        (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code,
+        foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing
+        and sellerId.routingNumber MUST equal this bank.
+      parameters:
+      - description: SI-TX OtcOffer wire shape
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.peerOtcOfferReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: ForeignBankId of the newly-created negotiation
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: create OTC option negotiation'
+      tags:
+      - PeerOTC
+  /api/v3/cross-bank-protocol/negotiations/{rid}/{id}:
+    delete:
+      description: Inbound from a peer bank. Soft-cancels the negotiation row (status
+        → cancelled). The row is preserved for audit per SI-TX §3.5.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: cancel an OTC negotiation'
+      tags:
+      - PeerOTC
+    get:
+      description: Inbound from a peer bank. Returns the full SI-TX OtcNegotiation
+        record for the (peer_bank_code, foreign_id) pair.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: read an OTC negotiation'
+      tags:
+      - PeerOTC
+    put:
+      consumes:
+      - application/json
+      description: Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations
+        row. Only the peer that created the row (matched by peer_bank_code) can update
+        it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.
+      parameters:
+      - description: routing number (this bank's, that issued the foreign_id)
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: new SI-TX OtcOffer terms
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.peerOtcOfferReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: counter-offer on an existing OTC negotiation'
+      tags:
+      - PeerOTC
+  /api/v3/cross-bank-protocol/negotiations/{rid}/{id}/accept:
+    get:
+      description: Inbound from the buyer's bank. The seller's bank composes the 4-posting
+        NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset,
+        buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies
+        GET semantics.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: transactionId + status
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: accept an OTC negotiation (triggers option-formation
+        SI-TX)'
+      tags:
+      - PeerOTC
+  /api/v3/cross-bank-protocol/public-option-offers:
+    get:
+      description: Phase 6 cross-bank discovery. Returns this bank's OPEN, undirected
+        option listings as PeerPublicOptionOffer rows in SI-TX shape. Auth via X-Api-Key
+        (PeerAuth); X-Bank-Code is stamped into peer_bank_code so privately-targeted
+        listings are filtered per-caller.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "501":
+          description: OTCOfferReader not wired
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Peer-facing list of OPEN OTC option listings on this bank
+      tags:
+      - PeerOTC
+  /api/v3/cross-bank-protocol/public-stock:
+    get:
+      description: Inbound from a peer bank. Returns this bank's holdings flagged
+        public_quantity > 0 — the candidate OTC sellers a discovering bank can negotiate
+        against. SI-TX §3.2.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: list public stock holdings'
+      tags:
+      - PeerOTC
+  /api/v3/cross-bank-protocol/user/{rid}/{id}:
+    get:
+      description: Inbound from a peer bank. Looks up a local (client-N / employee-N)
+        and returns first+last name for OTC negotiation display. Routing number in
+        path MUST match this bank's routing — calls for foreign users return 404.
+      parameters:
+      - description: routing number (must equal this bank's routing)
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: principal id, e.g. client-1 or employee-3
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: resolve a foreign user to display name'
+      tags:
+      - PeerOTC
   /api/v3/employees/{id}/changelog:
     get:
       description: Returns paginated audit-log entries for an employee.
@@ -7218,13 +8247,18 @@ paths:
       summary: Get employee changelog
       tags:
       - Changelog
-  /api/v3/interbank:
-    post:
-      consumes:
-      - application/json
-      description: Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key
-        or HMAC). Forwards the envelope to transaction-service which classifies on
-        `type` and dispatches.
+  /api/v3/investment-funds/{id}:
+    get:
+      description: 'Returns the fund''s basic fields plus computed statistics: investor_count,
+        total_contributed_rsd, liquid_rsd_balance, total_holdings_value_rsd, total_value_rsd,
+        total_dividends_paid_rsd (always "0.00" until E4), profit_rsd, profit_pct,
+        and a holdings[] array with current_value_rsd per position.'
+      parameters:
+      - description: fund id
+        in: path
+        name: id
+        required: true
+        type: integer
       produces:
       - application/json
       responses:
@@ -7233,15 +8267,52 @@ paths:
           schema:
             additionalProperties: true
             type: object
-        "401":
-          description: Unauthorized
+        "404":
+          description: Not Found
           schema:
             additionalProperties: true
             type: object
-      summary: 'Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX /
-        VOTE)'
+      security:
+      - BearerAuth: []
+      summary: Get investment fund detail (enriched — E1)
       tags:
-      - PeerOTC
+      - InvestmentFunds
+  /api/v3/investment-funds/{id}/dividends:
+    get:
+      description: Returns paginated fund_dividend_payments for the fund, most-recent
+        first.
+      parameters:
+      - description: fund id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List an investment fund's dividend history
+      tags:
+      - Dividends
   /api/v3/loan-requests:
     get:
       description: Returns all loan requests with optional filters. Requires credits.read
@@ -7532,6 +8603,37 @@ paths:
       summary: List my card requests
       tags:
       - card-requests
+  /api/v3/me/dividends:
+    get:
+      description: Returns paginated dividend_payouts for the caller's holdings, most-recent
+        first.
+      parameters:
+      - description: page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's dividend history
+      tags:
+      - Dividends
   /api/v3/me/loan-requests:
     post:
       consumes:
@@ -7963,6 +9065,40 @@ paths:
       summary: List the caller's OTC option negotiation chains
       tags:
       - OTCOptions
+  /api/v3/me/otc/options/negotiations/{nid}/revisions:
+    get:
+      description: Returns all bid/counter/accept/reject revisions for a negotiation
+        chain in revision_number order. Caller must be either the bidder or the parent
+        listing's poster.
+      parameters:
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: caller is not a party to this negotiation
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: negotiation not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the full revision chain of an OTC option negotiation
+      tags:
+      - OTCOptions
   /api/v3/me/otc/options/posted:
     get:
       description: Returns the raw OTCOffer rows for listings where the caller is
@@ -8302,6 +9438,32 @@ paths:
       summary: Accept a cross-bank OTC negotiation
       tags:
       - OTCOptions
+  /api/v3/me/portfolio:
+    get:
+      description: Returns all securities holdings and fund positions for the caller,
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the caller's unified portfolio
+      tags:
+      - portfolio
   /api/v3/me/price-alerts:
     get:
       produces:
@@ -8895,190 +10057,6 @@ paths:
       summary: Remove a listing from the caller's watchlist
       tags:
       - Watchlist
-  /api/v3/negotiations:
-    post:
-      consumes:
-      - application/json
-      description: 'Inbound from a peer bank''s SI-TX layer. Authenticated via PeerAuth
-        (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code,
-        foreign_id). buyerId.routingNumber MUST match the authenticated peer''s routing
-        (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9).'
-      parameters:
-      - description: SI-TX OtcOffer wire shape
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.peerOtcOfferReq'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: ForeignBankId of the newly-created negotiation
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: Forbidden
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 'Peer-to-peer: create OTC option negotiation'
-      tags:
-      - PeerOTC
-  /api/v3/negotiations/{rid}/{id}:
-    delete:
-      description: Inbound from a peer bank. Soft-cancels the negotiation row (status
-        → cancelled). The row is preserved for audit per SI-TX §3.5.
-      parameters:
-      - description: routing number
-        in: path
-        name: rid
-        required: true
-        type: integer
-      - description: foreign negotiation id
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "204":
-          description: No Content
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 'Peer-to-peer: cancel an OTC negotiation'
-      tags:
-      - PeerOTC
-    get:
-      description: Inbound from a peer bank. Returns the full SI-TX OtcNegotiation
-        record for the (peer_bank_code, foreign_id) pair.
-      parameters:
-      - description: routing number
-        in: path
-        name: rid
-        required: true
-        type: integer
-      - description: foreign negotiation id
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 'Peer-to-peer: read an OTC negotiation'
-      tags:
-      - PeerOTC
-    put:
-      consumes:
-      - application/json
-      description: Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations
-        row. Only the peer that created the row (matched by peer_bank_code) can update
-        it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.
-      parameters:
-      - description: routing number (this bank's, that issued the foreign_id)
-        in: path
-        name: rid
-        required: true
-        type: integer
-      - description: foreign negotiation id
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: new SI-TX OtcOffer terms
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.peerOtcOfferReq'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 'Peer-to-peer: counter-offer on an existing OTC negotiation'
-      tags:
-      - PeerOTC
-  /api/v3/negotiations/{rid}/{id}/accept:
-    get:
-      description: Inbound from the buyer's bank. The seller's bank composes the 4-posting
-        NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset,
-        buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies
-        GET semantics.
-      parameters:
-      - description: routing number
-        in: path
-        name: rid
-        required: true
-        type: integer
-      - description: foreign negotiation id
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: transactionId + status
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 'Peer-to-peer: accept an OTC negotiation (triggers option-formation
-        SI-TX)'
-      tags:
-      - PeerOTC
   /api/v3/notification-templates:
     get:
       description: Lists every notification template type with its supported {{variables}},
@@ -9478,39 +10456,15 @@ paths:
       summary: Get a trader's aggregate OTC rating + recent comments
       tags:
       - OTCOptions
-  /api/v3/public-option-offers:
+  /api/v3/portfolio/{portfolio_id}:
     get:
-      description: |-
-        Phase 6 cross-bank discovery. Returns this bank's
-        Inbound from a peer bank. Returns this bank's open option listings (kind=local). Includes best_bid / best_ask / active_chains_count when available so the peer's cache can surface a richer marketplace view.
-      produces:
-      - application/json
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "501":
-          description: OTCOfferReader not wired
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 'Peer-to-peer: list public OPEN OTC option listings (Phase 6 discovery)'
-      tags:
-      - PeerOTC
-      - PeerOTC
-  /api/v3/public-stock:
-    get:
-      description: Inbound from a peer bank. Returns this bank's holdings flagged
-        public_quantity > 0 — the candidate OTC sellers a discovering bank can negotiate
-        against. SI-TX §3.2.
+      description: portfolio_id is in the form client-<n>, bank, or fund-<n>.
+      parameters:
+      - description: Portfolio ID (client-42 / bank / fund-7)
+        in: path
+        name: portfolio_id
+        required: true
+        type: string
       produces:
       - application/json
       responses:
@@ -9519,14 +10473,106 @@ paths:
           schema:
             additionalProperties: true
             type: object
-        "401":
-          description: Unauthorized
+        "400":
+          description: invalid_portfolio_id
           schema:
             additionalProperties: true
             type: object
-      summary: 'Peer-to-peer: list public stock holdings'
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get unified portfolio by portfolio_id
       tags:
-      - PeerOTC
+      - portfolio
+  /api/v3/portfolio/bank:
+    get:
+      description: Returns the bank-owned securities holdings and fund positions.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the bank's unified portfolio
+      tags:
+      - portfolio
+  /api/v3/portfolio/client/{client_id}:
+    get:
+      description: Requires portfolio.view_client permission.
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get unified portfolio for a specific client
+      tags:
+      - portfolio
+  /api/v3/portfolio/investment-fund/{fund_id}:
+    get:
+      description: Requires portfolio.view_fund permission.
+      parameters:
+      - description: Fund ID
+        in: path
+        name: fund_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get unified portfolio for an investment fund
+      tags:
+      - portfolio
   /api/v3/roles/{id}/permissions:
     post:
       consumes:
@@ -9700,21 +10746,18 @@ paths:
       summary: Get the current stock data source and status
       tags:
       - Admin
-  /api/v3/user/{rid}/{id}:
+  /api/v3/watchlist/{portfolio_id}:
     get:
-      description: Inbound from a peer bank. Looks up a local (client-N / employee-N)
-        and returns first+last name for OTC negotiation display. Routing number in
-        path MUST match this bank's routing — calls for foreign users return 404.
+      description: portfolio_id is in the form client-<n>, bank, or fund-<n>.
       parameters:
-      - description: routing number (must equal this bank's routing)
+      - description: Portfolio ID (client-42 / bank / fund-7)
         in: path
-        name: rid
+        name: portfolio_id
         required: true
-        type: integer
-      - description: principal id, e.g. client-1 or employee-3
-        in: path
-        name: id
-        required: true
+        type: string
+      - description: stock|option|futures|forex
+        in: query
+        name: listing_type
         type: string
       produces:
       - application/json
@@ -9724,19 +10767,21 @@ paths:
           schema:
             additionalProperties: true
             type: object
-        "401":
-          description: Unauthorized
+        "400":
+          description: Bad Request
           schema:
             additionalProperties: true
             type: object
-        "404":
-          description: Not Found
+        "403":
+          description: Forbidden
           schema:
             additionalProperties: true
             type: object
-      summary: 'Peer-to-peer: resolve a foreign user to display name'
+      security:
+      - BearerAuth: []
+      summary: Get watchlist for any owner identified by portfolio_id
       tags:
-      - PeerOTC
+      - Watchlist
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"

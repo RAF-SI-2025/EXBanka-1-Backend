@@ -87,6 +87,10 @@ func negToProto(n *model.OTCNegotiation) *stockpb.OTCNegotiationResponse {
 	if n.LastActionByOwnerID != nil {
 		lastOwnerID = *n.LastActionByOwnerID
 	}
+	mintedContractID := uint64(0)
+	if n.MintedContractID != nil {
+		mintedContractID = *n.MintedContractID
+	}
 	return &stockpb.OTCNegotiationResponse{
 		Id:                    n.ID,
 		ParentOfferId:         n.ParentOfferID,
@@ -104,6 +108,7 @@ func negToProto(n *model.OTCNegotiation) *stockpb.OTCNegotiationResponse {
 		CreatedAt:             n.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:             n.UpdatedAt.UTC().Format(time.RFC3339),
 		Version:               n.Version,
+		MintedContractId:      mintedContractID,
 	}
 }
 
@@ -224,6 +229,29 @@ func (h *OTCOptionsHandler) AcceptNegotiationChain(ctx context.Context, in *stoc
 	if err != nil {
 		return nil, err
 	}
+
+	// E2: on_behalf_of_fund_id validation — manager-only, account must be fund's RSD.
+	onBehalfOfFundID := in.GetOnBehalfOfFundId()
+	if onBehalfOfFundID != 0 {
+		if h.fundRepo == nil {
+			return nil, status.Error(codes.FailedPrecondition, "fund support not configured on OTC handler")
+		}
+		fund, ferr := h.fundRepo.GetByID(onBehalfOfFundID)
+		if ferr != nil {
+			return nil, status.Errorf(codes.NotFound, "fund %d not found", onBehalfOfFundID)
+		}
+		actingEmpID := int64(in.GetActingEmployeeId())
+		if actingEmpID == 0 {
+			return nil, status.Error(codes.PermissionDenied, "fund orders require acting_employee_id")
+		}
+		if actingEmpID != fund.ManagerEmployeeID {
+			return nil, status.Error(codes.PermissionDenied, "fund_not_managed_by_actor")
+		}
+		if in.GetAcceptorAccountId() != fund.RSDAccountID {
+			return nil, status.Error(codes.InvalidArgument, "acceptor_account_id must equal fund RSD account for fund orders")
+		}
+	}
+
 	result, err := h.negotiations.AcceptNegotiation(ctx, service.AcceptNegotiationInput{
 		NegotiationID:       in.GetNegotiationId(),
 		CallerOwnerType:     ot,
@@ -232,6 +260,7 @@ func (h *OTCOptionsHandler) AcceptNegotiationChain(ctx context.Context, in *stoc
 		ActingPrincipalID:   in.GetActingPrincipalId(),
 		ActingEmployeeID:    optionalPtr(in.GetActingEmployeeId()),
 		AcceptorAccountID:   in.GetAcceptorAccountId(),
+		OnBehalfOfFundID:    onBehalfOfFundID,
 	})
 	if err != nil {
 		return nil, err
@@ -351,6 +380,42 @@ func (h *OTCOptionsHandler) ListMyNegotiations(ctx context.Context, in *stockpb.
 		Negotiations: negsToProto(rows),
 		Total:        total,
 	}, nil
+}
+
+func (h *OTCOptionsHandler) ListNegotiationRevisions(ctx context.Context, in *stockpb.ListNegotiationRevisionsRequest) (*stockpb.ListNegotiationRevisionsResponse, error) {
+	if h.negotiations == nil {
+		return nil, status.Error(codes.Unimplemented, "OTCNegotiationService not wired")
+	}
+	ot, err := ownerTypeFromProto(in.GetCallerOwnerType())
+	if err != nil {
+		return nil, err
+	}
+	oid, err := resolveOwnerID(ot, in.GetCallerOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	revs, err := h.negotiations.ListRevisions(ctx, in.GetNegotiationId(), ot, oid)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*stockpb.OTCNegotiationRevisionResponse, 0, len(revs))
+	for i := range revs {
+		r := &revs[i]
+		out = append(out, &stockpb.OTCNegotiationRevisionResponse{
+			Id:                   r.ID,
+			NegotiationId:        r.NegotiationID,
+			RevisionNumber:       int32(r.RevisionNumber),
+			Action:               r.Action,
+			Quantity:             r.Quantity.String(),
+			StrikePrice:          r.StrikePrice.String(),
+			Premium:              r.Premium.String(),
+			SettlementDate:       r.SettlementDate.UTC().Format(time.RFC3339),
+			ActionByPrincipalType: r.ModifiedByPrincipalType,
+			ActionByPrincipalId:  r.ModifiedByPrincipalID,
+			CreatedAt:            r.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return &stockpb.ListNegotiationRevisionsResponse{Revisions: out}, nil
 }
 
 func (h *OTCOptionsHandler) ListNegotiationsByListing(ctx context.Context, in *stockpb.ListNegotiationsByListingRequest) (*stockpb.ListNegotiationsResponse, error) {

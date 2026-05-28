@@ -34,7 +34,7 @@ func NewPeerTxHandler(c transactionpb.PeerTxServiceClient) *PeerTxHandler {
 // @Produce      json
 // @Success      200 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
-// @Router       /api/v3/interbank [post]
+// @Router       /api/v3/cross-bank-protocol/interbank [post]
 func (h *PeerTxHandler) PostInterbank(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {

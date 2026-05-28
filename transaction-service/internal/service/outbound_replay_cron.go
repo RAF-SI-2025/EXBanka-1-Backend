@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/cronreg"
 	contractsitx "github.com/exbanka/contract/sitx"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -22,9 +24,11 @@ type OutboundReplayCron struct {
 	httpClient   *sitx.PeerHTTPClient
 	peerLookup   PeerLookupFunc
 	reverseLocal LocalReversalFunc
+	commitLocal  LocalCommitFunc
 	tickInterval time.Duration
 	minRetryGap  time.Duration
 	maxAttempts  int
+	entry        *cronreg.Entry
 }
 
 // PeerLookupFunc resolves a peer-bank-code to a PeerHTTPTarget. Provided
@@ -41,12 +45,23 @@ type PeerLookupFunc func(ctx context.Context, code string) (*sitx.PeerHTTPTarget
 // cron may call it more than once for the same row across ticks.
 type LocalReversalFunc func(ctx context.Context, row *model.OutboundPeerTx) error
 
+// LocalCommitFunc finalises the local CREDIT-leg reservations applied at
+// initiation time for an OTC outbound row. Called after the peer votes YES
+// but before the cron sends COMMIT_TX, mirroring the inline dispatch path.
+// Safe-and-required to call: without this hook, an OTC outbound row that is
+// resumed by the cron commits on the peer but leaves the local reservation
+// pending indefinitely. Must be idempotent — uses the same key as the inline
+// path so duplicate calls are a no-op. Wired by cmd/main.go to
+// PeerTxGRPCHandler.CommitOutboundLocal.
+type LocalCommitFunc func(ctx context.Context, row *model.OutboundPeerTx) error
+
 func NewOutboundReplayCron(
 	repo *repository.OutboundPeerTxRepository,
 	httpClient *sitx.PeerHTTPClient,
 	peerLookup PeerLookupFunc,
+	registry *cronreg.Registry,
 ) *OutboundReplayCron {
-	return &OutboundReplayCron{
+	c := &OutboundReplayCron{
 		repo:         repo,
 		httpClient:   httpClient,
 		peerLookup:   peerLookup,
@@ -54,6 +69,8 @@ func NewOutboundReplayCron(
 		minRetryGap:  60 * time.Second,
 		maxAttempts:  4,
 	}
+	c.entry = registry.Register("outbound-replay-cron", "Retry pending outbound SI-TX transfers (every 30s)", 30*time.Second)
+	return c
 }
 
 func (c *OutboundReplayCron) WithTickInterval(d time.Duration) *OutboundReplayCron {
@@ -79,6 +96,14 @@ func (c *OutboundReplayCron) WithLocalReversal(fn LocalReversalFunc) *OutboundRe
 	return c
 }
 
+// WithLocalCommit wires the local commit hook for OTC rows. Optional — left
+// nil, the cron skips the local commit step (acceptable for tests that don't
+// exercise reservation lifecycle). Production always wires it.
+func (c *OutboundReplayCron) WithLocalCommit(fn LocalCommitFunc) *OutboundReplayCron {
+	c.commitLocal = fn
+	return c
+}
+
 // Start launches the cron loop. Returns immediately; loop runs until ctx cancels.
 func (c *OutboundReplayCron) Start(ctx context.Context) {
 	go c.loop(ctx)
@@ -92,7 +117,17 @@ func (c *OutboundReplayCron) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !c.entry.BeginRun() {
+				continue
+			}
 			c.tick(ctx)
+			c.entry.EndRun(nil)
+		case <-c.entry.TriggerChan():
+			if !c.entry.BeginRun() {
+				continue
+			}
+			c.tick(ctx)
+			c.entry.EndRun(nil)
 		}
 	}
 }
@@ -150,6 +185,18 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 		return
 	}
 	if vote.Type == contractsitx.VoteYes {
+		// Finalise the local CREDIT-leg reservations BEFORE sending COMMIT_TX,
+		// mirroring the inline dispatch path. Without this, an OTC row resumed
+		// here would commit on the peer but leave the local reservation in
+		// "pending" forever — funds/shares locked with no auto-recovery.
+		// LocalCommitFunc is idempotent (uses the same key as the inline path)
+		// so this is safe even if the inline path already ran it.
+		if c.commitLocal != nil {
+			if cerr := c.commitLocal(ctx, row); cerr != nil {
+				_ = c.repo.MarkAttempt(row.IdempotenceKey, "local commit: "+cerr.Error())
+				return
+			}
+		}
 		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
 			IdempotenceKey: contractsitx.IdempotenceKey{
 				RoutingNumber:       target.OwnRouting,
@@ -169,16 +216,28 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 	if len(vote.NoVotes) > 0 {
 		reason = "peer voted NO: " + vote.NoVotes[0].Reason
 	}
-	// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): the sender was
-	// debited at initiation, so a NO vote must credit them back. If the
-	// reversal fails, keep the row pending (MarkAttempt) so a later tick
-	// retries it rather than stranding the money in a terminal row — the
-	// credit-back is idempotent, so replaying the NO+reverse loop is safe.
-	if rerr := c.reverse(ctx, row); rerr != nil {
-		_ = c.repo.MarkAttempt(row.IdempotenceKey, reason+" (creditback failed, will retry: "+rerr.Error()+")")
+	// Safe ordering for NO-vote resolution to prevent double-reverse race:
+	//  1. Mark rolled_back FIRST (status guard: AND status='pending').
+	//     If another goroutine (PeerTxReconciler) already resolved this row,
+	//     MarkRolledBack returns ErrPeerTxAlreadyResolved — we skip reversal.
+	//  2. Only call localReverse AFTER successfully claiming the row.
+	//     localReverse uses its own idempotency keys so it is safe to retry,
+	//     but we must not call it when we didn't win the status-guard race.
+	if err := c.repo.MarkRolledBack(row.IdempotenceKey, reason); err != nil {
+		if errors.Is(err, repository.ErrPeerTxAlreadyResolved) {
+			log.Printf("outbound-replay: %s already resolved by concurrent worker, skipping reversal", row.IdempotenceKey)
+			return
+		}
+		_ = c.repo.MarkAttempt(row.IdempotenceKey, reason+" (MarkRolledBack failed: "+err.Error()+")")
 		return
 	}
-	_ = c.repo.MarkRolledBack(row.IdempotenceKey, reason)
+	// Row is now in rolled_back; perform the local credit-back. If the
+	// reversal fails, log and alert — the row is already terminal so the
+	// next tick won't retry. Ops must recover the stranded balance manually
+	// or via the dead-letter recovery path.
+	if rerr := c.reverse(ctx, row); rerr != nil {
+		log.Printf("outbound-replay: ALERT reversal failed for %s after MarkRolledBack: %v — manual recovery required", row.IdempotenceKey, rerr)
+	}
 }
 
 // reverse credits back the local effects of an outbound row via the wired

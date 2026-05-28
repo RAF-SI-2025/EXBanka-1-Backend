@@ -123,6 +123,27 @@ func (r *SagaLogRepository) IsForwardCompleted(sagaID, stepName string) (bool, e
 	return count > 0, err
 }
 
+// MarkDeadLetter transitions a saga_log row to "dead_letter" status, indicating
+// it has exhausted all recovery retries and requires manual operator review or
+// out-of-band reconciliation. The status is a terminal state from the recovery
+// reconciler's perspective — it will no longer attempt retries for this row.
+func (r *SagaLogRepository) MarkDeadLetter(id uint64) error {
+	result := r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.SagaLog{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":     "dead_letter",
+			"updated_at": time.Now(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrOptimisticLock
+	}
+	return nil
+}
+
 // IncrementRetryCount bumps retry_count + updated_at on a saga row without
 // changing status or version. Used by the recovery reconciler after each
 // failed retry attempt so repeated failures can be detected and the row left

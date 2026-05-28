@@ -18,8 +18,10 @@ import (
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/repository"
 	"github.com/exbanka/card-service/internal/service"
+	adminpb "github.com/exbanka/contract/adminpb"
 	pb "github.com/exbanka/contract/cardpb"
 	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
@@ -34,9 +36,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}, &model.Changelog{}, &model.IdempotencyRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}, &model.Changelog{}, &model.IdempotencyRecord{}, &cronreg.CronPauseState{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("card-service", cronreg.NewGormPauseStore(db))
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -54,6 +57,7 @@ func main() {
 		"card.changelog",
 		"notification.send-email",
 		"notification.general",
+		"admin.cron-action",
 	)
 
 	var redisCache *cache.RedisCache
@@ -90,7 +94,7 @@ func main() {
 
 	cronCtx, cronCancel := context.WithCancel(context.Background())
 	defer cronCancel()
-	service.StartCardCron(cronCtx, cardRepo, blockRepo, db)
+	service.StartCardCron(cronCtx, cardRepo, blockRepo, db, cronRegistry)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -114,6 +118,7 @@ func main() {
 			pb.RegisterCardServiceServer(s, grpcHandler)
 			pb.RegisterVirtualCardServiceServer(s, virtualCardHandler)
 			pb.RegisterCardRequestServiceServer(s, cardRequestHandler)
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "card-service")
 			metrics.InitializeGRPCMetrics(s)
 		},

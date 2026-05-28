@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/influx"
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -13,14 +14,19 @@ type ListingCronService struct {
 	listingRepo  ListingRepo
 	dailyRepo    DailyPriceRepo
 	influxClient *influx.Client
+	registry     *cronreg.Registry
+	entry        *cronreg.Entry
 }
 
-func NewListingCronService(listingRepo ListingRepo, dailyRepo DailyPriceRepo, influxClient *influx.Client) *ListingCronService {
-	return &ListingCronService{
+func NewListingCronService(listingRepo ListingRepo, dailyRepo DailyPriceRepo, influxClient *influx.Client, registry *cronreg.Registry) *ListingCronService {
+	s := &ListingCronService{
 		listingRepo:  listingRepo,
 		dailyRepo:    dailyRepo,
 		influxClient: influxClient,
+		registry:     registry,
 	}
+	s.entry = registry.Register("listing-daily-snapshot", "Snapshot daily prices for all listings at 23:55 UTC", 0)
+	return s
 }
 
 // SnapshotDailyPrices takes the current price of every listing and saves it
@@ -75,8 +81,20 @@ func (c *ListingCronService) StartDailyCron(ctx context.Context) {
 
 			select {
 			case <-time.After(waitDuration):
+				if !c.entry.BeginRun() {
+					log.Println("listing cron: paused, skipping this tick")
+					continue
+				}
 				log.Println("listing cron: running daily price snapshot")
 				c.SnapshotDailyPrices()
+				c.entry.EndRun(nil)
+			case <-c.entry.TriggerChan():
+				if !c.entry.BeginRun() {
+					continue
+				}
+				log.Println("listing cron: manual trigger — running daily price snapshot")
+				c.SnapshotDailyPrices()
+				c.entry.EndRun(nil)
 			case <-ctx.Done():
 				log.Println("listing cron: stopped")
 				return

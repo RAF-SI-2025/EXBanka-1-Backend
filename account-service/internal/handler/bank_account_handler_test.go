@@ -68,6 +68,11 @@ func (m *mockBankAccountSvc) CreditBankAccount(ctx context.Context, currency, am
 	return &repository.BankOpResult{AccountNumber: "BANK-001", NewBalance: "0"}, nil
 }
 
+// SetAccountCategory is a no-op in tests — the handler only calls it when
+// AccountCategory is non-empty, and the mock's CreateBankAccount already
+// returns a dummy account without persisting to a DB.
+func (m *mockBankAccountSvc) SetAccountCategory(_ uint64, _ string) error { return nil }
+
 type mockBankProducer struct {
 	created []kafkamsg.AccountCreatedMessage
 	err     error

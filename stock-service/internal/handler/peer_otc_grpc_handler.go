@@ -1267,14 +1267,37 @@ func (h *PeerOTCGRPCHandler) ListMyPeerNegotiations(ctx context.Context, req *st
 		if row.SellerRoutingNumber == req.GetOwnRoutingNumber() && row.SellerID == principal {
 			role = "seller"
 		}
+
+		// For accepted negotiations, resolve the local peer_option_contracts
+		// row so the caller can navigate from negotiation → contract. We look
+		// up the direction that matches the caller's role: buyer side is
+		// CREDIT, seller side is DEBIT. Best-effort — lookup failure leaves
+		// local_contract_id as 0 (not a fatal error for the list call).
+		var localContractID uint64
+		if row.Status == "accepted" && h.peerOptionRepo != nil {
+			direction := "CREDIT"
+			if role == "seller" {
+				direction = "DEBIT"
+			}
+			// The negotiation id from our perspective is the foreign_id
+			// stored on the row; the routing is the seller's bank routing
+			// (which owns the id namespace).
+			if c, cerr := h.peerOptionRepo.GetByNegotiationAndDirection(
+				negotiationOwningRouting(row), row.ForeignID, direction,
+			); cerr == nil && c != nil {
+				localContractID = c.ID
+			}
+		}
+
 		out.Items = append(out.Items, &stockpb.PeerNegotiationListItem{
-			Id:        &stockpb.PeerForeignBankId{RoutingNumber: negotiationOwningRouting(row), Id: row.ForeignID},
-			BuyerId:   &stockpb.PeerForeignBankId{RoutingNumber: row.BuyerRoutingNumber, Id: row.BuyerID},
-			SellerId:  &stockpb.PeerForeignBankId{RoutingNumber: row.SellerRoutingNumber, Id: row.SellerID},
-			Offer:     offerToProto(offer),
-			Status:    row.Status,
-			Role:      role,
-			UpdatedAt: row.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			Id:              &stockpb.PeerForeignBankId{RoutingNumber: negotiationOwningRouting(row), Id: row.ForeignID},
+			BuyerId:         &stockpb.PeerForeignBankId{RoutingNumber: row.BuyerRoutingNumber, Id: row.BuyerID},
+			SellerId:        &stockpb.PeerForeignBankId{RoutingNumber: row.SellerRoutingNumber, Id: row.SellerID},
+			Offer:           offerToProto(offer),
+			Status:          row.Status,
+			Role:            role,
+			UpdatedAt:       row.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			LocalContractId: localContractID,
 		})
 	}
 	return out, nil

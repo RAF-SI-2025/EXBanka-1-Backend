@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/exbanka/contract/changelog"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/permissions"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/shopspring/decimal"
@@ -25,6 +26,12 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
+
+// nilRegistry returns a no-op Registry for unit tests that don't need
+// pause/trigger control (nil PauseStore is explicitly supported).
+func nilRegistry() *cronreg.Registry {
+	return cronreg.NewRegistry("test", nil)
+}
 
 // -----------------------------------------------------------------------------
 // shared helpers
@@ -1053,7 +1060,7 @@ func TestActuaryService_HierarchyDeniedOnSet(t *testing.T) {
 
 func TestLimitCronService_StartHonorsCancellation(t *testing.T) {
 	repo := newMockEmployeeLimitRepo()
-	svc := NewLimitCronService(repo)
+	svc := NewLimitCronService(repo, nilRegistry())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.Start(ctx)
@@ -1066,7 +1073,7 @@ func TestLimitCronService_StartHonorsCancellation(t *testing.T) {
 
 func TestNewLimitCronService_NotNil(t *testing.T) {
 	repo := newMockEmployeeLimitRepo()
-	svc := NewLimitCronService(repo)
+	svc := NewLimitCronService(repo, nilRegistry())
 	assert.NotNil(t, svc)
 }
 

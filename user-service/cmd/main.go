@@ -11,7 +11,9 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	adminpb "github.com/exbanka/contract/adminpb"
 	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
@@ -45,9 +47,11 @@ func main() {
 		&model.LimitBlueprint{},
 		&model.Changelog{},
 		&model.OutboxEvent{},
+		&cronreg.CronPauseState{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("user-service", cronreg.NewGormPauseStore(db))
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -70,6 +74,7 @@ func main() {
 		"user.role-permissions-changed",
 		"user.supervisor-demoted",
 		"notification.send-email",
+		"admin.cron-action",
 	)
 
 	var redisCache *cache.RedisCache
@@ -110,13 +115,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	limitCron := service.NewLimitCronService(employeeLimitRepo)
+	limitCron := service.NewLimitCronService(employeeLimitRepo, cronRegistry)
 	limitCron.Start(ctx)
 
 	// Outbox relay (Celina 4) — drains transactionally-written cross-service
 	// events (e.g. user.supervisor-demoted) to Kafka in the background.
 	outboxRepo := repository.NewOutboxRepository(db)
-	outboxRelay := service.NewOutboxRelay(outboxRepo, producer, 2*time.Second)
+	outboxRelay := service.NewOutboxRelay(outboxRepo, producer, 2*time.Second, cronRegistry)
 	outboxRelay.Start(ctx)
 	empService = empService.WithOutbox(outboxRepo)
 
@@ -131,7 +136,7 @@ func main() {
 		log.Printf("warn: actuary default-limit backfill failed: %v", err)
 	}
 
-	actuaryCron := service.NewActuaryCronService(actuaryRepo)
+	actuaryCron := service.NewActuaryCronService(actuaryRepo, cronRegistry)
 	actuaryCron.Start(ctx)
 
 	// Blueprint service
@@ -194,6 +199,7 @@ func main() {
 			pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
 			pb.RegisterActuaryServiceServer(s, actuaryHandler)
 			pb.RegisterBlueprintServiceServer(s, blueprintHandler)
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "user-service")
 			metrics.InitializeGRPCMetrics(s)
 		},

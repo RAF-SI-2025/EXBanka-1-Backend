@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -32,6 +33,8 @@ type InvestmentFundHandler struct {
 	fundHoldings *repository.FundHoldingRepository
 	listings     *repository.ListingRepository
 	stocks       *repository.StockRepository
+	// E4 dividend service
+	dividendSvc *service.DividendService
 }
 
 func NewInvestmentFundHandler(
@@ -73,6 +76,14 @@ func (h *InvestmentFundHandler) WithFundDetailDeps(
 	cp.fundHoldings = fundHoldings
 	cp.listings = listings
 	cp.stocks = stocks
+	return &cp
+}
+
+// WithDividendService wires the DividendService so the E4 dividend RPCs
+// (DeclareDividend, PayoutDividend, ListMyDividends, ListFundDividends) work.
+func (h *InvestmentFundHandler) WithDividendService(svc *service.DividendService) *InvestmentFundHandler {
+	cp := *h
+	cp.dividendSvc = svc
 	return &cp
 }
 
@@ -120,9 +131,22 @@ func (h *InvestmentFundHandler) GetFund(ctx context.Context, in *stockpb.GetFund
 		return nil, mapFundErr(err)
 	}
 	resp := &stockpb.FundDetailResponse{Fund: toFundResponse(f)}
+
+	// E1: compute fund statistics (investor count, balances, P&L).
+	stat, _ := h.fundSvc.Statistics(ctx, f)
+	resp.InvestorCount = stat.InvestorCount
+	resp.TotalContributedRsd = stat.TotalContributedRSD.StringFixed(2)
+	resp.LiquidRsdBalance = stat.LiquidRSDBal.StringFixed(2)
+	resp.TotalHoldingsValueRsd = stat.TotalHoldingsValueRSD.StringFixed(2)
+	resp.TotalValueRsd = stat.TotalValueRSD.StringFixed(2)
+	resp.TotalDividendsPaidRsd = stat.TotalDividendsPaidRSD.StringFixed(2)
+	resp.ProfitRsd = stat.ProfitRSD.StringFixed(2)
+	resp.ProfitPct = stat.ProfitPct.StringFixed(4)
+
+	// Holdings list: use service snapshot (includes current_value_rsd per item).
 	if h.fundHoldings != nil {
-		holdings, err := h.fundHoldings.ListByFundFIFO(f.ID)
-		if err == nil {
+		holdings, hErr := h.fundHoldings.ListByFundFIFO(f.ID)
+		if hErr == nil {
 			resp.Holdings = make([]*stockpb.FundHoldingItem, 0, len(holdings))
 			for i := range holdings {
 				h2 := &holdings[i]
@@ -136,6 +160,9 @@ func (h *InvestmentFundHandler) GetFund(ctx context.Context, in *stockpb.GetFund
 				if h.listings != nil {
 					if listing, lerr := h.listings.GetBySecurityIDAndType(h2.SecurityID, h2.SecurityType); lerr == nil && listing != nil {
 						item.CurrentPriceRsd = listing.Price.String()
+						// current_value_rsd = quantity × current_price (E1 new field)
+						curVal := listing.Price.Mul(decimal.NewFromInt(h2.Quantity))
+						item.CurrentValueRsd = curVal.String()
 					}
 				}
 				if h.stocks != nil && h2.SecurityType == "stock" {
@@ -348,6 +375,130 @@ func toContribResponse(c *model.FundContribution) *stockpb.ContributionResponse 
 		FeeRsd:         c.FeeRSD.String(),
 		Status:         c.Status,
 	}
+}
+
+// ── E4 Dividend RPCs ──────────────────────────────────────────────────────────
+
+func (h *InvestmentFundHandler) DeclareDividend(ctx context.Context, in *stockpb.DeclareDividendRequest) (*stockpb.DividendPaymentResponse, error) {
+	if h.dividendSvc == nil {
+		return nil, status.Error(codes.Unimplemented, "dividend service not wired")
+	}
+	amtPerShare, err := decimal.NewFromString(in.AmountPerShareRsd)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid amount_per_share_rsd")
+	}
+	paymentDate, err := time.Parse("2006-01-02", in.PaymentDate)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "payment_date must be ISO date (2006-01-02)")
+	}
+	dp, err := h.dividendSvc.Declare(ctx, in.SecurityId, in.Ticker, amtPerShare, paymentDate, in.DeclaredByEmployeeId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return toDividendPaymentResponse(dp), nil
+}
+
+func (h *InvestmentFundHandler) PayoutDividend(ctx context.Context, in *stockpb.PayoutDividendRequest) (*stockpb.PayoutDividendResponse, error) {
+	if h.dividendSvc == nil {
+		return nil, status.Error(codes.Unimplemented, "dividend service not wired")
+	}
+	summary, err := h.dividendSvc.Payout(ctx, in.DividendPaymentId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &stockpb.PayoutDividendResponse{
+		PayoutsCreated:  int32(summary.PayoutsCreated),
+		FundPayouts:     int32(summary.FundPayouts),
+		TotalAmountRsd:  summary.TotalAmountRSD.StringFixed(2),
+	}, nil
+}
+
+func (h *InvestmentFundHandler) ListMyDividends(ctx context.Context, in *stockpb.ListMyDividendsRequest) (*stockpb.ListDividendPayoutsResponse, error) {
+	if h.dividendSvc == nil {
+		return &stockpb.ListDividendPayoutsResponse{}, nil
+	}
+	page, pageSize := int(in.Page), int(in.PageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	var ownerID *uint64
+	if in.OwnerId != 0 {
+		v := in.OwnerId
+		ownerID = &v
+	}
+	rows, total, err := h.dividendSvc.ListMyDividends(in.OwnerType, ownerID, page, pageSize)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &stockpb.ListDividendPayoutsResponse{Total: total}
+	for _, r := range rows {
+		item := &stockpb.DividendPayoutItem{
+			Id:                  r.ID,
+			DividendPaymentId:   r.DividendPaymentID,
+			HoldingOwnerType:    r.HoldingOwnerType,
+			HoldingId:           r.HoldingID,
+			Shares:              r.Shares,
+			GrossAmountRsd:      r.GrossAmountRSD.StringFixed(2),
+			TaxAmountRsd:        r.TaxAmountRSD.StringFixed(2),
+			NetAmountRsd:        r.NetAmountRSD.StringFixed(2),
+			CreditedAccountId:   r.CreditedAccountID,
+			CreatedAt:           r.CreatedAt.UTC().Format(time.RFC3339),
+		}
+		if r.HoldingOwnerID != nil {
+			item.HoldingOwnerId = *r.HoldingOwnerID
+		}
+		out.Payouts = append(out.Payouts, item)
+	}
+	return out, nil
+}
+
+func (h *InvestmentFundHandler) ListFundDividends(ctx context.Context, in *stockpb.ListFundDividendsRequest) (*stockpb.ListFundDividendPaymentsResponse, error) {
+	if h.dividendSvc == nil {
+		return &stockpb.ListFundDividendPaymentsResponse{}, nil
+	}
+	page, pageSize := int(in.Page), int(in.PageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	rows, total, err := h.dividendSvc.ListFundDividends(in.FundId, page, pageSize)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &stockpb.ListFundDividendPaymentsResponse{Total: total}
+	for _, r := range rows {
+		out.Payments = append(out.Payments, &stockpb.FundDividendPaymentItem{
+			Id:                  r.ID,
+			DividendPaymentId:   r.DividendPaymentID,
+			FundId:              r.FundID,
+			AmountRsd:           r.AmountRSD.StringFixed(2),
+			PerInvestorSnapshot: r.PerInvestorSnapshot,
+			CreatedAt:           r.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out, nil
+}
+
+func toDividendPaymentResponse(dp *model.DividendPayment) *stockpb.DividendPaymentResponse {
+	r := &stockpb.DividendPaymentResponse{
+		Id:                     dp.ID,
+		SecurityId:             dp.SecurityID,
+		Ticker:                 dp.Ticker,
+		AmountPerShareRsd:      dp.AmountPerShareRSD.StringFixed(4),
+		PaymentDate:            dp.PaymentDate.Format("2006-01-02"),
+		Status:                 dp.Status,
+		DeclaredByEmployeeId:   dp.DeclaredByEmployeeID,
+		CreatedAt:              dp.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if dp.PaidOutAt != nil {
+		r.PaidOutAt = dp.PaidOutAt.UTC().Format(time.RFC3339)
+	}
+	return r
 }
 
 // mapFundErr is now a passthrough. Service-layer sentinels carry their own

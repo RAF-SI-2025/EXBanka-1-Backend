@@ -175,6 +175,79 @@ var pushDefs = []Definition{
 		DefaultSubject: "OTC contract failed",
 		DefaultBody:    "An OTC contract could not be completed: {{failure_reason}}.",
 	},
+	// ── Watchlist ─────────────────────────────────────────────────────────────
+	{
+		Type: "WATCHLIST_PRICE_MOVE", Channel: "push",
+		Description: "Daily alert: a ticker on the user's watchlist moved more than ±5% in one day.",
+		Variables: []Variable{
+			{"ticker", "Security ticker", "AAPL"},
+			{"percent_move", "Daily percent change (signed)", "-6.42"},
+			{"current_price", "Current price", "148.50"},
+		},
+		DefaultSubject: "Watchlist alert: {{ticker}} moved {{percent_move}}%",
+		DefaultBody:    "{{ticker}} is on your watchlist and moved {{percent_move}}% today. Current price: {{current_price}}.",
+	},
+	// ── Price alerts ─────────────────────────────────────────────────────────
+	{
+		Type: "RECURRING_ORDER_EXECUTED", Channel: "push",
+		Description: "Fired when a recurring-order tick successfully placed a Market order.",
+		Variables: []Variable{
+			{"listing_id", "Listing ID for the executed order", "42"},
+			{"quantity", "Number of units placed", "10"},
+			{"side", "Order side", "buy"},
+		},
+		DefaultSubject: "Recurring order executed",
+		DefaultBody:    "Your recurring {{side}} order placed {{quantity}} units of listing {{listing_id}}.",
+	},
+	{
+		Type: "RECURRING_ORDER_SKIPPED", Channel: "push",
+		Description: "Fired when a recurring-order tick could not place an order (e.g. insufficient funds). NextRun still advances.",
+		Variables: []Variable{
+			{"listing_id", "Listing ID for the skipped order", "42"},
+			{"quantity", "Intended quantity", "10"},
+			{"side", "Order side", "buy"},
+			{"reason", "Reason the order was skipped", "insufficient funds"},
+		},
+		DefaultSubject: "Recurring order skipped",
+		DefaultBody:    "Your recurring {{side}} order for {{quantity}} units of listing {{listing_id}} was skipped: {{reason}}.",
+	},
+	{
+		Type: "FUND_RECURRING_EXECUTED", Channel: "push",
+		Description: "Fired when a recurring fund investment tick successfully contributed to the fund.",
+		Variables: []Variable{
+			{"fund_id", "Investment fund ID", "7"},
+			{"amount", "Amount invested", "1000.00"},
+			{"currency", "Source currency", "RSD"},
+		},
+		DefaultSubject: "Recurring fund investment executed",
+		DefaultBody:    "Your recurring investment of {{amount}} {{currency}} into fund {{fund_id}} was processed.",
+	},
+	{
+		Type: "FUND_RECURRING_SKIPPED", Channel: "push",
+		Description: "Fired when a recurring fund investment tick could not contribute. NextRun still advances.",
+		Variables: []Variable{
+			{"fund_id", "Investment fund ID", "7"},
+			{"amount", "Intended amount", "1000.00"},
+			{"currency", "Source currency", "RSD"},
+			{"reason", "Reason the contribution was skipped", "insufficient funds"},
+		},
+		DefaultSubject: "Recurring fund investment skipped",
+		DefaultBody:    "Your recurring investment of {{amount}} {{currency}} into fund {{fund_id}} was skipped: {{reason}}.",
+	},
+	{
+		Type: "PRICE_ALERT_TRIGGERED", Channel: "push",
+		Description: "Fired when a user's price alert condition is met.",
+		Variables: []Variable{
+			{"ticker", "Security ticker", "AAPL"},
+			{"security_type", "Security type", "stock"},
+			{"condition", "Alert condition", "daily_change_pct_lte"},
+			{"threshold", "Alert threshold", "-5.0000"},
+			{"price", "Current price", "148.5000"},
+			{"daily_change_percent", "Daily change percent", "-6.2000"},
+		},
+		DefaultSubject: "Price alert triggered",
+		DefaultBody:    "Your price alert for {{ticker}} was triggered — current price {{price}} (daily change {{daily_change_percent}}%, threshold {{threshold}}).",
+	},
 	// ── Money movement ───────────────────────────────────────────────────────
 	{
 		Type: "PAYMENT_SENT", Channel: "push",
