@@ -229,6 +229,29 @@ func (h *OTCOptionsHandler) AcceptNegotiationChain(ctx context.Context, in *stoc
 	if err != nil {
 		return nil, err
 	}
+
+	// E2: on_behalf_of_fund_id validation — manager-only, account must be fund's RSD.
+	onBehalfOfFundID := in.GetOnBehalfOfFundId()
+	if onBehalfOfFundID != 0 {
+		if h.fundRepo == nil {
+			return nil, status.Error(codes.FailedPrecondition, "fund support not configured on OTC handler")
+		}
+		fund, ferr := h.fundRepo.GetByID(onBehalfOfFundID)
+		if ferr != nil {
+			return nil, status.Errorf(codes.NotFound, "fund %d not found", onBehalfOfFundID)
+		}
+		actingEmpID := int64(in.GetActingEmployeeId())
+		if actingEmpID == 0 {
+			return nil, status.Error(codes.PermissionDenied, "fund orders require acting_employee_id")
+		}
+		if actingEmpID != fund.ManagerEmployeeID {
+			return nil, status.Error(codes.PermissionDenied, "fund_not_managed_by_actor")
+		}
+		if in.GetAcceptorAccountId() != fund.RSDAccountID {
+			return nil, status.Error(codes.InvalidArgument, "acceptor_account_id must equal fund RSD account for fund orders")
+		}
+	}
+
 	result, err := h.negotiations.AcceptNegotiation(ctx, service.AcceptNegotiationInput{
 		NegotiationID:       in.GetNegotiationId(),
 		CallerOwnerType:     ot,
@@ -237,6 +260,7 @@ func (h *OTCOptionsHandler) AcceptNegotiationChain(ctx context.Context, in *stoc
 		ActingPrincipalID:   in.GetActingPrincipalId(),
 		ActingEmployeeID:    optionalPtr(in.GetActingEmployeeId()),
 		AcceptorAccountID:   in.GetAcceptorAccountId(),
+		OnBehalfOfFundID:    onBehalfOfFundID,
 	})
 	if err != nil {
 		return nil, err

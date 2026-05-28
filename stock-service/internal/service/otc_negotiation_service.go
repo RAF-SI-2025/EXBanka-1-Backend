@@ -95,6 +95,12 @@ type AcceptNegotiationInput struct {
 	// or receives the premium. Required — accept now mints a contract
 	// and runs the premium-payment saga. Must be the caller's account.
 	AcceptorAccountID uint64
+	// OnBehalfOfFundID, when non-zero, places this accept on behalf of an
+	// investment fund (E2, Plan E). The acceptor's premium debit comes from
+	// the fund's RSD account; the minted contract records the fund ID so
+	// that exercise credits fund_holdings. Caller must be the fund's manager
+	// and AcceptorAccountID MUST equal fund.rsd_account_id.
+	OnBehalfOfFundID uint64
 }
 
 // RejectNegotiationInput closes a chain without forming a contract.
@@ -561,6 +567,7 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 		AcceptorAccountID:  in.AcceptorAccountID,
 		ActorPrincipalType: in.ActingPrincipalType,
 		ActorPrincipalID:   in.ActingPrincipalID,
+		OnBehalfOfFundID:   in.OnBehalfOfFundID,
 	})
 	if mintErr != nil {
 		// Negotiation state already flipped to accepted in the TX

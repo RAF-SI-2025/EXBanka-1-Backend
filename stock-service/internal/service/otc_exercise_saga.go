@@ -27,6 +27,11 @@ type ExerciseInput struct {
 	ContractID      uint64
 	ActorUserID     int64
 	ActorSystemType string
+	// OnBehalfOfFundID, when non-zero, signals that this exercise is on behalf
+	// of a fund (E2, Plan E). The manager-only check is enforced in the handler
+	// before this input is constructed. When set, acquired shares land in
+	// fund_holdings instead of the buyer's personal holdings.
+	OnBehalfOfFundID uint64
 }
 
 // ExerciseContract runs the exercise saga (§6.2 of spec):
@@ -244,6 +249,18 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		Add(saga.Step{
 			Name: saga.StepUpsertBuyerHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
+				// E2: if the contract was placed on behalf of a fund, credit
+				// fund_holdings instead of the buyer's personal holdings.
+				if c.OnBehalfOfFundID != nil && *c.OnBehalfOfFundID != 0 && s.fundHoldingRepo != nil {
+					fh := &model.FundHolding{
+						FundID:          *c.OnBehalfOfFundID,
+						SecurityType:    "stock",
+						SecurityID:      c.StockID,
+						Quantity:        qty,
+						AveragePriceRSD: c.StrikePrice,
+					}
+					return s.fundHoldingRepo.Upsert(fh)
+				}
 				return s.holdingRepo.Upsert(ctx, buyerHolding)
 			},
 			// After the pivot, backward compensations for post-pivot steps

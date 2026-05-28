@@ -84,6 +84,18 @@ type OTCOfferService struct {
 	// when nil the saga still runs (shares + money move) and a WARN is
 	// logged. Wired via WithCapitalGain.
 	capitalGainRepo CapitalGainRepo
+
+	// fundHoldingRepo is optional (E2, Plan E). When wired and the contract
+	// has OnBehalfOfFundID set, the exercise saga credits fund_holdings
+	// instead of the buyer's personal holdings. Without it, fund-owned
+	// contracts exercise into the bank's standard holdings (fall-back).
+	fundHoldingRepo FundHoldingUpsert
+}
+
+// FundHoldingUpsert is the narrow surface the exercise saga needs to credit
+// a fund holding. Implemented by *repository.FundHoldingRepository.
+type FundHoldingUpsert interface {
+	Upsert(h *model.FundHolding) error
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga
@@ -168,6 +180,14 @@ func (s *OTCOfferService) WithSaga(
 func (s *OTCOfferService) WithCapitalGain(repo CapitalGainRepo) *OTCOfferService {
 	cp := *s
 	cp.capitalGainRepo = repo
+	return &cp
+}
+
+// WithFundHolding wires the fund-holding repository so exercise of fund-owned
+// contracts routes to fund_holdings instead of personal holdings (E2).
+func (s *OTCOfferService) WithFundHolding(repo FundHoldingUpsert) *OTCOfferService {
+	cp := *s
+	cp.fundHoldingRepo = repo
 	return &cp
 }
 
