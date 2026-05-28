@@ -1188,6 +1188,7 @@ service OTCOptionsService {
   rpc CancelListing(CancelListingRequest)             returns (CancelListingResponse);
   rpc ListMyNegotiations(ListMyNegotiationsRequest)   returns (ListNegotiationsResponse);
   rpc ListNegotiationsByListing(ListNegotiationsByListingRequest) returns (ListNegotiationsResponse);
+  rpc ListNegotiationRevisions(ListNegotiationRevisionsRequest) returns (ListNegotiationRevisionsResponse);
 }
 
 // OTCNegotiationResponse is the wire-form projection of an
@@ -1209,6 +1210,36 @@ message OTCNegotiationResponse {
   string created_at                  = 14;
   string updated_at                  = 15;
   int64  version                     = 16;
+  // minted_contract_id is 0 when no contract was minted (non-accepted
+  // terminal status, or accepted but formation saga failed). Non-zero
+  // only on status="accepted" rows where the contract formed successfully.
+  uint64 minted_contract_id          = 17;
+}
+
+// OTCNegotiationRevisionResponse is one entry in the revision chain.
+// Populated by ListNegotiationRevisions.
+message OTCNegotiationRevisionResponse {
+  uint64 id              = 1;
+  uint64 negotiation_id  = 2;
+  int32  revision_number = 3;
+  string action          = 4;  // BID|COUNTER|ACCEPT|REJECT
+  string quantity        = 5;
+  string strike_price    = 6;
+  string premium         = 7;
+  string settlement_date = 8;
+  string action_by_principal_type = 9;
+  uint64 action_by_principal_id   = 10;
+  string created_at               = 11;
+}
+
+message ListNegotiationRevisionsRequest {
+  uint64 negotiation_id    = 1;
+  string caller_owner_type = 2;
+  uint64 caller_owner_id   = 3;
+}
+
+message ListNegotiationRevisionsResponse {
+  repeated OTCNegotiationRevisionResponse revisions = 1;
 }
 
 message OpenNegotiationRequest {
@@ -1826,6 +1857,12 @@ message PeerNegotiationListItem {
   string status = 5;
   string role = 6;                    // "buyer" or "seller" — the caller's side
   string updated_at = 7;
+  // local_contract_id is the peer_option_contracts.id on this bank that
+  // was minted when the negotiation reached status="accepted". 0 when
+  // the negotiation is not yet accepted or no contract row exists on
+  // this bank (the contract always exists on at least one bank side;
+  // on the other bank it may be absent until the SI-TX commits).
+  uint64 local_contract_id = 8;
 }
 
 message PeerForeignBankId {

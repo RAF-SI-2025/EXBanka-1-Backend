@@ -2501,6 +2501,7 @@ const (
 	OTCOptionsService_CancelListing_FullMethodName             = "/stock.OTCOptionsService/CancelListing"
 	OTCOptionsService_ListMyNegotiations_FullMethodName        = "/stock.OTCOptionsService/ListMyNegotiations"
 	OTCOptionsService_ListNegotiationsByListing_FullMethodName = "/stock.OTCOptionsService/ListNegotiationsByListing"
+	OTCOptionsService_ListNegotiationRevisions_FullMethodName  = "/stock.OTCOptionsService/ListNegotiationRevisions"
 )
 
 // OTCOptionsServiceClient is the client API for OTCOptionsService service.
@@ -2536,6 +2537,7 @@ type OTCOptionsServiceClient interface {
 	CancelListing(ctx context.Context, in *CancelListingRequest, opts ...grpc.CallOption) (*CancelListingResponse, error)
 	ListMyNegotiations(ctx context.Context, in *ListMyNegotiationsRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
 	ListNegotiationsByListing(ctx context.Context, in *ListNegotiationsByListingRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
+	ListNegotiationRevisions(ctx context.Context, in *ListNegotiationRevisionsRequest, opts ...grpc.CallOption) (*ListNegotiationRevisionsResponse, error)
 }
 
 type oTCOptionsServiceClient struct {
@@ -2756,6 +2758,16 @@ func (c *oTCOptionsServiceClient) ListNegotiationsByListing(ctx context.Context,
 	return out, nil
 }
 
+func (c *oTCOptionsServiceClient) ListNegotiationRevisions(ctx context.Context, in *ListNegotiationRevisionsRequest, opts ...grpc.CallOption) (*ListNegotiationRevisionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNegotiationRevisionsResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ListNegotiationRevisions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OTCOptionsServiceServer is the server API for OTCOptionsService service.
 // All implementations must embed UnimplementedOTCOptionsServiceServer
 // for forward compatibility.
@@ -2789,6 +2801,7 @@ type OTCOptionsServiceServer interface {
 	CancelListing(context.Context, *CancelListingRequest) (*CancelListingResponse, error)
 	ListMyNegotiations(context.Context, *ListMyNegotiationsRequest) (*ListNegotiationsResponse, error)
 	ListNegotiationsByListing(context.Context, *ListNegotiationsByListingRequest) (*ListNegotiationsResponse, error)
+	ListNegotiationRevisions(context.Context, *ListNegotiationRevisionsRequest) (*ListNegotiationRevisionsResponse, error)
 	mustEmbedUnimplementedOTCOptionsServiceServer()
 }
 
@@ -2861,6 +2874,9 @@ func (UnimplementedOTCOptionsServiceServer) ListMyNegotiations(context.Context, 
 }
 func (UnimplementedOTCOptionsServiceServer) ListNegotiationsByListing(context.Context, *ListNegotiationsByListingRequest) (*ListNegotiationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListNegotiationsByListing not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ListNegotiationRevisions(context.Context, *ListNegotiationRevisionsRequest) (*ListNegotiationRevisionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListNegotiationRevisions not implemented")
 }
 func (UnimplementedOTCOptionsServiceServer) mustEmbedUnimplementedOTCOptionsServiceServer() {}
 func (UnimplementedOTCOptionsServiceServer) testEmbeddedByValue()                           {}
@@ -3261,6 +3277,24 @@ func _OTCOptionsService_ListNegotiationsByListing_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCOptionsService_ListNegotiationRevisions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNegotiationRevisionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ListNegotiationRevisions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ListNegotiationRevisions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ListNegotiationRevisions(ctx, req.(*ListNegotiationRevisionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OTCOptionsService_ServiceDesc is the grpc.ServiceDesc for OTCOptionsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3351,6 +3385,10 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNegotiationsByListing",
 			Handler:    _OTCOptionsService_ListNegotiationsByListing_Handler,
+		},
+		{
+			MethodName: "ListNegotiationRevisions",
+			Handler:    _OTCOptionsService_ListNegotiationRevisions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
