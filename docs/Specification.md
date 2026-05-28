@@ -535,6 +535,7 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 | verification | `verification.skip`, `verification.manage` |
 | peer_banks | `peer_banks.manage.any` (Phase 2 SI-TX — admin CRUD on the `peer_banks` registry; `EmployeeAdmin` only via the wildcard `*` grant) |
 | notifications | `notifications.templates.manage` — allows `EmployeeAdmin` to customize notification template subject/body text |
+| portfolio | `portfolio.view.client` — allows an employee to read any client's portfolio via the unified portfolio routes; `portfolio.view.fund` — allows reading any investment-fund's portfolio. Both granted to `EmployeeSupervisor` (and via inheritance to `EmployeeAdmin`). |
 
 ### Role Definitions
 
@@ -542,7 +543,7 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 |---|---|
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
 | EmployeeAgent | EmployeeBasic + securities.*, otc.trade, orders.place-on-behalf, orders.place.on-behalf-client, orders.place.for-bank |
-| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, funds.bank-position-read, verification.skip, verification.manage |
+| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, funds.bank-position-read, verification.skip, verification.manage, portfolio.view.client, portfolio.view.fund |
 | EmployeeAdmin | All permissions (including `securities.manage`) |
 
 ### Context Values Set by Middleware
@@ -901,6 +902,7 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 
 `PortfolioGRPCService` — portfolio operations including option exercise:
 - `ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult)` — exercises an option by option ID instead of holding ID. Fields: `option_id uint64` (required), `user_id uint64` (required), `holding_id uint64` (optional; 0 means auto-resolve to the user's most recent unexpired holding for that option).
+- `GetUnifiedPortfolio(GetUnifiedPortfolioRequest) returns (UnifiedPortfolioResponse)` — returns all holdings and fund positions for a given owner, grouped by asset type, with per-position P/L (unrealised) and per-fund percentage-of-fund stats. Request fields: `owner_type string` (`client`|`bank`|`investment_fund`), `owner_id uint64` (0 for bank). Response: `repeated PortfolioGroup groups` where each `PortfolioGroup` has `asset_type string` and `repeated PortfolioPosition positions`. Each `PortfolioPosition` carries `symbol`, `quantity`, `avg_cost_rsd`, `current_price_rsd`, `current_value_rsd`, `p_l_rsd`, `p_l_pct`, plus option-specific fields (`strike_rsd`, `premium_paid_rsd`, `intrinsic_value_rsd`, `settlement_date`) and fund-specific fields (`fund_id`, `fund_name`, `amount_invested_rsd`, `pct_of_fund`). Fund NAV is computed as Σ(fund_holding.qty × current_listing_price) — does not include the fund's liquid RSD balance from account-service.
 
 `OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v3/orders` or `POST /api/v3/otc/offers/:id/buy-on-behalf` endpoints.
 
@@ -1525,6 +1527,44 @@ Many bidders can each open their own negotiation chain against the same listing;
 | POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/reject`  | OTCOptionsHandler.RejectMyNegotiation       | Reject one chain only |
 | DELETE | `/api/v3/me/otc/options/:id/negotiations/:nid`         | OTCOptionsHandler.CancelMyNegotiation       | Bidder withdraws their own chain |
 | GET    | `/api/v3/public-option-offers`                         | PeerOTCHandler.GetPublicOptionOffers        | Peer-facing discovery endpoint (PeerAuth) |
+
+### Unified Portfolio Routes (B1–B8, 2026-05-28)
+
+All routes call `GetUnifiedPortfolio` on `PortfolioGRPCService` and return a grouped response with per-position unrealised P/L. See [REST_API_v3 §48](api/REST_API_v3.md#48-unified-portfolio-routes).
+
+**Portfolio identity encoding** — the `portfolio_id` path parameter is a URL-safe string:
+
+| Value | Decoded as |
+|---|---|
+| `client-<n>` | client owner, id = n |
+| `bank` | bank owner (no id) |
+| `fund-<n>` | investment_fund owner, id = n |
+
+**`/api/v3/me/portfolio` — AnyAuthMiddleware + `OwnerIsBankIfEmployee`**
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/v3/me/portfolio` | UnifiedPortfolioHandler.GetMy | Caller's unified portfolio — employee sees bank, client sees own |
+
+**`/api/v3/portfolio/*` — AnyAuthMiddleware + `OwnerIsBankIfEmployee`**
+
+| Method | Path | Permission Required | Handler | Description |
+|---|---|---|---|---|
+| GET | `/api/v3/portfolio/bank` | (employee, any) | UnifiedPortfolioHandler.GetBank | Bank's unified portfolio |
+| GET | `/api/v3/portfolio/client/:client_id` | `portfolio.view.client` | UnifiedPortfolioHandler.GetByClientID | Any client's portfolio (employee only) |
+| GET | `/api/v3/portfolio/investment-fund/:fund_id` | `portfolio.view.fund` | UnifiedPortfolioHandler.GetByFundID | Any fund's portfolio |
+| GET | `/api/v3/portfolio/:portfolio_id` | varies (see encoding) | UnifiedPortfolioHandler.GetByPortfolioID | Generic portfolio by encoded id |
+
+**`/api/v3/watchlist/:portfolio_id` — AnyAuthMiddleware + `OwnerIsBankIfEmployee`**
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/v3/watchlist/:portfolio_id` | WatchlistHandler.GetByPortfolioID | Watchlist for any owner identified by encoded portfolio_id |
+
+**Access control summary:**
+- A client principal may only fetch their own portfolio (`client-<own_id>`).
+- An employee principal may always fetch the bank portfolio; fetching a client or fund portfolio requires `portfolio.view.client` or `portfolio.view.fund` respectively.
+- `EmployeeSupervisor` and `EmployeeAdmin` hold both permissions by default.
 
 ---
 
