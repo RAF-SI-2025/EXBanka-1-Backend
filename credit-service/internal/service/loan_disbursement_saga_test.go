@@ -97,6 +97,9 @@ func (f *fakeSagaAccountClient) ReleaseIncoming(_ context.Context, _ *accountpb.
 func (f *fakeSagaAccountClient) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	panic("unexpected call")
 }
+func (f *fakeSagaAccountClient) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 // fakeBankClient stubs the BankAccountServiceClient.
 type fakeBankClient struct {

@@ -537,6 +537,9 @@ func (s *stubClientClient) UpdateClient(_ context.Context, in *clientpb.UpdateCl
 func (s *stubClientClient) ListChangelog(_ context.Context, _ *clientpb.ListChangelogRequest, _ ...grpc.CallOption) (*clientpb.ListChangelogResponse, error) {
 	return &clientpb.ListChangelogResponse{}, nil
 }
+func (s *stubClientClient) ListAllChangelogs(_ context.Context, _ *clientpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*clientpb.ListAllChangelogsResponse, error) {
+	return &clientpb.ListAllChangelogsResponse{}, nil
+}
 
 // ---------------------------------------------------------------------------
 // ClientLimitServiceClient
@@ -628,6 +631,9 @@ func (s *stubCardClient) GetAuthorizedPerson(_ context.Context, _ *cardpb.GetAut
 }
 func (s *stubCardClient) ListChangelog(_ context.Context, _ *cardpb.ListChangelogRequest, _ ...grpc.CallOption) (*cardpb.ListChangelogResponse, error) {
 	return &cardpb.ListChangelogResponse{}, nil
+}
+func (s *stubCardClient) ListAllChangelogs(_ context.Context, _ *cardpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*cardpb.ListAllChangelogsResponse, error) {
+	return &cardpb.ListAllChangelogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +858,9 @@ func (s *stubCreditClient) ApplyVariableRateUpdate(_ context.Context, in *credit
 func (s *stubCreditClient) ListChangelog(_ context.Context, _ *creditpb.ListChangelogRequest, _ ...grpc.CallOption) (*creditpb.ListChangelogResponse, error) {
 	return &creditpb.ListChangelogResponse{}, nil
 }
+func (s *stubCreditClient) ListAllChangelogs(_ context.Context, _ *creditpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*creditpb.ListAllChangelogsResponse, error) {
+	return &creditpb.ListAllChangelogsResponse{}, nil
+}
 
 // ---------------------------------------------------------------------------
 // ExchangeServiceClient
@@ -976,6 +985,9 @@ func (s *stubNotificationClient) ResetTemplate(_ context.Context, in *notificati
 		return s.resetTplFn(in)
 	}
 	return &notificationpb.TemplateInfo{}, nil
+}
+func (s *stubNotificationClient) ListAdminAuditLogs(_ context.Context, _ *notificationpb.ListAdminAuditLogsRequest, _ ...grpc.CallOption) (*notificationpb.ListAdminAuditLogsResponse, error) {
+	return &notificationpb.ListAdminAuditLogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1297,6 +1309,9 @@ func (s *stubUserClient) ListEmployeeFullNames(_ context.Context, _ *userpb.List
 }
 func (s *stubUserClient) ListChangelog(_ context.Context, _ *userpb.ListChangelogRequest, _ ...grpc.CallOption) (*userpb.ListChangelogResponse, error) {
 	return &userpb.ListChangelogResponse{}, nil
+}
+func (s *stubUserClient) ListAllChangelogs(_ context.Context, _ *userpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*userpb.ListAllChangelogsResponse, error) {
+	return &userpb.ListAllChangelogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------

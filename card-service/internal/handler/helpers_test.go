@@ -170,3 +170,6 @@ func (c *stubClientClient) ListClients(ctx context.Context, in *clientpb.ListCli
 func (c *stubClientClient) ListChangelog(ctx context.Context, in *clientpb.ListChangelogRequest, opts ...grpc.CallOption) (*clientpb.ListChangelogResponse, error) {
 	return nil, errors.New("not implemented")
 }
+func (c *stubClientClient) ListAllChangelogs(ctx context.Context, in *clientpb.ListAllChangelogsRequest, opts ...grpc.CallOption) (*clientpb.ListAllChangelogsResponse, error) {
+	return &clientpb.ListAllChangelogsResponse{}, nil
+}

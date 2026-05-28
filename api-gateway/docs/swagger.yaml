@@ -6759,6 +6759,381 @@ paths:
       summary: List payments by account (path-scoped)
       tags:
       - payments
+  /api/v3/admin/audit/accounts-changelog:
+    get:
+      description: Returns all changelog entries for the account-service across all
+        accounts. Filterable by date range, actor, and action. Admin-only (requires
+        admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global accounts changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/cards-changelog:
+    get:
+      description: Returns all changelog entries for the card-service across all cards.
+        Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global cards changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/clients-changelog:
+    get:
+      description: Returns all changelog entries for the client-service across all
+        clients. Filterable by date range, actor, and action. Admin-only (requires
+        admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global clients changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/cron-actions:
+    get:
+      description: Returns all admin cron-control action entries (trigger/pause/resume)
+        persisted by notification-service. Filterable by date range, actor, and action.
+        Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (trigger|pause|resume)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global admin cron-action audit log (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/employees-changelog:
+    get:
+      description: Returns all changelog entries for the user-service across all employees.
+        Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global employees changelog (admin)
+      tags:
+      - Admin
+  /api/v3/admin/audit/loans-changelog:
+    get:
+      description: Returns all changelog entries for the credit-service across all
+        loans. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date YYYY-MM-DD (inclusive)
+        in: query
+        name: since
+        type: string
+      - description: Filter to date YYYY-MM-DD (inclusive)
+        in: query
+        name: until
+        type: string
+      - description: Filter by employee (actor) ID
+        in: query
+        name: actor_id
+        type: integer
+      - description: Filter by action string (exact match)
+        in: query
+        name: action
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Global loans changelog (admin)
+      tags:
+      - Admin
   /api/v3/admin/crons:
     get:
       description: Returns cron job information from every service that exposes the

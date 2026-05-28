@@ -1018,6 +1018,20 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			adminCronManage.POST("/:service/:name/pause", h.AdminCron.Pause)
 			adminCronManage.POST("/:service/:name/resume", h.AdminCron.Resume)
 		}
+
+		// ── Admin audit log viewer (D4 — 2026-05-28) ──────────────────────
+		// All six routes require admin.audit.view. Returns full changelog
+		// tables (paginated, filterable) without scoping to a single entity.
+		auditAdmin := protected.Group("/admin/audit")
+		auditAdmin.Use(middleware.RequirePermission(perms.Admin.Audit.View))
+		{
+			auditAdmin.GET("/clients-changelog", h.AdminAudit.ListClientsChangelog)
+			auditAdmin.GET("/accounts-changelog", h.AdminAudit.ListAccountsChangelog)
+			auditAdmin.GET("/cards-changelog", h.AdminAudit.ListCardsChangelog)
+			auditAdmin.GET("/loans-changelog", h.AdminAudit.ListLoansChangelog)
+			auditAdmin.GET("/employees-changelog", h.AdminAudit.ListEmployeesChangelog)
+			auditAdmin.GET("/cron-actions", h.AdminAudit.ListCronActions)
+		}
 	}
 
 	// ── Investment fund browsing + invest/redeem (AnyAuth) ──────

@@ -94,6 +94,9 @@ func (m *mockCronAccountClient) ReleaseIncoming(_ context.Context, _ *accountpb.
 func (m *mockCronAccountClient) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }
+func (m *mockCronAccountClient) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 func newCronTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
