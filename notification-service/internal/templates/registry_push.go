@@ -189,6 +189,52 @@ var pushDefs = []Definition{
 	},
 	// ── Price alerts ─────────────────────────────────────────────────────────
 	{
+		Type: "RECURRING_ORDER_EXECUTED", Channel: "push",
+		Description: "Fired when a recurring-order tick successfully placed a Market order.",
+		Variables: []Variable{
+			{"listing_id", "Listing ID for the executed order", "42"},
+			{"quantity", "Number of units placed", "10"},
+			{"side", "Order side", "buy"},
+		},
+		DefaultSubject: "Recurring order executed",
+		DefaultBody:    "Your recurring {{side}} order placed {{quantity}} units of listing {{listing_id}}.",
+	},
+	{
+		Type: "RECURRING_ORDER_SKIPPED", Channel: "push",
+		Description: "Fired when a recurring-order tick could not place an order (e.g. insufficient funds). NextRun still advances.",
+		Variables: []Variable{
+			{"listing_id", "Listing ID for the skipped order", "42"},
+			{"quantity", "Intended quantity", "10"},
+			{"side", "Order side", "buy"},
+			{"reason", "Reason the order was skipped", "insufficient funds"},
+		},
+		DefaultSubject: "Recurring order skipped",
+		DefaultBody:    "Your recurring {{side}} order for {{quantity}} units of listing {{listing_id}} was skipped: {{reason}}.",
+	},
+	{
+		Type: "FUND_RECURRING_EXECUTED", Channel: "push",
+		Description: "Fired when a recurring fund investment tick successfully contributed to the fund.",
+		Variables: []Variable{
+			{"fund_id", "Investment fund ID", "7"},
+			{"amount", "Amount invested", "1000.00"},
+			{"currency", "Source currency", "RSD"},
+		},
+		DefaultSubject: "Recurring fund investment executed",
+		DefaultBody:    "Your recurring investment of {{amount}} {{currency}} into fund {{fund_id}} was processed.",
+	},
+	{
+		Type: "FUND_RECURRING_SKIPPED", Channel: "push",
+		Description: "Fired when a recurring fund investment tick could not contribute. NextRun still advances.",
+		Variables: []Variable{
+			{"fund_id", "Investment fund ID", "7"},
+			{"amount", "Intended amount", "1000.00"},
+			{"currency", "Source currency", "RSD"},
+			{"reason", "Reason the contribution was skipped", "insufficient funds"},
+		},
+		DefaultSubject: "Recurring fund investment skipped",
+		DefaultBody:    "Your recurring investment of {{amount}} {{currency}} into fund {{fund_id}} was skipped: {{reason}}.",
+	},
+	{
 		Type: "PRICE_ALERT_TRIGGERED", Channel: "push",
 		Description: "Fired when a user's price alert condition is met.",
 		Variables: []Variable{
