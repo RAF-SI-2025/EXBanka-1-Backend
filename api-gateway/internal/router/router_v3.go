@@ -936,6 +936,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			portfolioBank.GET("/:portfolio_id", h.UnifiedPortfolio.GetByPortfolioID)
 		}
 
+		// ── Watchlist by portfolio_id (B7 — 2026-05-28) ─────────────
+		// The /me/watchlist routes above remain untouched.
+		// This route allows employees (with the appropriate portfolio perm)
+		// to view any owner's watchlist via the portfolio-id model.
+		watchlistByPortfolio := protected.Group("/watchlist")
+		watchlistByPortfolio.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+		{
+			watchlistByPortfolio.GET("/:portfolio_id", h.Watchlist.GetByPortfolioID)
+		}
+
 		// ── Investment funds (Celina-4) ────────────────────────────
 		// Manage (create/update) requires funds.manage.catalog.
 		fundsManage := protected.Group("/investment-funds")

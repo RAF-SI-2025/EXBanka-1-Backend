@@ -9918,6 +9918,42 @@ paths:
       summary: 'Peer-to-peer: resolve a foreign user to display name'
       tags:
       - PeerOTC
+  /api/v3/watchlist/{portfolio_id}:
+    get:
+      description: portfolio_id is in the form client-<n>, bank, or fund-<n>.
+      parameters:
+      - description: Portfolio ID (client-42 / bank / fund-7)
+        in: path
+        name: portfolio_id
+        required: true
+        type: string
+      - description: stock|option|futures|forex
+        in: query
+        name: listing_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get watchlist for any owner identified by portfolio_id
+      tags:
+      - Watchlist
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"

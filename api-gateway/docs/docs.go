@@ -13340,6 +13340,61 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/api/v3/watchlist/{portfolio_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "portfolio_id is in the form client-\u003cn\u003e, bank, or fund-\u003cn\u003e.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Watchlist"
+                ],
+                "summary": "Get watchlist for any owner identified by portfolio_id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Portfolio ID (client-42 / bank / fund-7)",
+                        "name": "portfolio_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "stock|option|futures|forex",
+                        "name": "listing_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {

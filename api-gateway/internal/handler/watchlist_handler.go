@@ -114,6 +114,59 @@ func (h *WatchlistHandler) ListMy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": resp.Items})
 }
 
+// GetByPortfolioID godoc
+// @Summary      Get watchlist for any owner identified by portfolio_id
+// @Description  portfolio_id is in the form client-<n>, bank, or fund-<n>.
+//
+//	Access is gated identically to GET /api/v3/portfolio/:portfolio_id.
+//
+// @Tags         Watchlist
+// @Security     BearerAuth
+// @Produce      json
+// @Param        portfolio_id path string true "Portfolio ID (client-42 / bank / fund-7)"
+// @Param        listing_type query string false "stock|option|futures|forex"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
+// @Router       /api/v3/watchlist/{portfolio_id} [get]
+func (h *WatchlistHandler) GetByPortfolioID(c *gin.Context) {
+	pid := c.Param("portfolio_id")
+	ot, oid, err := DecodePortfolioID(pid)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+
+	id := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	perms := middleware.GetCallerPermissions(c)
+	if err := enforcePortfolioAccess(c, id, ot, oid, perms); err != nil {
+		return
+	}
+
+	listingType := c.Query("listing_type")
+	if listingType != "" {
+		if _, err := oneOf("listing_type", listingType, "stock", "option", "futures", "forex"); err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+			return
+		}
+	}
+
+	var ownerID uint64
+	if oid != nil {
+		ownerID = *oid
+	}
+	resp, err := h.client.ListMy(c.Request.Context(), &stockpb.ListMyWatchlistRequest{
+		OwnerType:   ot,
+		OwnerId:     ownerID,
+		ListingType: listingType,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": resp.Items})
+}
+
 func derefU64(p *uint64) uint64 {
 	if p == nil {
 		return 0
