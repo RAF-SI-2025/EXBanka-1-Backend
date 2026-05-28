@@ -5587,7 +5587,7 @@ Exercise an options contract.
 | *(new)* | `GET /api/v3/otc/options/:id/negotiations` (every chain on a listing — visible to all parties) |
 | *(new)* | `GET /api/v3/me/otc/options/negotiations` (caller's chains) |
 | *(new)* | `GET /api/v3/otc/options` (unified local + remote discovery) |
-| *(new — peer)* | `GET /api/v3/public-option-offers` (cross-bank discovery endpoint) |
+| *(new — peer)* | `GET /api/v3/cross-bank-protocol/public-option-offers` (cross-bank discovery endpoint) |
 
 The exercise route, contract list, contract detail, ratings, and negotiation-history routes from the old §30 are unchanged — they're still at their existing paths under `/me/otc/contracts/...`, `/me/otc/history`, and `/otc/traders/...`.
 
@@ -6845,9 +6845,9 @@ When `status=failed`, `last_error` contains the failure reason. The admin can re
 
 ## 39. Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)
 
-Runtime registry of cross-bank peer banks. Backs the SI-TX `POST /api/v3/interbank` middleware, which looks up peer authentication credentials in this table. EmployeeAdmin only (`peer_banks.manage.any` permission).
+Runtime registry of cross-bank peer banks. Backs the SI-TX `POST /api/v3/cross-bank-protocol/interbank` middleware, which looks up peer authentication credentials in this table. EmployeeAdmin only (`peer_banks.manage.any` permission).
 
-> **Status:** fully wired. The admin CRUD, the `POST /api/v3/interbank` envelope handler (`NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX`), and both auth paths (`X-Api-Key` via `ResolvePeerByAPIToken` and the HMAC bundle via `ResolvePeerByBankCode`) are all implemented. `POST /api/v3/interbank` only returns `501 Not Implemented` if the gRPC backend itself returns `Unimplemented`, which it does not in the current build.
+> **Status:** fully wired. The admin CRUD, the `POST /api/v3/cross-bank-protocol/interbank` envelope handler (`NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX`), and both auth paths (`X-Api-Key` via `ResolvePeerByAPIToken` and the HMAC bundle via `ResolvePeerByBankCode`) are all implemented. `POST /api/v3/cross-bank-protocol/interbank` only returns `501 Not Implemented` if the gRPC backend itself returns `Unimplemented`, which it does not in the current build.
 
 ### GET /api/v3/peer-banks
 
@@ -6964,15 +6964,32 @@ Remove a peer bank.
 
 ## Cross-Bank Protocol (`/cross-bank-protocol`)
 
-> **Dual-mount (Plan F, 2026-05-28):** Every SI-TX wire-protocol route listed below is served at BOTH a legacy path (e.g. `POST /api/v3/interbank`) AND a new canonical path under the `/cross-bank-protocol` prefix (e.g. `POST /api/v3/cross-bank-protocol/interbank`). Same handlers, same PeerAuth middleware, identical response shapes.
+> **Cross-bank protocol routes live ONLY at `/api/v3/cross-bank-protocol/...`. There is no legacy alias.**
 >
-> **Legacy aliases without the prefix remain functional but are deprecated.** New cohort registrations should set their `base_url` for this bank to point at `/api/v3/cross-bank-protocol` so the legacy paths can be retired in a future release once all peers have migrated.
+> As of 2026-05-29, the legacy paths (`/api/v3/interbank`, `/api/v3/public-stock`, `/api/v3/negotiations/*`, `/api/v3/user/*`) have been removed. Any cohort bank still using the old prefix will receive 404 and MUST update its peer-banks registration immediately.
 >
 > Authentication for all routes in this section: PeerAuth (hybrid `X-Api-Key` or HMAC bundle — see §39 for the trust setup).
+>
+> **Registering this bank:** Set `base_url` to `http://<this-bank-host>/api/v3/cross-bank-protocol` in your `peer_banks` table. The outbound HTTP client appends only the leaf names (`/interbank`, `/public-stock`, `/negotiations`, `/user`) to `base_url`.
 
-### POST /api/v3/interbank
+### Route Summary
 
-> **Deprecated.** Use `POST /api/v3/cross-bank-protocol/interbank` for new registrations.
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v3/cross-bank-protocol/interbank` | SI-TX `Message<Type>` envelope (NEW_TX / COMMIT_TX / ROLLBACK_TX) |
+| `GET` | `/api/v3/cross-bank-protocol/interbank/:transaction_id/status` | CHECK_STATUS: query cross-bank TX state |
+| `GET` | `/api/v3/cross-bank-protocol/public-stock` | List this bank's OTC-public stock holdings |
+| `GET` | `/api/v3/cross-bank-protocol/public-option-offers` | List this bank's OPEN OTC option listings (Phase 6) |
+| `POST` | `/api/v3/cross-bank-protocol/negotiations` | Create cross-bank OTC negotiation |
+| `PUT` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Counter-offer on existing negotiation |
+| `GET` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Read negotiation state |
+| `DELETE` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Cancel negotiation |
+| `GET` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id/accept` | Accept negotiation (triggers 4-posting SI-TX) |
+| `GET` | `/api/v3/cross-bank-protocol/user/:rid/:id` | Counterparty user identity lookup |
+
+---
+
+### POST /api/v3/cross-bank-protocol/interbank
 
 Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 3 implementation is fully wired: `NEW_TX` validates postings (UNBALANCED_TX check + per-posting account/asset/active checks), reserves credit-postings via `account-service.ReserveIncoming`, and emits `TransactionVote`. `COMMIT_TX` finalises reservations; `ROLLBACK_TX` releases them. Idempotence-key replay returns the cached vote.
 
@@ -7005,13 +7022,11 @@ Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 3 implementat
 
 ---
 
-### GET /api/v3/interbank/:transaction_id/status
-
-> **Deprecated.** Use `GET /api/v3/cross-bank-protocol/interbank/:transaction_id/status` for new registrations.
+### GET /api/v3/cross-bank-protocol/interbank/:transaction_id/status
 
 Allows a peer bank to query the status of a cross-bank SI-TX transaction by its `transactionId` (the UUID / idempotence key used in the original `NEW_TX` envelope). Used by the Celina-5 CHECK_STATUS mechanism so stuck sagas can be resolved by either side when communication breaks mid-flight.
 
-**Authentication:** PeerAuth (X-Api-Key or HMAC bundle) — same as `POST /api/v3/interbank`.
+**Authentication:** PeerAuth (X-Api-Key or HMAC bundle).
 
 **Path Parameters:**
 - `transaction_id` — the SI-TX transaction UUID (= the `locallyGeneratedKey` sent in the original `NEW_TX` envelope).
@@ -7040,9 +7055,7 @@ Allows a peer bank to query the status of a cross-bank SI-TX transaction by its 
 
 ---
 
-### GET /api/v3/public-stock
-
-> **Deprecated.** Use `GET /api/v3/cross-bank-protocol/public-stock` for new registrations.
+### GET /api/v3/cross-bank-protocol/public-stock
 
 Peer-facing OTC discovery — returns stock holdings on this bank flagged for OTC public trading. Used by peer banks to populate their OTC discovery pages.
 
@@ -7065,9 +7078,7 @@ Peer-facing OTC discovery — returns stock holdings on this bank flagged for OT
 
 ---
 
-### POST /api/v3/negotiations
-
-> **Deprecated.** Use `POST /api/v3/cross-bank-protocol/negotiations` for new registrations.
+### POST /api/v3/cross-bank-protocol/negotiations
 
 Peer initiates a cross-bank OTC negotiation against a publicly-listed holding on this bank. The peer's offer is persisted in `peer_otc_negotiations` and gets a fresh negotiation ID owned by this bank.
 
@@ -7096,11 +7107,9 @@ Peer initiates a cross-bank OTC negotiation against a publicly-listed holding on
 
 ---
 
-### PUT /api/v3/negotiations/:rid/:id
+### PUT /api/v3/cross-bank-protocol/negotiations/:rid/:id
 
-> **Deprecated.** Use `PUT /api/v3/cross-bank-protocol/negotiations/:rid/:id` for new registrations.
-
-Counter-offer on an existing negotiation. The negotiation must have been created via `POST /api/v3/negotiations` first.
+Counter-offer on an existing negotiation.
 
 **Authentication:** PeerAuth.
 
@@ -7114,9 +7123,7 @@ Counter-offer on an existing negotiation. The negotiation must have been created
 
 ---
 
-### GET /api/v3/negotiations/:rid/:id
-
-> **Deprecated.** Use `GET /api/v3/cross-bank-protocol/negotiations/:rid/:id` for new registrations.
+### GET /api/v3/cross-bank-protocol/negotiations/:rid/:id
 
 Read a negotiation's current state.
 
@@ -7142,9 +7149,7 @@ Read a negotiation's current state.
 
 ---
 
-### DELETE /api/v3/negotiations/:rid/:id
-
-> **Deprecated.** Use `DELETE /api/v3/cross-bank-protocol/negotiations/:rid/:id` for new registrations.
+### DELETE /api/v3/cross-bank-protocol/negotiations/:rid/:id
 
 Cancel a negotiation. Either side may delete; status flips to `cancelled`.
 
@@ -7153,9 +7158,7 @@ Cancel a negotiation. Either side may delete; status flips to `cancelled`.
 
 ---
 
-### GET /api/v3/negotiations/:rid/:id/accept
-
-> **Deprecated.** Use `GET /api/v3/cross-bank-protocol/negotiations/:rid/:id/accept` for new registrations.
+### GET /api/v3/cross-bank-protocol/negotiations/:rid/:id/accept
 
 Accept a negotiation. Composes a 4-posting `Transaction` (premium money debit-buyer/credit-seller + 1× `OptionDescription` debit-seller/credit-buyer) and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. The resulting SI-TX TX runs through the normal `NEW_TX` → `COMMIT_TX` flow.
 
@@ -7170,9 +7173,7 @@ The `transactionId` is the same idempotence-key the OutboundReplayCron uses; cli
 
 ---
 
-### GET /api/v3/user/:rid/:id
-
-> **Deprecated.** Use `GET /api/v3/cross-bank-protocol/user/:rid/:id` for new registrations.
+### GET /api/v3/cross-bank-protocol/user/:rid/:id
 
 Returns identity info for a counterparty user. Peers call this when displaying user names alongside OTC negotiations or transfer history.
 
@@ -7192,34 +7193,6 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 ```
 
 **Response 404:** Foreign rid or unknown user id.
-
----
-
-### Canonical paths under `/api/v3/cross-bank-protocol/...`
-
-All 10 routes above are also served at the canonical prefix. The canonical paths are functionally identical (same handlers, same PeerAuth middleware, same request/response shapes) and are the preferred paths for new cohort bank registrations. Authentication: PeerAuth (X-Api-Key or HMAC bundle).
-
-| Method | Canonical Path | Description |
-|---|---|---|
-| `POST` | `/api/v3/cross-bank-protocol/interbank` | SI-TX `Message<Type>` envelope (NEW_TX / COMMIT_TX / ROLLBACK_TX) |
-| `GET` | `/api/v3/cross-bank-protocol/interbank/:transaction_id/status` | CHECK_STATUS: query cross-bank TX state |
-| `GET` | `/api/v3/cross-bank-protocol/public-stock` | List this bank's OTC-public stock holdings |
-| `GET` | `/api/v3/cross-bank-protocol/public-option-offers` | List this bank's OPEN OTC option listings (Phase 6) |
-| `POST` | `/api/v3/cross-bank-protocol/negotiations` | Create cross-bank OTC negotiation |
-| `PUT` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Counter-offer on existing negotiation |
-| `GET` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Read negotiation state |
-| `DELETE` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Cancel negotiation |
-| `GET` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id/accept` | Accept negotiation (triggers 4-posting SI-TX) |
-| `GET` | `/api/v3/cross-bank-protocol/user/:rid/:id` | Counterparty user identity lookup |
-
-Request/response bodies, path parameters, and status codes are identical to the legacy equivalents documented above.
-
-**Migration:** To point a peer bank at the canonical prefix, update the peer's registration:
-```
-PUT /api/v3/peer-banks/:id
-{ "base_url": "http://peer-222/api/v3/cross-bank-protocol" }
-```
-The outbound HTTP client appends only the leaf names (`/interbank`, `/public-stock`, `/negotiations`, `/user`) to `base_url`, so a single `PUT` migrates all outbound calls to the new peer prefix.
 
 ---
 
@@ -7775,7 +7748,7 @@ The OTC surface is split into two clearly-separated marketplaces:
 - **`/api/v3/otc/stocks/...`** — public-stock listings, **no negotiation**. Sellers publish shares, buyers fill outright. Includes both sell-direction (publish shares from a holding) and buy-direction (publish a standing offer to buy at a fixed price, backed by a cash reservation).
 - **`/api/v3/otc/options/...`** — option-contract marketplace, **with negotiation**. Any user can post an option listing; many other users can each open their own bid chain on the same listing; first-to-accept wins atomically and sibling chains cascade-cancel inside the same DB transaction.
 
-Both marketplaces support local + cross-bank discovery (peer banks publish their listings via `/api/v3/public-stock` and `/api/v3/public-option-offers`; each bank's stock-service polls every ~5 s and merges into an in-memory cache).
+Both marketplaces support local + cross-bank discovery (peer banks publish their listings via `/api/v3/cross-bank-protocol/public-stock` and `/api/v3/cross-bank-protocol/public-option-offers`; each bank's stock-service polls every ~5 s and merges into an in-memory cache).
 
 > **Migration note:** Phase 8 cleanup deletes the legacy `/api/v3/otc/offers/...` routes. Existing frontends should migrate to the routes below before that lands. See [Section 29](#29-otc-offers-public-stock-listings) and [Section 30](#30-otc-option-contracts-celina-4) for what was there before.
 
@@ -8355,11 +8328,9 @@ Templates are admin-editable via the 3a notification template management endpoin
 
 ### 47.3 Peer protocol (SI-TX cross-bank)
 
-#### GET /api/v3/public-option-offers
+#### GET /api/v3/cross-bank-protocol/public-option-offers
 
-> **Deprecated.** Use `GET /api/v3/cross-bank-protocol/public-option-offers` for new registrations.
-
-Peer-facing endpoint for cross-bank option discovery. Same auth as `/api/v3/public-stock`: `PeerAuth` middleware validates `X-Api-Key` against the registered peer-bank's API token. The peer's `X-Bank-Code` is stamped onto the request context and used to filter listings marked `Private=true` to a specific recipient bank.
+Peer-facing endpoint for cross-bank option discovery. `PeerAuth` middleware validates `X-Api-Key` against the registered peer-bank's API token. The peer's `X-Bank-Code` is stamped onto the request context and used to filter listings marked `Private=true` to a specific recipient bank.
 
 **Authentication:** PeerAuth (X-Api-Key alone OR full HMAC bundle)
 
