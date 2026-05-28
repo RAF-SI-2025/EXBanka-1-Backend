@@ -588,6 +588,34 @@ func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model
 	}
 }
 
+// CommitOutboundLocal finalises the local CREDIT-leg reservations applied at
+// initiation time. Wired into OutboundReplayCron as its LocalCommitFunc so the
+// cron — which has no account client of its own — can complete the local
+// side of an OTC cross-bank commit after a crash between the inline Reserve()
+// and the inline CommitIncoming() call.
+//
+// Skipped for "transfer" rows: those have no local CREDIT leg (the sender's
+// account was debited directly in InitiateOutboundTx, not reserved).
+//
+// Idempotency: uses key "sitx-localcommit-<localKey>" where localKey =
+// "<ownRouting>:<idem>", identical to the inline path's key. NotFound at
+// account-service is benign — means no CREDIT legs landed on this bank.
+// Safe to call multiple times.
+func (h *PeerTxGRPCHandler) CommitOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
+	if row.TxKind == "" || row.TxKind == "transfer" {
+		return nil
+	}
+	ownPeerCode := strconv.FormatInt(h.ownRouting, 10)
+	localKey := ownPeerCode + ":" + row.IdempotenceKey
+	if _, err := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{
+		ReservationKey: localKey,
+		IdempotencyKey: "sitx-localcommit-" + localKey,
+	}); err != nil && status.Code(err) != codes.NotFound {
+		return err
+	}
+	return nil
+}
+
 // GetTxStatus implements the Celina-5 CHECK_STATUS mechanism. A peer bank
 // can query the state of a cross-bank transaction by its transactionId
 // (which equals our IdempotenceKey / UUID). We check both sender-side

@@ -24,6 +24,7 @@ type OutboundReplayCron struct {
 	httpClient   *sitx.PeerHTTPClient
 	peerLookup   PeerLookupFunc
 	reverseLocal LocalReversalFunc
+	commitLocal  LocalCommitFunc
 	tickInterval time.Duration
 	minRetryGap  time.Duration
 	maxAttempts  int
@@ -43,6 +44,16 @@ type PeerLookupFunc func(ctx context.Context, code string) (*sitx.PeerHTTPTarget
 // idempotency keys match the inline dispatch path. Must be idempotent: the
 // cron may call it more than once for the same row across ticks.
 type LocalReversalFunc func(ctx context.Context, row *model.OutboundPeerTx) error
+
+// LocalCommitFunc finalises the local CREDIT-leg reservations applied at
+// initiation time for an OTC outbound row. Called after the peer votes YES
+// but before the cron sends COMMIT_TX, mirroring the inline dispatch path.
+// Safe-and-required to call: without this hook, an OTC outbound row that is
+// resumed by the cron commits on the peer but leaves the local reservation
+// pending indefinitely. Must be idempotent — uses the same key as the inline
+// path so duplicate calls are a no-op. Wired by cmd/main.go to
+// PeerTxGRPCHandler.CommitOutboundLocal.
+type LocalCommitFunc func(ctx context.Context, row *model.OutboundPeerTx) error
 
 func NewOutboundReplayCron(
 	repo *repository.OutboundPeerTxRepository,
@@ -82,6 +93,14 @@ func (c *OutboundReplayCron) WithMaxAttempts(n int) *OutboundReplayCron {
 // wires it; see LocalReversalFunc.
 func (c *OutboundReplayCron) WithLocalReversal(fn LocalReversalFunc) *OutboundReplayCron {
 	c.reverseLocal = fn
+	return c
+}
+
+// WithLocalCommit wires the local commit hook for OTC rows. Optional — left
+// nil, the cron skips the local commit step (acceptable for tests that don't
+// exercise reservation lifecycle). Production always wires it.
+func (c *OutboundReplayCron) WithLocalCommit(fn LocalCommitFunc) *OutboundReplayCron {
+	c.commitLocal = fn
 	return c
 }
 
@@ -166,6 +185,18 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 		return
 	}
 	if vote.Type == contractsitx.VoteYes {
+		// Finalise the local CREDIT-leg reservations BEFORE sending COMMIT_TX,
+		// mirroring the inline dispatch path. Without this, an OTC row resumed
+		// here would commit on the peer but leave the local reservation in
+		// "pending" forever — funds/shares locked with no auto-recovery.
+		// LocalCommitFunc is idempotent (uses the same key as the inline path)
+		// so this is safe even if the inline path already ran it.
+		if c.commitLocal != nil {
+			if cerr := c.commitLocal(ctx, row); cerr != nil {
+				_ = c.repo.MarkAttempt(row.IdempotenceKey, "local commit: "+cerr.Error())
+				return
+			}
+		}
 		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
 			IdempotenceKey: contractsitx.IdempotenceKey{
 				RoutingNumber:       target.OwnRouting,

@@ -250,7 +250,8 @@ func main() {
 	}
 
 	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup), cronRegistry).
-		WithLocalReversal(peerTxHandler.ReverseOutboundLocal)
+		WithLocalReversal(peerTxHandler.ReverseOutboundLocal).
+		WithLocalCommit(peerTxHandler.CommitOutboundLocal)
 	replayCron.Start(ctx)
 
 	// PeerTxReconciler: sender-side polling worker that asks the peer for
