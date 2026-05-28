@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -140,15 +141,26 @@ func (r *PeerTxReconciler) processRow(ctx context.Context, idem, peerCode string
 	switch statusResp.State {
 	case "committed":
 		// Peer has committed — mark our row committed to close the saga.
+		// MarkCommitted is guarded by AND status='pending', so a concurrent
+		// resolution by OutboundReplayCron will surface as ErrPeerTxAlreadyResolved
+		// (not an error worth logging at error level).
 		if err := r.outRepo.MarkCommitted(idem); err != nil {
-			log.Printf("peer-tx-reconciler: MarkCommitted %s: %v", idem, err)
+			if errors.Is(err, repository.ErrPeerTxAlreadyResolved) {
+				log.Printf("peer-tx-reconciler: %s already resolved, skipping commit", idem)
+			} else {
+				log.Printf("peer-tx-reconciler: MarkCommitted %s: %v", idem, err)
+			}
 		} else {
 			log.Printf("peer-tx-reconciler: reconciled %s → committed (peer confirmed)", idem)
 		}
 
 	case "rolled_back", "unknown", "dead_letter":
-		// Peer has rolled back or has no record → reverse our local effects
-		// and mark rolled_back. If reversal fails, leave pending (retry next tick).
+		// Safe ordering to prevent double-reverse race with OutboundReplayCron:
+		//  1. Mark rolled_back FIRST (status guard: AND status='pending').
+		//     If we lose the race, ErrPeerTxAlreadyResolved is returned and
+		//     we skip localReverse entirely — preventing double credit-back.
+		//  2. Only call localReverse AFTER successfully claiming the row.
+		//     If localReverse fails, the row is already terminal; log + alert.
 		row, dbErr := r.outRepo.GetByIdempotenceKey(idem)
 		if dbErr != nil {
 			log.Printf("peer-tx-reconciler: fetch row %s: %v", idem, dbErr)
@@ -158,17 +170,22 @@ func (r *PeerTxReconciler) processRow(ctx context.Context, idem, peerCode string
 		if statusResp.LastError != "" {
 			reason += " (" + statusResp.LastError + ")"
 		}
-		if r.reverseLocal != nil && row != nil {
-			if rerr := r.reverseLocal(ctx, row); rerr != nil {
-				log.Printf("peer-tx-reconciler: reversal %s failed: %v (will retry)", idem, rerr)
-				_ = r.outRepo.MarkAttempt(idem, reason+" [reversal failed: "+rerr.Error()+"]")
+		if err := r.outRepo.MarkRolledBack(idem, reason); err != nil {
+			if errors.Is(err, repository.ErrPeerTxAlreadyResolved) {
+				log.Printf("peer-tx-reconciler: %s already resolved by concurrent worker, skipping reversal", idem)
 				return
 			}
+			log.Printf("peer-tx-reconciler: MarkRolledBack %s: %v (will retry)", idem, err)
+			_ = r.outRepo.MarkAttempt(idem, reason+" [MarkRolledBack failed: "+err.Error()+"]")
+			return
 		}
-		if err := r.outRepo.MarkRolledBack(idem, reason); err != nil {
-			log.Printf("peer-tx-reconciler: MarkRolledBack %s: %v", idem, err)
-		} else {
-			log.Printf("peer-tx-reconciler: reconciled %s → rolled_back (%s)", idem, reason)
+		log.Printf("peer-tx-reconciler: reconciled %s → rolled_back (%s)", idem, reason)
+		// Row is now terminal; perform local credit-back. If this fails, the
+		// row is already rolled_back so next tick won't retry — manual recovery needed.
+		if r.reverseLocal != nil && row != nil {
+			if rerr := r.reverseLocal(ctx, row); rerr != nil {
+				log.Printf("peer-tx-reconciler: ALERT reversal %s failed after MarkRolledBack: %v — manual recovery required", idem, rerr)
+			}
 		}
 
 	case "prepared":

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"time"
 
@@ -184,16 +185,28 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 	if len(vote.NoVotes) > 0 {
 		reason = "peer voted NO: " + vote.NoVotes[0].Reason
 	}
-	// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): the sender was
-	// debited at initiation, so a NO vote must credit them back. If the
-	// reversal fails, keep the row pending (MarkAttempt) so a later tick
-	// retries it rather than stranding the money in a terminal row — the
-	// credit-back is idempotent, so replaying the NO+reverse loop is safe.
-	if rerr := c.reverse(ctx, row); rerr != nil {
-		_ = c.repo.MarkAttempt(row.IdempotenceKey, reason+" (creditback failed, will retry: "+rerr.Error()+")")
+	// Safe ordering for NO-vote resolution to prevent double-reverse race:
+	//  1. Mark rolled_back FIRST (status guard: AND status='pending').
+	//     If another goroutine (PeerTxReconciler) already resolved this row,
+	//     MarkRolledBack returns ErrPeerTxAlreadyResolved — we skip reversal.
+	//  2. Only call localReverse AFTER successfully claiming the row.
+	//     localReverse uses its own idempotency keys so it is safe to retry,
+	//     but we must not call it when we didn't win the status-guard race.
+	if err := c.repo.MarkRolledBack(row.IdempotenceKey, reason); err != nil {
+		if errors.Is(err, repository.ErrPeerTxAlreadyResolved) {
+			log.Printf("outbound-replay: %s already resolved by concurrent worker, skipping reversal", row.IdempotenceKey)
+			return
+		}
+		_ = c.repo.MarkAttempt(row.IdempotenceKey, reason+" (MarkRolledBack failed: "+err.Error()+")")
 		return
 	}
-	_ = c.repo.MarkRolledBack(row.IdempotenceKey, reason)
+	// Row is now in rolled_back; perform the local credit-back. If the
+	// reversal fails, log and alert — the row is already terminal so the
+	// next tick won't retry. Ops must recover the stranded balance manually
+	// or via the dead-letter recovery path.
+	if rerr := c.reverse(ctx, row); rerr != nil {
+		log.Printf("outbound-replay: ALERT reversal failed for %s after MarkRolledBack: %v — manual recovery required", row.IdempotenceKey, rerr)
+	}
 }
 
 // reverse credits back the local effects of an outbound row via the wired
