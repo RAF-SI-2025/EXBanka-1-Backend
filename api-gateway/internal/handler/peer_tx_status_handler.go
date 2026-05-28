@@ -22,7 +22,7 @@ func NewPeerTxStatusHandler(c transactionpb.PeerTxServiceClient) *PeerTxStatusHa
 
 // GetTxStatus godoc
 // @Summary      Peer-to-peer: query cross-bank transaction status (CHECK_STATUS)
-// @Description  Allows a peer bank to query the state of a cross-bank SI-TX transaction by its transactionId. Returns the state and our role (sender|receiver). Used by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved by either side. Legacy path: /api/v3/interbank/:transaction_id/status (deprecated — use /api/v3/cross-bank-protocol/interbank/:transaction_id/status for new registrations).
+// @Description  Allows a peer bank to query the state of a cross-bank SI-TX transaction by its transactionId. Returns the state and our role (sender|receiver). Used by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved by either side.
 // @Tags         PeerOTC
 // @Produce      json
 // @Param        transaction_id  path      string  true  "SI-TX transaction UUID (idempotence key)"
@@ -30,7 +30,6 @@ func NewPeerTxStatusHandler(c transactionpb.PeerTxServiceClient) *PeerTxStatusHa
 // @Failure      400  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]interface{}
 // @Failure      500  {object}  map[string]interface{}
-// @Router       /api/v3/interbank/{transaction_id}/status [get]
 // @Router       /api/v3/cross-bank-protocol/interbank/{transaction_id}/status [get]
 func (h *PeerTxStatusHandler) GetTxStatus(c *gin.Context) {
 	txID := c.Param("transaction_id")

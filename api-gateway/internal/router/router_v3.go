@@ -240,56 +240,29 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.DELETE("/peer-otc/negotiations/:rid/:id", h.PeerOTCInitiate.CancelPeerNegotiation)
 	}
 
-	// ── SI-TX peer-facing route (Phase 2 Task 14) ────────────────────
-	// POST /api/v3/interbank: receives Message<Type> envelope from peer
-	// banks, dispatches by messageType to PeerTxService gRPC. Phase 2
-	// returns 501 (Unimplemented passthrough); Phase 3 fills in actual
-	// TX execution.
-	//
-	// Legacy paths — kept for cohort-bank backwards compat (Plan F,
-	// 2026-05-28). Deprecated: new cohort registrations should use
-	// /api/v3/cross-bank-protocol/... instead.
-	peer := v3.Group("")
-	peer.Use(h.PeerAuthMW)
-	{
-		peer.POST("/interbank", h.PeerTx.PostInterbank)
-		// CHECK_STATUS: peer banks can query the state of a cross-bank TX
-		// by transactionId so stuck sagas can be resolved (Celina-5 §"Mehanizam za Retry").
-		peer.GET("/interbank/:transaction_id/status", h.PeerTxStatus.GetTxStatus)
-
-		// Phase 4 SI-TX OTC peer endpoints (Celina 5). Auth is the same
-		// hybrid X-Api-Key/HMAC bundle as /interbank — peer_bank_code is
-		// stamped on the gin context by middleware.PeerAuth and read
-		// inside each handler.
-		peer.GET("/public-stock", h.PeerOTC.GetPublicStocks)
-		// Phase 6: cross-bank discovery of OPEN OTC OPTION listings.
-		// Same auth (PeerAuth) and shape conventions as /public-stock.
-		peer.GET("/public-option-offers", h.PeerOTC.GetPublicOptionOffers)
-		peer.POST("/negotiations", h.PeerOTC.CreateNegotiation)
-		peer.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
-		peer.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
-		peer.DELETE("/negotiations/:rid/:id", h.PeerOTC.DeleteNegotiation)
-		peer.GET("/negotiations/:rid/:id/accept", h.PeerOTC.AcceptNegotiation)
-		peer.GET("/user/:rid/:id", h.PeerUser.GetUser)
-	}
-
-	// ── SI-TX canonical prefix (Plan F, 2026-05-28) ──────────────────
-	// New canonical paths under /cross-bank-protocol/... — same handlers
-	// and middleware as the legacy paths above. New cohort registrations
-	// should set base_url to .../api/v3/cross-bank-protocol so the legacy
-	// paths can be retired once all peers have migrated.
+	// ── SI-TX canonical prefix ───────────────────────────────────────
+	// All cross-bank wire-protocol routes live exclusively under
+	// /cross-bank-protocol/... — there is no legacy alias. Cohort banks
+	// MUST register this bank's base_url as .../api/v3/cross-bank-protocol
+	// to interoperate. Legacy paths (/api/v3/interbank, /api/v3/public-stock,
+	// etc.) were removed on 2026-05-29 per user direction.
 	crossBank := v3.Group("/cross-bank-protocol")
 	crossBank.Use(h.PeerAuthMW)
 	{
+		// SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX / VOTE)
 		crossBank.POST("/interbank", h.PeerTx.PostInterbank)
+		// CHECK_STATUS: peer banks query state of a cross-bank TX (Celina-5 §"Mehanizam za Retry")
 		crossBank.GET("/interbank/:transaction_id/status", h.PeerTxStatus.GetTxStatus)
+		// OTC stock + option discovery (Phase 4 + 6)
 		crossBank.GET("/public-stock", h.PeerOTC.GetPublicStocks)
 		crossBank.GET("/public-option-offers", h.PeerOTC.GetPublicOptionOffers)
+		// Cross-bank OTC negotiations (Phase 4)
 		crossBank.POST("/negotiations", h.PeerOTC.CreateNegotiation)
 		crossBank.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
 		crossBank.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
 		crossBank.DELETE("/negotiations/:rid/:id", h.PeerOTC.DeleteNegotiation)
 		crossBank.GET("/negotiations/:rid/:id/accept", h.PeerOTC.AcceptNegotiation)
+		// Counterparty user identity lookup
 		crossBank.GET("/user/:rid/:id", h.PeerUser.GetUser)
 	}
 
