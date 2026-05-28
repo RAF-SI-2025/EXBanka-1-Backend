@@ -46,7 +46,7 @@ func TestOutboundReplayCron_PeerVotesNO_CreditsBackBeforeRollback(t *testing.T) 
 	cron := service.NewOutboundReplayCron(repo, sitx.NewPeerHTTPClient(http.DefaultClient),
 		func(_ context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 			return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "t", OwnRouting: 111, RoutingNumber: 222}, nil
-		}).
+		}, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4).
 		WithLocalReversal(func(_ context.Context, r *model.OutboundPeerTx) error {
 			reversed = append(reversed, r.IdempotenceKey)
@@ -85,7 +85,7 @@ func TestOutboundReplayCron_MaxAttempts_CreditsBackBeforeFailed(t *testing.T) {
 	cron := service.NewOutboundReplayCron(repo, sitx.NewPeerHTTPClient(http.DefaultClient),
 		func(_ context.Context, _ string) (*sitx.PeerHTTPTarget, error) {
 			return nil, errors.New("peer lookup must not be called past max attempts")
-		}).
+		}, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4).
 		WithLocalReversal(func(_ context.Context, _ *model.OutboundPeerTx) error { reversed++; return nil })
 	cron.Tick(context.Background())
@@ -124,7 +124,7 @@ func TestOutboundReplayCron_PeerVotesNO_ReversalFails_StaysPending(t *testing.T)
 	cron := service.NewOutboundReplayCron(repo, sitx.NewPeerHTTPClient(http.DefaultClient),
 		func(_ context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 			return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "t", OwnRouting: 111, RoutingNumber: 222}, nil
-		}).
+		}, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4).
 		WithLocalReversal(func(_ context.Context, _ *model.OutboundPeerTx) error {
 			return errors.New("account-service down")

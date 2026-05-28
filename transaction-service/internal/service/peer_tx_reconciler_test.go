@@ -43,7 +43,7 @@ func newReconciler(repo *repository.OutboundPeerTxRepository, srvURL string) *se
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srvURL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
 	}
-	return service.NewPeerTxReconciler(repo, httpClient, service.PeerLookupFunc(peerLookup)).
+	return service.NewPeerTxReconciler(repo, httpClient, service.PeerLookupFunc(peerLookup), nilRegistry()).
 		WithMinAge(0)
 }
 
@@ -189,7 +189,7 @@ func TestPeerTxReconciler_PeerUnreachable(t *testing.T) {
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: "http://127.0.0.1:19999", APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
 	}
-	r := service.NewPeerTxReconciler(repo, httpClient, service.PeerLookupFunc(peerLookup)).
+	r := service.NewPeerTxReconciler(repo, httpClient, service.PeerLookupFunc(peerLookup), nilRegistry()).
 		WithMinAge(0)
 	r.Tick(context.Background())
 

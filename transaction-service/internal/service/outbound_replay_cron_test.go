@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/exbanka/contract/cronreg"
 	contractsitx "github.com/exbanka/contract/sitx"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -16,6 +17,12 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
+
+// nilRegistry returns a no-op Registry for unit tests that don't need
+// pause/trigger control (nil PauseStore is explicitly supported).
+func nilRegistry() *cronreg.Registry {
+	return cronreg.NewRegistry("test", nil)
+}
 
 func newCronTestDB(t *testing.T) (*gorm.DB, *repository.OutboundPeerTxRepository) {
 	t.Helper()
@@ -58,7 +65,7 @@ func TestOutboundReplayCron_RetriesPendingRow_OnYESCommits(t *testing.T) {
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
 	}
-	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup).
+	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 
@@ -89,7 +96,7 @@ func TestOutboundReplayCron_PeerVotesNO_MarksRolledBack(t *testing.T) {
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
 	}
-	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup).
+	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 
@@ -118,7 +125,7 @@ func TestOutboundReplayCron_MaxAttemptsExceeded_MarksFailed(t *testing.T) {
 	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
 		return nil, errors.New("should not be called")
 	}
-	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup).
+	cron := service.NewOutboundReplayCron(repo, httpClient, peerLookup, nilRegistry()).
 		WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 

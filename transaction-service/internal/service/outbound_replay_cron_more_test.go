@@ -16,7 +16,7 @@ import (
 // TestOutboundReplayCron_Builders verifies the builder methods produce a
 // configured cron object — exercises With* paths.
 func TestOutboundReplayCron_Builders(t *testing.T) {
-	cron := service.NewOutboundReplayCron(nil, nil, nil).
+	cron := service.NewOutboundReplayCron(nil, nil, nil, nilRegistry()).
 		WithTickInterval(2 * time.Second).
 		WithMinRetryGap(1 * time.Second).
 		WithMaxAttempts(7)
@@ -32,7 +32,7 @@ func TestOutboundReplayCron_Start_RespectsContextCancel(t *testing.T) {
 	_, repo := newCronTestDB(t)
 	cron := service.NewOutboundReplayCron(repo, sitx.NewPeerHTTPClient(http.DefaultClient), func(_ context.Context, _ string) (*sitx.PeerHTTPTarget, error) {
 		return nil, errors.New("not used")
-	}).WithTickInterval(20 * time.Millisecond).WithMinRetryGap(0)
+	}, nilRegistry()).WithTickInterval(20 * time.Millisecond).WithMinRetryGap(0)
 	cron.Start(ctx)
 	// Let it run a few ticks, then cancel.
 	time.Sleep(60 * time.Millisecond)
@@ -58,7 +58,7 @@ func TestOutboundReplayCron_PeerLookupFails_MarksAttempt(t *testing.T) {
 	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
 	cron := service.NewOutboundReplayCron(repo, httpClient, func(_ context.Context, _ string) (*sitx.PeerHTTPTarget, error) {
 		return nil, errors.New("peer not registered")
-	}).WithMinRetryGap(0).WithMaxAttempts(4)
+	}, nilRegistry()).WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 
 	got, _ := repo.GetByIdempotenceKey("cron-peer-fail")
@@ -87,7 +87,7 @@ func TestOutboundReplayCron_CorruptPostings_MarksFailed(t *testing.T) {
 	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
 	cron := service.NewOutboundReplayCron(repo, httpClient, func(_ context.Context, _ string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: "222", BaseURL: "http://x", APIToken: "t", OwnRouting: 111, RoutingNumber: 222}, nil
-	}).WithMinRetryGap(0).WithMaxAttempts(4)
+	}, nilRegistry()).WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 
 	got, _ := repo.GetByIdempotenceKey("cron-corrupt")
@@ -112,7 +112,7 @@ func TestOutboundReplayCron_NewTxNetworkError_MarksAttempt(t *testing.T) {
 	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
 	cron := service.NewOutboundReplayCron(repo, httpClient, func(_ context.Context, _ string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: "222", BaseURL: "http://127.0.0.1:1", APIToken: "t", OwnRouting: 111, RoutingNumber: 222}, nil
-	}).WithMinRetryGap(0).WithMaxAttempts(4)
+	}, nilRegistry()).WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 	got, _ := repo.GetByIdempotenceKey("cron-net")
 	if got.LastError == "" {
@@ -156,7 +156,7 @@ func TestOutboundReplayCron_CommitFails_MarksAttempt(t *testing.T) {
 	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
 	cron := service.NewOutboundReplayCron(repo, httpClient, func(_ context.Context, _ string) (*sitx.PeerHTTPTarget, error) {
 		return &sitx.PeerHTTPTarget{BankCode: "222", BaseURL: srv.URL, APIToken: "t", OwnRouting: 111, RoutingNumber: 222}, nil
-	}).WithMinRetryGap(0).WithMaxAttempts(4)
+	}, nilRegistry()).WithMinRetryGap(0).WithMaxAttempts(4)
 	cron.Tick(context.Background())
 
 	got, _ := repo.GetByIdempotenceKey("cron-cf")

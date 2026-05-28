@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/transaction-service/internal/repository"
 	"github.com/exbanka/transaction-service/internal/sitx"
 )
@@ -29,6 +30,7 @@ type PeerTxReconciler struct {
 	reverseLocal LocalReversalFunc
 	tickInterval time.Duration
 	minAge       time.Duration
+	entry        *cronreg.Entry
 }
 
 // NewPeerTxReconciler creates a PeerTxReconciler with the given dependencies.
@@ -37,14 +39,17 @@ func NewPeerTxReconciler(
 	outRepo *repository.OutboundPeerTxRepository,
 	httpClient *sitx.PeerHTTPClient,
 	peerLookup PeerLookupFunc,
+	registry *cronreg.Registry,
 ) *PeerTxReconciler {
-	return &PeerTxReconciler{
+	r := &PeerTxReconciler{
 		outRepo:      outRepo,
 		httpClient:   httpClient,
 		peerLookup:   peerLookup,
 		tickInterval: 10 * time.Minute,
 		minAge:       2 * time.Minute,
 	}
+	r.entry = registry.Register("peer-tx-reconciler", "Poll peers for status of stuck outbound SI-TX rows (every 10 min)", 10*time.Minute)
+	return r
 }
 
 // WithTickInterval overrides the default 10-minute interval (for testing).
@@ -69,11 +74,15 @@ func (r *PeerTxReconciler) WithLocalReversal(fn LocalReversalFunc) *PeerTxReconc
 }
 
 // Start launches the reconciler loop and an immediate startup tick.
-// Returns immediately; the loop runs until ctx cancels.
+// Returns immediately; the loop runs until ctx cancels. Each tick is gated
+// by the cronreg Entry so the job can be paused / manually triggered.
 func (r *PeerTxReconciler) Start(ctx context.Context) {
 	go func() {
 		// Run once at startup so freshly-deployed instances catch up.
-		r.tick(ctx)
+		if r.entry.BeginRun() {
+			r.tick(ctx)
+			r.entry.EndRun(nil)
+		}
 
 		t := time.NewTicker(r.tickInterval)
 		defer t.Stop()
@@ -82,7 +91,17 @@ func (r *PeerTxReconciler) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				if !r.entry.BeginRun() {
+					continue
+				}
 				r.tick(ctx)
+				r.entry.EndRun(nil)
+			case <-r.entry.TriggerChan():
+				if !r.entry.BeginRun() {
+					continue
+				}
+				r.tick(ctx)
+				r.entry.EndRun(nil)
 			}
 		}
 	}()

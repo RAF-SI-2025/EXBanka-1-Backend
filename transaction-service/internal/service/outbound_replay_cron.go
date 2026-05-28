@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/cronreg"
 	contractsitx "github.com/exbanka/contract/sitx"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -25,6 +26,7 @@ type OutboundReplayCron struct {
 	tickInterval time.Duration
 	minRetryGap  time.Duration
 	maxAttempts  int
+	entry        *cronreg.Entry
 }
 
 // PeerLookupFunc resolves a peer-bank-code to a PeerHTTPTarget. Provided
@@ -45,8 +47,9 @@ func NewOutboundReplayCron(
 	repo *repository.OutboundPeerTxRepository,
 	httpClient *sitx.PeerHTTPClient,
 	peerLookup PeerLookupFunc,
+	registry *cronreg.Registry,
 ) *OutboundReplayCron {
-	return &OutboundReplayCron{
+	c := &OutboundReplayCron{
 		repo:         repo,
 		httpClient:   httpClient,
 		peerLookup:   peerLookup,
@@ -54,6 +57,8 @@ func NewOutboundReplayCron(
 		minRetryGap:  60 * time.Second,
 		maxAttempts:  4,
 	}
+	c.entry = registry.Register("outbound-replay-cron", "Retry pending outbound SI-TX transfers (every 30s)", 30*time.Second)
+	return c
 }
 
 func (c *OutboundReplayCron) WithTickInterval(d time.Duration) *OutboundReplayCron {
@@ -92,7 +97,17 @@ func (c *OutboundReplayCron) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !c.entry.BeginRun() {
+				continue
+			}
 			c.tick(ctx)
+			c.entry.EndRun(nil)
+		case <-c.entry.TriggerChan():
+			if !c.entry.BeginRun() {
+				continue
+			}
+			c.tick(ctx)
+			c.entry.EndRun(nil)
 		}
 	}
 }
