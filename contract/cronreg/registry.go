@@ -45,6 +45,7 @@ type Entry struct {
 	lastError        string
 	nextScheduledAt  time.Time
 	isPaused         atomic.Bool
+	isRunning        atomic.Bool
 	pausedByEmployee atomic.Int64
 	pausedAt         atomic.Pointer[time.Time]
 	runCount         atomic.Int64
@@ -55,12 +56,23 @@ type Entry struct {
 // IsPaused returns true when the cron has been administratively paused.
 func (e *Entry) IsPaused() bool { return e.isPaused.Load() }
 
-// BeginRun returns false if the cron is paused. Cron loops should:
+// BeginRun returns false if the cron is paused or is already running. Cron
+// loops should:
 //
 //	if !entry.BeginRun() { continue }
 //	defer entry.EndRun(err)
+//
+// The concurrent-execution guard uses an atomic CAS so that if an admin
+// trigger fires at the same instant the ticker fires, only one of the two
+// goroutines proceeds. This is critical for saga recovery workers where a
+// concurrent run on the same compensating row corrupts RetryCount and could
+// replay a compensation step twice.
 func (e *Entry) BeginRun() bool {
 	if e.isPaused.Load() {
+		return false
+	}
+	// CAS false→true: only the goroutine that wins the swap proceeds.
+	if !e.isRunning.CompareAndSwap(false, true) {
 		return false
 	}
 	now := time.Now().UTC()
@@ -70,8 +82,9 @@ func (e *Entry) BeginRun() bool {
 	return true
 }
 
-// EndRun records the result of a completed run, increments counters, and
-// advances nextScheduledAt by the entry's interval (when interval > 0).
+// EndRun records the result of a completed run, increments counters, advances
+// nextScheduledAt, and releases the isRunning lock so a subsequent BeginRun
+// can proceed. Must be called exactly once for each successful BeginRun.
 func (e *Entry) EndRun(err error) {
 	now := time.Now().UTC()
 	e.mu.Lock()
@@ -87,6 +100,10 @@ func (e *Entry) EndRun(err error) {
 		e.nextScheduledAt = now.Add(e.interval)
 	}
 	e.mu.Unlock()
+	// Release the concurrent-execution guard AFTER all bookkeeping is done so
+	// snapshot() never sees an inconsistent mix of "just started" state and
+	// old lastFinishedAt.
+	e.isRunning.Store(false)
 }
 
 // TriggerChan returns a buffered channel (capacity 1) that fires when an admin
