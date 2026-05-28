@@ -87,6 +87,21 @@ func (s *stubInvestmentFundClient) GetActuaryPerformance(_ context.Context, in *
 	return &stockpb.GetActuaryPerformanceResponse{}, nil
 }
 
+// E4 dividend stubs — return empty responses so existing tests continue to
+// compile and pass without being affected by the new RPC additions.
+func (s *stubInvestmentFundClient) DeclareDividend(_ context.Context, _ *stockpb.DeclareDividendRequest, _ ...grpc.CallOption) (*stockpb.DividendPaymentResponse, error) {
+	return &stockpb.DividendPaymentResponse{}, nil
+}
+func (s *stubInvestmentFundClient) PayoutDividend(_ context.Context, _ *stockpb.PayoutDividendRequest, _ ...grpc.CallOption) (*stockpb.PayoutDividendResponse, error) {
+	return &stockpb.PayoutDividendResponse{}, nil
+}
+func (s *stubInvestmentFundClient) ListMyDividends(_ context.Context, _ *stockpb.ListMyDividendsRequest, _ ...grpc.CallOption) (*stockpb.ListDividendPayoutsResponse, error) {
+	return &stockpb.ListDividendPayoutsResponse{}, nil
+}
+func (s *stubInvestmentFundClient) ListFundDividends(_ context.Context, _ *stockpb.ListFundDividendsRequest, _ ...grpc.CallOption) (*stockpb.ListFundDividendPaymentsResponse, error) {
+	return &stockpb.ListFundDividendPaymentsResponse{}, nil
+}
+
 var _ stockpb.InvestmentFundServiceClient = (*stubInvestmentFundClient)(nil)
 
 func investmentFundRouter(h *handler.InvestmentFundHandler) *gin.Engine {
