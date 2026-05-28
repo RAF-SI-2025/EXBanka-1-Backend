@@ -241,6 +241,10 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	// banks, dispatches by messageType to PeerTxService gRPC. Phase 2
 	// returns 501 (Unimplemented passthrough); Phase 3 fills in actual
 	// TX execution.
+	//
+	// Legacy paths — kept for cohort-bank backwards compat (Plan F,
+	// 2026-05-28). Deprecated: new cohort registrations should use
+	// /api/v3/cross-bank-protocol/... instead.
 	peer := v3.Group("")
 	peer.Use(h.PeerAuthMW)
 	{
@@ -263,6 +267,26 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		peer.DELETE("/negotiations/:rid/:id", h.PeerOTC.DeleteNegotiation)
 		peer.GET("/negotiations/:rid/:id/accept", h.PeerOTC.AcceptNegotiation)
 		peer.GET("/user/:rid/:id", h.PeerUser.GetUser)
+	}
+
+	// ── SI-TX canonical prefix (Plan F, 2026-05-28) ──────────────────
+	// New canonical paths under /cross-bank-protocol/... — same handlers
+	// and middleware as the legacy paths above. New cohort registrations
+	// should set base_url to .../api/v3/cross-bank-protocol so the legacy
+	// paths can be retired once all peers have migrated.
+	crossBank := v3.Group("/cross-bank-protocol")
+	crossBank.Use(h.PeerAuthMW)
+	{
+		crossBank.POST("/interbank", h.PeerTx.PostInterbank)
+		crossBank.GET("/interbank/:transaction_id/status", h.PeerTxStatus.GetTxStatus)
+		crossBank.GET("/public-stock", h.PeerOTC.GetPublicStocks)
+		crossBank.GET("/public-option-offers", h.PeerOTC.GetPublicOptionOffers)
+		crossBank.POST("/negotiations", h.PeerOTC.CreateNegotiation)
+		crossBank.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
+		crossBank.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
+		crossBank.DELETE("/negotiations/:rid/:id", h.PeerOTC.DeleteNegotiation)
+		crossBank.GET("/negotiations/:rid/:id/accept", h.PeerOTC.AcceptNegotiation)
+		crossBank.GET("/user/:rid/:id", h.PeerUser.GetUser)
 	}
 
 	// ── Stock exchanges (AnyAuth — market data is browsable) ────
