@@ -8271,6 +8271,121 @@ The `code` field is a stable machine-readable string. The `message` field is hum
 
 ---
 
+## 48. Unified Portfolio Routes (2026-05-28)
+
+A single consistent route shape for viewing any portfolio — client, bank, or investment fund — with fund positions shown alongside stocks, options, and futures, and full P/L totals computed on read.
+
+### Portfolio identity
+
+Portfolios are identified by a URL-safe `portfolio_id` string:
+
+| `portfolio_id` | Owner type | Notes |
+|---|---|---|
+| `client-<n>` | client with id n | |
+| `bank` | bank | singleton |
+| `fund-<n>` | investment fund with id n | |
+
+### 48.1 My Portfolio (client or bank)
+
+**GET /api/v3/me/portfolio**
+
+- Authentication: `AnyAuthMiddleware` (client or employee JWT)
+- Identity rule: `OwnerIsBankIfEmployee` — clients see their own portfolio, employees see the bank's portfolio
+- No query parameters
+
+**Response 200:**
+```json
+{
+  "portfolio_id": "client-42",
+  "owner_type": "client",
+  "owner_id": 42,
+  "owner_name": "",
+  "total_value_rsd": "11000.0000",
+  "total_profit_rsd": "1000.0000",
+  "total_profit_pct": "9.0909",
+  "securities": {
+    "total_value_rsd": "11000.0000",
+    "total_profit_rsd": "1000.0000",
+    "total_profit_pct": "9.0909",
+    "positions": [
+      {
+        "asset_type": "stock",
+        "symbol": "AAPL",
+        "quantity": 50,
+        "avg_cost_rsd": "200.0000",
+        "current_price_rsd": "220.0000",
+        "current_value_rsd": "11000.0000",
+        "p_l_rsd": "1000.0000",
+        "p_l_pct": "10.0000",
+        "last_updated": "2026-05-28T10:00:00Z"
+      }
+    ]
+  },
+  "funds": {
+    "total_value_rsd": "27000.0000",
+    "total_profit_rsd": "2000.0000",
+    "total_profit_pct": "8.0000",
+    "positions": [
+      {
+        "asset_type": "investment_fund",
+        "fund_id": 7,
+        "fund_name": "Alpha Growth",
+        "amount_invested_rsd": "25000.0000",
+        "current_value_rsd": "27000.0000",
+        "pct_of_fund": "100.0000",
+        "p_l_rsd": "2000.0000",
+        "p_l_pct": "8.0000",
+        "last_updated": "2026-05-28T10:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### 48.2 Portfolio by ID (generic form)
+
+**GET /api/v3/portfolio/:portfolio_id**
+
+- Authentication: `AuthMiddleware` (employee JWT only)
+- Permissions: employees always access bank; `portfolio.view_client` for client portfolios; `portfolio.view_fund` for fund portfolios
+- Path: `portfolio_id` — one of `client-<n>`, `bank`, or `fund-<n>`
+
+| Status | Meaning |
+|---|---|
+| 200 | Success — same shape as 48.1 |
+| 400 | invalid portfolio_id format |
+| 401 | missing or invalid token |
+| 403 | caller lacks permission |
+
+### 48.3 Portfolio by owner type — convenience aliases
+
+**GET /api/v3/portfolio/bank**
+- Returns bank's portfolio. Any authenticated employee.
+
+**GET /api/v3/portfolio/client/:client_id**
+- Returns client's portfolio. Requires `portfolio.view_client`.
+
+**GET /api/v3/portfolio/investment-fund/:fund_id**
+- Returns fund's portfolio. Requires `portfolio.view_fund`.
+
+All aliases use the same response shape as 48.1 and the same access enforcement as 48.2.
+
+### 48.4 Watchlist by portfolio_id
+
+**GET /api/v3/watchlist/:portfolio_id**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permissions: same as 48.2 — `portfolio.view_client` for client watchlists, `portfolio.view_fund` for fund watchlists
+- Returns the same shape as `GET /api/v3/me/watchlist` but for the specified portfolio owner
+
+| Status | Meaning |
+|---|---|
+| 200 | Success — `{ "items": [...] }` |
+| 400 | invalid portfolio_id |
+| 403 | forbidden |
+
+---
+
 ## Password Requirements
 
 Passwords for both employees and clients must satisfy:

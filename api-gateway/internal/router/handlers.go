@@ -105,6 +105,7 @@ type Handlers struct {
 	Securities       *handler.SecuritiesHandler
 	StockOrder       *handler.StockOrderHandler
 	Portfolio        *handler.PortfolioHandler
+	UnifiedPortfolio *handler.UnifiedPortfolioHandler
 	Actuary          *handler.ActuaryHandler
 	Blueprint        *handler.BlueprintHandler
 	Tax              *handler.TaxHandler
@@ -168,6 +169,7 @@ func NewHandlers(d Deps) *Handlers {
 		Securities:       handler.NewSecuritiesHandler(d.SecurityClient),
 		StockOrder:       handler.NewStockOrderHandler(d.OrderClient, d.AccountClient),
 		Portfolio:        handler.NewPortfolioHandler(d.PortfolioClient, d.OTCClient, d.AccountClient),
+		UnifiedPortfolio: handler.NewUnifiedPortfolioHandler(d.PortfolioClient),
 		Actuary:          handler.NewActuaryHandler(d.ActuaryClient),
 		Blueprint:        handler.NewBlueprintHandler(d.BlueprintClient),
 		Tax:              handler.NewTaxHandler(d.TaxClient),

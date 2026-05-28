@@ -8340,6 +8340,32 @@ paths:
       summary: Accept a cross-bank OTC negotiation
       tags:
       - OTCOptions
+  /api/v3/me/portfolio:
+    get:
+      description: Returns all securities holdings and fund positions for the caller,
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the caller's unified portfolio
+      tags:
+      - portfolio
   /api/v3/me/price-alerts:
     get:
       produces:
@@ -9516,6 +9542,123 @@ paths:
       summary: Get a trader's aggregate OTC rating + recent comments
       tags:
       - OTCOptions
+  /api/v3/portfolio/{portfolio_id}:
+    get:
+      description: portfolio_id is in the form client-<n>, bank, or fund-<n>.
+      parameters:
+      - description: Portfolio ID (client-42 / bank / fund-7)
+        in: path
+        name: portfolio_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid_portfolio_id
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get unified portfolio by portfolio_id
+      tags:
+      - portfolio
+  /api/v3/portfolio/bank:
+    get:
+      description: Returns the bank-owned securities holdings and fund positions.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the bank's unified portfolio
+      tags:
+      - portfolio
+  /api/v3/portfolio/client/{client_id}:
+    get:
+      description: Requires portfolio.view_client permission.
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get unified portfolio for a specific client
+      tags:
+      - portfolio
+  /api/v3/portfolio/investment-fund/{fund_id}:
+    get:
+      description: Requires portfolio.view_fund permission.
+      parameters:
+      - description: Fund ID
+        in: path
+        name: fund_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get unified portfolio for an investment fund
+      tags:
+      - portfolio
   /api/v3/public-option-offers:
     get:
       description: |-

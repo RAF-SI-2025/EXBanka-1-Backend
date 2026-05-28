@@ -127,7 +127,11 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/orders/:id/cancel", bankIfEmp, h.StockOrder.CancelOrder)
 
 		// Portfolio
-		me.GET("/portfolio", bankIfEmp, h.Portfolio.ListHoldings)
+		// GET /me/portfolio returns the unified portfolio (securities + fund positions)
+		// for the caller. Replaced legacy ListHoldings with the unified handler so
+		// the response now includes fund positions and P/L totals. The legacy
+		// /me/portfolio/summary endpoint keeps the old summary view.
+		me.GET("/portfolio", bankIfEmp, h.UnifiedPortfolio.GetMy)
 		me.GET("/portfolio/summary", bankIfEmp, h.Portfolio.GetPortfolioSummary)
 		// (Phase 8) /me/portfolio/:id/make-public deleted — use
 		// POST /api/v3/me/otc/stocks with direction=sell.
@@ -909,6 +913,27 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		changelogLoans.Use(middleware.RequirePermission(perms.Credits.Read.All))
 		{
 			changelogLoans.GET("/:id/changelog", h.Changelog.GetLoanChangelog)
+		}
+
+		// ── Unified portfolio routes (B6 — 2026-05-28) ────────────────
+		// Static paths (/bank, /client/:id, /investment-fund/:id) are
+		// registered BEFORE the wildcard /portfolio/:portfolio_id so
+		// Gin's static-segment-wins rule resolves correctly.
+		//
+		// All routes use AuthMiddleware (employee only) because:
+		//   - clients use GET /me/portfolio (above)
+		//   - employees need portfolio.view_client or portfolio.view_fund
+		//     to view portfolios other than the bank's own
+		//
+		// ResolveIdentity(OwnerIsBankIfEmployee) is wired per route
+		// group below so identity is available to enforcePortfolioAccess.
+		portfolioBank := protected.Group("/portfolio")
+		portfolioBank.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+		{
+			portfolioBank.GET("/bank", h.UnifiedPortfolio.GetBank)
+			portfolioBank.GET("/client/:client_id", h.UnifiedPortfolio.GetByClientID)
+			portfolioBank.GET("/investment-fund/:fund_id", h.UnifiedPortfolio.GetByFundID)
+			portfolioBank.GET("/:portfolio_id", h.UnifiedPortfolio.GetByPortfolioID)
 		}
 
 		// ── Investment funds (Celina-4) ────────────────────────────
