@@ -124,6 +124,11 @@ permissions:
   - portfolio.view.client
   - portfolio.view.fund
 
+  # admin cron viewer (C5 — 2026-05-28)
+  - admin.crons.view
+  - admin.crons.trigger
+  - admin.crons.manage
+
 
 
 default_roles:

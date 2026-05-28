@@ -78,6 +78,9 @@ var Catalog = []Permission{
 	"notifications.templates.manage",
 	"portfolio.view.client",
 	"portfolio.view.fund",
+	"admin.crons.view",
+	"admin.crons.trigger",
+	"admin.crons.manage",
 }
 
 var Accounts = struct {
@@ -142,6 +145,24 @@ var Actuaries = struct {
 		All Permission
 	}{
 		All: "actuaries.read.all",
+	},
+}
+
+var Admin = struct {
+	Crons struct {
+		Manage  Permission
+		Trigger Permission
+		View    Permission
+	}
+}{
+	Crons: struct {
+		Manage  Permission
+		Trigger Permission
+		View    Permission
+	}{
+		Manage:  "admin.crons.manage",
+		Trigger: "admin.crons.trigger",
+		View:    "admin.crons.view",
 	},
 }
 
@@ -654,6 +675,9 @@ var DefaultRoles = map[string][]Permission{
 		"accounts.update.name",
 		"actuaries.manage.any",
 		"actuaries.read.all",
+		"admin.crons.manage",
+		"admin.crons.trigger",
+		"admin.crons.view",
 		"bank_accounts.manage.any",
 		"cards.approve.physical",
 		"cards.approve.virtual",
