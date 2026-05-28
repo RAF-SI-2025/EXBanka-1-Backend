@@ -1,0 +1,163 @@
+package service
+
+import (
+	"context"
+	"log"
+	"time"
+
+	"github.com/exbanka/transaction-service/internal/repository"
+	"github.com/exbanka/transaction-service/internal/sitx"
+)
+
+// PeerTxReconciler periodically checks the status of outbound SI-TX
+// transactions that are stuck in "pending" by querying the peer bank via
+// the Celina-5 CHECK_STATUS mechanism (GET /interbank/:txID/status).
+//
+// This is the receiver-initiated counterpart to OutboundReplayCron: while
+// the replay cron resends NEW_TX/COMMIT_TX from the sender side,
+// PeerTxReconciler asks the peer "what do you think the state is?" and
+// applies the answer locally — useful when Bank A crashes after sending
+// COMMIT_TX but before confirming receipt, leaving both sides unsure.
+//
+// Tick interval: 10 minutes (configurable).
+// Eligible rows: pending, last_attempt_at older than 2 minutes (ensures
+// OutboundReplayCron has had at least one chance to resolve it first).
+type PeerTxReconciler struct {
+	outRepo      *repository.OutboundPeerTxRepository
+	httpClient   *sitx.PeerHTTPClient
+	peerLookup   PeerLookupFunc
+	reverseLocal LocalReversalFunc
+	tickInterval time.Duration
+	minAge       time.Duration
+}
+
+// NewPeerTxReconciler creates a PeerTxReconciler with the given dependencies.
+// tickInterval defaults to 10 minutes; minAge defaults to 2 minutes.
+func NewPeerTxReconciler(
+	outRepo *repository.OutboundPeerTxRepository,
+	httpClient *sitx.PeerHTTPClient,
+	peerLookup PeerLookupFunc,
+) *PeerTxReconciler {
+	return &PeerTxReconciler{
+		outRepo:      outRepo,
+		httpClient:   httpClient,
+		peerLookup:   peerLookup,
+		tickInterval: 10 * time.Minute,
+		minAge:       2 * time.Minute,
+	}
+}
+
+// WithTickInterval overrides the default 10-minute interval (for testing).
+func (r *PeerTxReconciler) WithTickInterval(d time.Duration) *PeerTxReconciler {
+	r.tickInterval = d
+	return r
+}
+
+// WithMinAge overrides the minimum pending age before a row is eligible
+// for reconciliation (default 2 minutes).
+func (r *PeerTxReconciler) WithMinAge(d time.Duration) *PeerTxReconciler {
+	r.minAge = d
+	return r
+}
+
+// WithLocalReversal wires the local credit-back callback used on terminal
+// non-committed paths. Optional — omitting it skips the credit-back step
+// (tests that don't exercise money movement may omit it).
+func (r *PeerTxReconciler) WithLocalReversal(fn LocalReversalFunc) *PeerTxReconciler {
+	r.reverseLocal = fn
+	return r
+}
+
+// Start launches the reconciler loop and an immediate startup tick.
+// Returns immediately; the loop runs until ctx cancels.
+func (r *PeerTxReconciler) Start(ctx context.Context) {
+	go func() {
+		// Run once at startup so freshly-deployed instances catch up.
+		r.tick(ctx)
+
+		t := time.NewTicker(r.tickInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				r.tick(ctx)
+			}
+		}
+	}()
+}
+
+// Tick is exported for testing.
+func (r *PeerTxReconciler) Tick(ctx context.Context) { r.tick(ctx) }
+
+func (r *PeerTxReconciler) tick(ctx context.Context) {
+	cutoff := time.Now().UTC().Add(-r.minAge)
+	rows, err := r.outRepo.ListPendingOlderThan(cutoff)
+	if err != nil {
+		log.Printf("peer-tx-reconciler: list pending err: %v", err)
+		return
+	}
+	for i := range rows {
+		r.processRow(ctx, rows[i].IdempotenceKey, rows[i].PeerBankCode)
+	}
+}
+
+func (r *PeerTxReconciler) processRow(ctx context.Context, idem, peerCode string) {
+	target, err := r.peerLookup(ctx, peerCode)
+	if err != nil || target == nil {
+		// Peer unreachable or not found — skip; OutboundReplayCron handles re-send.
+		log.Printf("peer-tx-reconciler: peer lookup %s: %v (skipping)", peerCode, err)
+		return
+	}
+
+	statusResp, err := r.httpClient.CheckStatus(ctx, target, idem)
+	if err != nil {
+		// Peer unreachable — log and skip; will retry on next tick.
+		log.Printf("peer-tx-reconciler: CHECK_STATUS %s/%s: %v (skipping)", peerCode, idem, err)
+		return
+	}
+
+	switch statusResp.State {
+	case "committed":
+		// Peer has committed — mark our row committed to close the saga.
+		if err := r.outRepo.MarkCommitted(idem); err != nil {
+			log.Printf("peer-tx-reconciler: MarkCommitted %s: %v", idem, err)
+		} else {
+			log.Printf("peer-tx-reconciler: reconciled %s → committed (peer confirmed)", idem)
+		}
+
+	case "rolled_back", "unknown", "dead_letter":
+		// Peer has rolled back or has no record → reverse our local effects
+		// and mark rolled_back. If reversal fails, leave pending (retry next tick).
+		row, dbErr := r.outRepo.GetByIdempotenceKey(idem)
+		if dbErr != nil {
+			log.Printf("peer-tx-reconciler: fetch row %s: %v", idem, dbErr)
+			return
+		}
+		reason := "peer reports: " + statusResp.State
+		if statusResp.LastError != "" {
+			reason += " (" + statusResp.LastError + ")"
+		}
+		if r.reverseLocal != nil && row != nil {
+			if rerr := r.reverseLocal(ctx, row); rerr != nil {
+				log.Printf("peer-tx-reconciler: reversal %s failed: %v (will retry)", idem, rerr)
+				_ = r.outRepo.MarkAttempt(idem, reason+" [reversal failed: "+rerr.Error()+"]")
+				return
+			}
+		}
+		if err := r.outRepo.MarkRolledBack(idem, reason); err != nil {
+			log.Printf("peer-tx-reconciler: MarkRolledBack %s: %v", idem, err)
+		} else {
+			log.Printf("peer-tx-reconciler: reconciled %s → rolled_back (%s)", idem, reason)
+		}
+
+	case "prepared":
+		// Peer is still processing — OutboundReplayCron handles re-send.
+		// No-op here so we don't race with the cron.
+		log.Printf("peer-tx-reconciler: %s still prepared at peer, leaving for replay cron", idem)
+
+	default:
+		log.Printf("peer-tx-reconciler: unknown state %q for %s (skipping)", statusResp.State, idem)
+	}
+}

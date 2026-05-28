@@ -247,6 +247,15 @@ func main() {
 		WithLocalReversal(peerTxHandler.ReverseOutboundLocal)
 	replayCron.Start(ctx)
 
+	// PeerTxReconciler: sender-side polling worker that asks the peer for
+	// the current state of stuck outbound TXs via CHECK_STATUS. Complements
+	// OutboundReplayCron (which resends NEW_TX/COMMIT_TX); the reconciler
+	// resolves rows where the commit already landed on the peer but we
+	// missed the confirmation (both-sides-stuck scenario, Celina-5 §"Retry").
+	reconciler := service.NewPeerTxReconciler(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup)).
+		WithLocalReversal(peerTxHandler.ReverseOutboundLocal)
+	reconciler.Start(ctx)
+
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
