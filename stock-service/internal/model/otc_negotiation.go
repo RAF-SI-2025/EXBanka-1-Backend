@@ -81,6 +81,14 @@ type OTCNegotiation struct {
 
 	ActingEmployeeID *uint64 `gorm:"index" json:"acting_employee_id,omitempty"`
 
+	// MintedContractID is set when the negotiation reached `accepted`
+	// status and a contract was successfully minted. Nil for any
+	// non-accepted terminal status and for accepted negotiations whose
+	// contract mint failed (rare; see AcceptNegotiationResult.Contract
+	// == nil case). Populated by OTCNegotiationService.AcceptNegotiation
+	// after the formation saga succeeds.
+	MintedContractID *uint64 `gorm:"index" json:"minted_contract_id,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Version   int64     `gorm:"not null;default:0" json:"-"`
