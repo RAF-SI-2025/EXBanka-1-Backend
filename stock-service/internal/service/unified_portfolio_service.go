@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/shopspring/decimal"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -15,26 +17,28 @@ import (
 // (client, bank, or investment_fund) by fanning out to the holding and fund-
 // position repositories and enriching with current listing prices.
 //
-// Fund value estimation: Σ(fund_holding.quantity × current_listing_price).
-// The fund's liquid RSD balance lives in account-service and is NOT fetched
-// here to avoid cross-service coupling at the repository layer; callers that
-// need the full liquidation value should call account-service separately.
-// This is documented as a known simplification.
+// Fund value (NAV) = liquid_rsd_balance + Σ(fund_holding.quantity × current_listing_price)
+// per Celina 4 spec. The liquid balance is fetched from account-service via the
+// FundAccountClient. If the balance lookup fails, the service falls back to
+// holdings-only NAV and logs the error (read path; never block a portfolio fetch).
 type UnifiedPortfolioService struct {
 	holdingRepo     *repository.HoldingRepository
 	fundPosRepo     *repository.ClientFundPositionRepository
 	fundRepo        *repository.FundRepository
 	fundHoldingRepo *repository.FundHoldingRepository
 	listingRepo     *repository.ListingRepository
+	accounts        FundAccountClient
 }
 
 // NewUnifiedPortfolioService constructs the service with all required repos.
+// `accounts` may be nil; when nil the fund NAV excludes liquid balance.
 func NewUnifiedPortfolioService(
 	holdingRepo *repository.HoldingRepository,
 	fundPosRepo *repository.ClientFundPositionRepository,
 	fundRepo *repository.FundRepository,
 	fundHoldingRepo *repository.FundHoldingRepository,
 	listingRepo *repository.ListingRepository,
+	accounts FundAccountClient,
 ) *UnifiedPortfolioService {
 	return &UnifiedPortfolioService{
 		holdingRepo:     holdingRepo,
@@ -42,6 +46,7 @@ func NewUnifiedPortfolioService(
 		fundRepo:        fundRepo,
 		fundHoldingRepo: fundHoldingRepo,
 		listingRepo:     listingRepo,
+		accounts:        accounts,
 	}
 }
 
@@ -90,7 +95,7 @@ type PortfolioPosition struct {
 
 // Get returns the unified portfolio for the given owner. ownerID may be nil
 // when ownerType == "bank".
-func (s *UnifiedPortfolioService) Get(_ context.Context, ownerType string, ownerID *uint64) (*UnifiedPortfolio, error) {
+func (s *UnifiedPortfolioService) Get(ctx context.Context, ownerType string, ownerID *uint64) (*UnifiedPortfolio, error) {
 	if ownerType != "bank" && ownerID == nil {
 		return nil, fmt.Errorf("owner_id required for %s", ownerType)
 	}
@@ -124,7 +129,7 @@ func (s *UnifiedPortfolioService) Get(_ context.Context, ownerType string, owner
 	}
 
 	for _, fp := range fundPositions {
-		pos, fErr := s.composeFundPosition(fp)
+		pos, fErr := s.composeFundPosition(ctx, fp)
 		if fErr != nil {
 			return nil, fErr
 		}
@@ -196,35 +201,56 @@ func (s *UnifiedPortfolioService) fetchFundHoldingPrices(holdings []model.FundHo
 	return priceBySecID, nil
 }
 
-// computeFundValue estimates the fund's total NAV as Σ(holding.qty × listing_price).
-// The fund's liquid RSD balance is excluded (see note on UnifiedPortfolioService).
-func (s *UnifiedPortfolioService) computeFundValue(fundID uint64) (decimal.Decimal, error) {
-	holdings, err := s.fundHoldingRepo.ListByFundFIFO(fundID)
+// computeFundValue returns the fund's NAV per Celina 4 spec:
+// liquid_rsd_balance + Σ(holding.qty × current_listing_price).
+// If the account-service lookup fails, the holdings-only sum is returned and
+// the error is logged — a read endpoint must not 500 because of a missing
+// upstream balance fetch.
+func (s *UnifiedPortfolioService) computeFundValue(ctx context.Context, fund *model.InvestmentFund) (decimal.Decimal, error) {
+	holdings, err := s.fundHoldingRepo.ListByFundFIFO(fund.ID)
 	if err != nil {
-		return decimal.Zero, fmt.Errorf("list fund holdings for fund %d: %w", fundID, err)
-	}
-	if len(holdings) == 0 {
-		return decimal.Zero, nil
+		return decimal.Zero, fmt.Errorf("list fund holdings for fund %d: %w", fund.ID, err)
 	}
 
-	prices, err := s.fetchFundHoldingPrices(holdings)
-	if err != nil {
-		return decimal.Zero, fmt.Errorf("fetch fund holding prices: %w", err)
-	}
-
-	total := decimal.Zero
-	for _, h := range holdings {
-		price, ok := prices[h.SecurityID]
-		if !ok {
-			// Fallback to average cost when listing not found
-			price = h.AveragePriceRSD
+	holdingsValue := decimal.Zero
+	if len(holdings) > 0 {
+		prices, err := s.fetchFundHoldingPrices(holdings)
+		if err != nil {
+			return decimal.Zero, fmt.Errorf("fetch fund holding prices: %w", err)
 		}
-		total = total.Add(price.Mul(decimal.NewFromInt(h.Quantity)))
+		for _, h := range holdings {
+			price, ok := prices[h.SecurityID]
+			if !ok {
+				price = h.AveragePriceRSD
+			}
+			holdingsValue = holdingsValue.Add(price.Mul(decimal.NewFromInt(h.Quantity)))
+		}
 	}
-	return total, nil
+
+	liquid := s.fundLiquidRSD(ctx, fund)
+	return holdingsValue.Add(liquid), nil
 }
 
-func (s *UnifiedPortfolioService) composeFundPosition(fp model.ClientFundPosition) (PortfolioPosition, error) {
+// fundLiquidRSD fetches the fund's RSD account balance from account-service.
+// Returns zero on any error (and logs) so the read path stays available.
+func (s *UnifiedPortfolioService) fundLiquidRSD(ctx context.Context, fund *model.InvestmentFund) decimal.Decimal {
+	if s.accounts == nil || fund.RSDAccountID == 0 {
+		return decimal.Zero
+	}
+	resp, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: fund.RSDAccountID})
+	if err != nil {
+		log.Printf("unified portfolio: GetAccount fund=%d acct=%d err=%v", fund.ID, fund.RSDAccountID, err)
+		return decimal.Zero
+	}
+	bal, err := decimal.NewFromString(resp.Balance)
+	if err != nil {
+		log.Printf("unified portfolio: parse balance %q for fund=%d: %v", resp.Balance, fund.ID, err)
+		return decimal.Zero
+	}
+	return bal
+}
+
+func (s *UnifiedPortfolioService) composeFundPosition(ctx context.Context, fp model.ClientFundPosition) (PortfolioPosition, error) {
 	fund, err := s.fundRepo.GetByID(fp.FundID)
 	if err != nil {
 		return PortfolioPosition{}, fmt.Errorf("get fund %d: %w", fp.FundID, err)
@@ -245,7 +271,7 @@ func (s *UnifiedPortfolioService) composeFundPosition(fp model.ClientFundPositio
 		pctOfFund = fp.TotalContributedRSD.Div(totalContributed).Mul(decimal.NewFromInt(100))
 	}
 
-	fundValue, err := s.computeFundValue(fp.FundID)
+	fundValue, err := s.computeFundValue(ctx, fund)
 	if err != nil {
 		return PortfolioPosition{}, err
 	}
