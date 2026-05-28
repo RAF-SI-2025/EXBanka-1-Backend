@@ -76,6 +76,8 @@ var Catalog = []Permission{
 	"exchange_rates.read.any",
 	"exchange_rates.update.any",
 	"notifications.templates.manage",
+	"portfolio.view.client",
+	"portfolio.view.fund",
 }
 
 var Accounts = struct {
@@ -544,6 +546,21 @@ var PeerBanks = struct {
 	},
 }
 
+var Portfolio = struct {
+	View struct {
+		Client Permission
+		Fund   Permission
+	}
+}{
+	View: struct {
+		Client Permission
+		Fund   Permission
+	}{
+		Client: "portfolio.view.client",
+		Fund:   "portfolio.view.fund",
+	},
+}
+
 var Roles = struct {
 	Permissions struct {
 		Assign Permission
@@ -692,6 +709,8 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.expire",
 		"otc.trade.on_behalf",
 		"peer_banks.manage.any",
+		"portfolio.view.client",
+		"portfolio.view.fund",
 		"roles.permissions.assign",
 		"roles.permissions.revoke",
 		"roles.read.all",
@@ -783,6 +802,8 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.exercise",
 		"otc.trade.expire",
 		"otc.trade.on_behalf",
+		"portfolio.view.client",
+		"portfolio.view.fund",
 		"securities.manage.catalog",
 		"securities.read.holdings_all",
 		"securities.read.holdings_own",

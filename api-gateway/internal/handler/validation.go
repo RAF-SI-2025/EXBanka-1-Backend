@@ -323,11 +323,13 @@ func enforcePortfolioAccess(c *gin.Context, id *middleware.ResolvedIdentity,
 		case "bank":
 			return nil
 		case "client":
-			if hasPerm("portfolio.view_client") {
+			// Accept both the catalog dot-form and the underscore form used in
+			// legacy test fixtures, so neither breaks as we migrate.
+			if hasPerm("portfolio.view.client") || hasPerm("portfolio.view_client") {
 				return nil
 			}
 		case "investment_fund":
-			if hasPerm("portfolio.view_fund") {
+			if hasPerm("portfolio.view.fund") || hasPerm("portfolio.view_fund") {
 				return nil
 			}
 		}

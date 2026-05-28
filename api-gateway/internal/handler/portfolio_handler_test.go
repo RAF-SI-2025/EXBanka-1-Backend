@@ -69,6 +69,10 @@ func (s *portfolioStub) ExerciseOptionByOptionID(_ context.Context, in *stockpb.
 	return &stockpb.ExerciseResult{}, nil
 }
 
+func (s *portfolioStub) GetUnifiedPortfolio(_ context.Context, _ *stockpb.GetUnifiedPortfolioRequest, _ ...grpc.CallOption) (*stockpb.UnifiedPortfolioResponse, error) {
+	return &stockpb.UnifiedPortfolioResponse{}, nil
+}
+
 // GetHolding stub: per-test fn or a default "owned by client 42" row so
 // the new R5 ownership pre-check in ExerciseOption tests passes without
 // per-test wiring. Tests that need to exercise the 404 path can set

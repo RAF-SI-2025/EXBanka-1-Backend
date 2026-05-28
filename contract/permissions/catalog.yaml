@@ -120,6 +120,12 @@ permissions:
   # notifications
   - notifications.templates.manage
 
+  # portfolio cross-owner views (B8 — 2026-05-28)
+  - portfolio.view.client
+  - portfolio.view.fund
+
+
+
 default_roles:
   EmployeeBasic:
     grants:
@@ -182,6 +188,8 @@ default_roles:
       - funds.manage.catalog
       - verification.skip.any
       - verification.manage.any
+      - portfolio.view.client
+      - portfolio.view.fund
 
   EmployeeAdmin:
     inherits: [EmployeeSupervisor]

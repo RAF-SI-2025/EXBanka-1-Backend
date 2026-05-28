@@ -98,7 +98,7 @@ func TestEnforcePortfolioAccess_EmployeeClientWithoutPerm(t *testing.T) {
 func TestEnforcePortfolioAccess_EmployeeClientWithPerm(t *testing.T) {
 	c, _ := newTestGinCtx()
 	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 1}
-	if err := enforcePortfolioAccess(c, id, "client", ptrU64(42), []string{"portfolio.view_client"}); err != nil {
-		t.Fatal("employee WITH portfolio.view_client should be allowed")
+	if err := enforcePortfolioAccess(c, id, "client", ptrU64(42), []string{"portfolio.view.client"}); err != nil {
+		t.Fatal("employee WITH portfolio.view.client should be allowed")
 	}
 }
