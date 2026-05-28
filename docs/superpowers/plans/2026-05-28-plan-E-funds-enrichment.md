@@ -10,6 +10,51 @@
 
 ---
 
+## 🔒 INVARIANT — Fund RSD Account Outflow Restriction (added 2026-05-28)
+
+Money in a fund's RSD account may ONLY leave via one of these three paths:
+
+1. **Buy a security on behalf of the fund** — the existing `OnBehalfOfFundID` order path (E2). Settlement debits the fund's RSD account; the resulting holding lands in the fund's portfolio.
+2. **Pay dividends pro-rata to fund investors** — when the fund holds dividend-paying securities, dividends flow into the fund's RSD account and then pass through to investors' RSD accounts proportionally (E4).
+3. **Redeem an investor's position** — the existing `FundService.Redeem` flow where a client/bank investor withdraws their proportional share. This is the ONLY user-initiated outflow; it's already permitted by the existing spec.
+
+**FORBIDDEN:** An employee CANNOT transfer money from a fund's RSD account to any arbitrary other account via the generic transfer/payment routes. There must be NO route that allows this, and the existing transfer routes (`/me/payments`, `/me/transfers`, employee transfer admin routes, etc.) must reject any source account that is a fund's RSD account.
+
+### Enforcement task — E0 (must run BEFORE E1-E4)
+
+**E0.1: Audit all routes that initiate a transfer / payment / withdrawal.**
+
+For each account-source path:
+- `POST /api/v3/me/payments` (own-account → recipient)
+- `POST /api/v3/me/transfers` (own-account → own-account)
+- Any employee-initiated transfer (search `transaction-service` for handlers that take a source account_id from request)
+
+Find where the source account is loaded. Verify that loaded accounts have a fund-association check.
+
+**E0.2: Add fund-account guard to the transfer/payment service path.**
+
+In `account-service` (where the debit happens) or transaction-service (where the saga starts), add a check:
+```go
+// Fund RSD accounts are restricted to fund operations only. Reject any
+// generic transfer/payment that tries to debit one.
+if sourceAccount.OwnerType == "investment_fund" {
+    return nil, status.Error(codes.PermissionDenied,
+        "fund accounts cannot be used as a transfer source; use fund operations only")
+}
+```
+
+If accounts don't currently carry an explicit owner_type linking them to a fund, look up the fund via `fund.RSDAccountID == sourceAccount.ID` and reject if matched.
+
+**E0.3: Unit test the rejection.**
+
+Test case: an employee tries `POST /me/payments` with `source_account_id` set to a fund's RSD account → expect 403 PermissionDenied.
+
+**E0.4: Document the invariant in Specification.md §21.**
+
+> **Fund RSD Account Outflow Restriction (Celina-4):** Money in an investment fund's RSD account may only leave via (a) a buy order placed on behalf of the fund, (b) a dividend payout to fund investors, or (c) a redemption by an investor of their position. Employees cannot transfer fund money to arbitrary accounts via the generic transfer/payment routes.
+
+---
+
 ## Sub-plan E1: Enrich `GET /investment-funds/:id` response
 
 **Current state:** Returns basic fund fields (name, manager, account, status).
