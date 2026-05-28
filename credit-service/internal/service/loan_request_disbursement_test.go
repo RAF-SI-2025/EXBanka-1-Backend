@@ -147,6 +147,7 @@ func newDisbursementTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(
 		&model.LoanRequest{}, &model.Loan{}, &model.Installment{},
 		&model.InterestRateTier{}, &model.BankMargin{},
+		&model.SagaLog{},
 	))
 	return db
 }
@@ -170,6 +171,12 @@ func buildDisbursementSvcWithBank(t *testing.T, accountClient accountpb.AccountS
 	svc, db := buildDisbursementSvc(t, accountClient)
 	if bankClient != nil {
 		svc.SetBankAccountClient(bankClient)
+		// Wire the LoanDisbursementSaga so the refactored ApproveLoanRequest path
+		// is exercised. Uses the same in-memory DB so saga_log rows are visible.
+		sagaRepo := repository.NewSagaLogRepository(db)
+		loanRepo := repository.NewLoanRepository(db)
+		disbSaga := NewLoanDisbursementSaga(bankClient, accountClient, loanRepo, sagaRepo)
+		svc.SetDisbursementSaga(disbSaga)
 	}
 	return svc, db
 }
@@ -208,7 +215,7 @@ func TestApproveLoan_DisbursesOnSuccess(t *testing.T) {
 
 	// Bank must be debited first with a deterministic reference.
 	require.Len(t, bankClient.debitCalls, 1, "DebitBankAccount must be called exactly once")
-	expectedRef := fmt.Sprintf("loan-disbursement:%d", loan.ID)
+	expectedRef := fmt.Sprintf("loan-disbursement-%d:debit", loan.ID)
 	assert.Equal(t, expectedRef, bankClient.debitCalls[0])
 	require.Len(t, bankClient.debitAmounts, 1)
 	assert.Equal(t, "10000.0000", bankClient.debitAmounts[0])
@@ -259,13 +266,16 @@ func TestApproveLoan_BorrowerCreditFails_CompensatesAndMarksFailed(t *testing.T)
 	// Bank was debited once.
 	require.Len(t, bankClient.debitCalls, 1)
 
-	// Compensation was invoked — bank was credited back with the SAME reference (idempotency key).
-	require.Len(t, bankClient.creditCalls, 1, "compensation must call CreditBankAccount once")
-	assert.Equal(t, bankClient.debitCalls[0], bankClient.creditCalls[0], "compensation must reuse same reference")
-
-	// Loan flagged disbursement_failed.
+	// Look up the created loan from DB (loan return value is nil on failure).
 	var dbLoan model.Loan
 	require.NoError(t, db.Where("client_id = ?", 1).First(&dbLoan).Error)
+
+	// Compensation was invoked — bank was credited back with the compensation reference.
+	require.Len(t, bankClient.creditCalls, 1, "compensation must call CreditBankAccount once")
+	expectedCompRef := fmt.Sprintf("loan-disbursement-%d:debit-comp", dbLoan.ID)
+	assert.Equal(t, expectedCompRef, bankClient.creditCalls[0])
+
+	// Loan flagged disbursement_failed.
 	assert.Equal(t, "disbursement_failed", dbLoan.Status)
 }
 
