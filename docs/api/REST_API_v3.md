@@ -5732,7 +5732,7 @@ Get one fund detail with enriched statistics (E1, Plan E 2026-05-28).
 ```
 
 **Notes:**
-- `total_dividends_paid_rsd` is always `"0.00"` until Plan E sub-plan E4 (dividend infrastructure) is implemented.
+- `total_dividends_paid_rsd` = sum of all `fund_dividend_payments.amount_rsd` for this fund (E4). Returns `"0.00"` when no dividends have been paid out yet.
 - `profit_rsd` = `total_value_rsd` − `total_contributed_rsd`.
 - `profit_pct` = `profit_rsd / total_contributed_rsd × 100` (4 decimal places). Zero when `total_contributed_rsd` is zero.
 - `current_value_rsd` per holding = `quantity × current_price_rsd` (computed server-side).
@@ -8857,6 +8857,152 @@ Response shape:
 | 401 | Missing or invalid token |
 | 403 | Insufficient permissions |
 | 500 | Downstream gRPC error |
+
+---
+
+## 51. Dividends (E4 — 2026-05-28)
+
+Dividend infrastructure for securities held directly by clients/bank and indirectly via investment funds.
+
+### POST /api/v3/admin/dividends
+
+**Authentication:** Employee JWT — requires `securities.manage.catalog` permission.
+
+Declares a dividend for a security. Idempotent on `(security_id, payment_date)` — a second call with the same key returns the existing record.
+
+**Request body:**
+```json
+{
+  "security_id": 12,
+  "ticker": "AAPL",
+  "amount_per_share_rsd": "50.00",
+  "payment_date": "2026-06-15"
+}
+```
+
+**Success 201:**
+```json
+{
+  "dividend_payment": {
+    "id": 1,
+    "security_id": 12,
+    "ticker": "AAPL",
+    "amount_per_share_rsd": "50.0000",
+    "payment_date": "2026-06-15",
+    "status": "declared",
+    "declared_by_employee_id": 3,
+    "paid_out_at": "",
+    "created_at": "2026-06-01T10:00:00Z"
+  }
+}
+```
+
+**Error responses:**
+- `400 validation_error` — missing or invalid fields.
+- `403 forbidden` — insufficient permission.
+
+---
+
+### POST /api/v3/admin/dividends/:id/payout
+
+**Authentication:** Employee JWT — requires `securities.manage.catalog` permission.
+
+Triggers the fan-out payout for a declared dividend. Walks every holding of the security:
+- Client direct holdings: 15% tax withheld; net credited to holder's account.
+- Bank direct holdings: no tax; full gross credited to bank's RSD account.
+- Investment fund holdings: no tax at this stage (deferred); full gross credited to fund's RSD account; a per-investor snapshot is recorded.
+
+**Path param:** `:id` — `dividend_payment_id`.
+
+**Request body:** empty.
+
+**Success 200:**
+```json
+{
+  "payouts_created": 12,
+  "fund_payouts": 2,
+  "total_amount_rsd": "150000.00"
+}
+```
+
+**Error responses:**
+- `400 validation_error` — invalid id.
+- `403 forbidden` — insufficient permission.
+- `500 internal_error` — payment already paid_out or cancelled.
+
+---
+
+### GET /api/v3/me/dividends
+
+**Authentication:** Any valid JWT (client or employee).
+
+Returns the caller's paginated dividend payout history, sorted most-recent first.
+
+**Query params:** `page` (default 1), `page_size` (default 20).
+
+**Success 200:**
+```json
+{
+  "payouts": [
+    {
+      "id": 5,
+      "dividend_payment_id": 1,
+      "holding_owner_type": "client",
+      "holding_owner_id": 42,
+      "holding_id": 17,
+      "shares": 100,
+      "gross_amount_rsd": "5000.00",
+      "tax_amount_rsd": "750.00",
+      "net_amount_rsd": "4250.00",
+      "credited_account_id": 1003,
+      "created_at": "2026-06-15T12:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### GET /api/v3/investment-funds/:id/dividends
+
+**Authentication:** Any valid JWT (client or employee).
+
+Returns paginated `fund_dividend_payments` for the fund, most-recent first. Each record includes a `per_investor_snapshot` JSON string with per-investor share breakdowns at payout time.
+
+**Path param:** `:id` — fund ID.
+**Query params:** `page` (default 1), `page_size` (default 20).
+
+**Success 200:**
+```json
+{
+  "payments": [
+    {
+      "id": 3,
+      "dividend_payment_id": 1,
+      "fund_id": 7,
+      "amount_rsd": "30000.00",
+      "per_investor_snapshot": "[{\"investor_owner_type\":\"client\",\"investor_owner_id\":42,\"pct_at_payment\":\"60.0000\",\"gross_share_rsd\":\"18000.0000\"}]",
+      "created_at": "2026-06-15T12:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+**Error responses:**
+- `400 validation_error` — invalid fund id.
+
+---
+
+### Portfolio dividend fields (E3)
+
+The `GET /api/v3/me/portfolio` and `GET /api/v3/portfolio/*` responses include two new fields on each `PortfolioPosition`:
+
+| Field | Description |
+|---|---|
+| `dividends_received_rsd` | For fund positions: sum of the caller's pro-rata share from `fund_dividend_payments` at each payment's `pct_at_payment`. For direct security positions: sum of `dividend_payouts.net_amount_rsd` for this owner. `"0.00"` when no dividends have been paid. |
+| `fund_status` | For `asset_type = "investment_fund"` positions: the fund's lifecycle status (`open`, `fundraising`, `active`, `matured`, `liquidated`). Empty for non-fund positions. |
 
 ---
 
