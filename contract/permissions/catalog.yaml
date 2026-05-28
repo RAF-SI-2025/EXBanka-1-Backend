@@ -129,6 +129,9 @@ permissions:
   - admin.crons.trigger
   - admin.crons.manage
 
+  # admin audit log reader (D1 — 2026-05-28)
+  - admin.audit.view
+
 
 
 default_roles:

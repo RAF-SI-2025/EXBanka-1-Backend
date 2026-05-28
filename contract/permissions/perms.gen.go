@@ -81,6 +81,7 @@ var Catalog = []Permission{
 	"admin.crons.view",
 	"admin.crons.trigger",
 	"admin.crons.manage",
+	"admin.audit.view",
 }
 
 var Accounts = struct {
@@ -149,12 +150,20 @@ var Actuaries = struct {
 }
 
 var Admin = struct {
+	Audit struct {
+		View Permission
+	}
 	Crons struct {
 		Manage  Permission
 		Trigger Permission
 		View    Permission
 	}
 }{
+	Audit: struct {
+		View Permission
+	}{
+		View: "admin.audit.view",
+	},
 	Crons: struct {
 		Manage  Permission
 		Trigger Permission
@@ -675,6 +684,7 @@ var DefaultRoles = map[string][]Permission{
 		"accounts.update.name",
 		"actuaries.manage.any",
 		"actuaries.read.all",
+		"admin.audit.view",
 		"admin.crons.manage",
 		"admin.crons.trigger",
 		"admin.crons.view",
