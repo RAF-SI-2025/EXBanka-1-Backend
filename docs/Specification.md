@@ -1446,6 +1446,7 @@ These routes are reached by other banks in the SI-TX cohort, not by employees or
 | Method | Path | Middleware | Handler | Description |
 |---|---|---|---|---|
 | POST | `/api/v3/interbank` | PeerAuth | PeerTxHandler.PostInterbank | SI-TX `Message<Type>` envelope. Phase 3. |
+| GET | `/api/v3/interbank/:transaction_id/status` | PeerAuth | PeerTxStatusHandler.GetTxStatus | Celina-5 CHECK_STATUS: peer queries cross-bank TX state by transactionId. Returns `{transaction_id, state, our_role, last_action_at, last_error}`. |
 | GET | `/api/v3/public-stock` | PeerAuth | PeerOTCHandler.GetPublicStocks | Lists own bank's OTC-public holdings. Phase 4. |
 | POST | `/api/v3/negotiations` | PeerAuth | PeerOTCHandler.CreateNegotiation | Peer-initiated cross-bank OTC offer. Phase 4. |
 | PUT | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.UpdateNegotiation | Counter-offer. Phase 4. |
@@ -2089,6 +2090,9 @@ Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance t
 | `stock.order-declined` | stock-service | (consumers) | OrderDeclinedMessage |
 | `stock.order-filled` | stock-service | (consumers) | OrderFilledMessage (payload below) |
 | `stock.order-cancelled` | stock-service | (consumers) | OrderCancelledMessage |
+| `transaction.saga-dead-letter` | transaction-service | (monitoring/alerting) | Failed saga events that exceeded all retries (cross-bank transfers, compensation failures). |
+| `credit.saga-dead-letter` | credit-service | (monitoring/alerting) | Failed loan saga events that exceeded all retries (disbursement, installment failures). |
+| `stock.saga-dead-letter` | stock-service | (monitoring/alerting) | Failed stock/OTC saga events that exceeded all retries (OTC exercises, recurring-order failures). |
 
 ### General Notification Types
 
@@ -2366,6 +2370,8 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - The `SourceAdminService.SwitchSource` RPC rejects unknown source names with `codes.InvalidArgument`.
 
 **Stock-service synthetic history backfill.** During `SeedAll` (initial seed and `SwitchSource`), `stock-service` writes 5 years (1825 days) of deterministic synthetic OHLC rows per listing to `listing_daily_price_infos`. Random walk is seeded by `listing.ID`, anchors the newest row at the listing's current price, and is idempotent on reseed via `INSERT … ON CONFLICT (listing_id, date) DO UPDATE`. Implemented in `stock-service/internal/service/listing_history_backfill.go`.
+
+**No saga can leave the system stuck.** Every cross-bank (SI-TX), OTC, loan disbursement, and recurring-order operation has automatic compensation. Compensations are retried up to 10 times by per-service recovery workers, then escalated to a service-scoped dead-letter Kafka topic (`transaction.saga-dead-letter`, `credit.saga-dead-letter`, `stock.saga-dead-letter`). No path requires admin manual reconciliation under normal failure modes. Cross-bank TX stuck-state is additionally resolved by the Celina-5 CHECK_STATUS mechanism: `PeerTxReconciler` (sender side) polls peers every 10 minutes via `GET /api/v3/interbank/:txID/status`; peers that have committed locally will report `committed` so the sender can close its row without a re-send loop.
 
 **Securities & Trading (Phase 2 bank-safe settlement):**
 - Buy orders for securities reserve funds at placement (converted to the account currency via exchange-service for cross-currency listings). Reservations are released on cancellation; released partially when an order completes under the reserved amount due to market slippage.
