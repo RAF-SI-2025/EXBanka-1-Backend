@@ -21,10 +21,9 @@ type FundStatistics struct {
 	LiquidRSDBal          decimal.Decimal
 	TotalHoldingsValueRSD decimal.Decimal
 	TotalValueRSD         decimal.Decimal
-	// TotalDividendsPaidRSD is always zero until E4 implements the
-	// fund_dividend_payments table. The field is included here so callers
-	// can rely on it regardless of when E4 lands.
-	TotalDividendsPaidRSD decimal.Decimal // TODO E4: sum from fund_dividend_payments
+	// TotalDividendsPaidRSD is the sum of fund_dividend_payments.amount_rsd
+	// for this fund (E4.5). Zero when fundDividendRepo is not wired.
+	TotalDividendsPaidRSD decimal.Decimal
 	ProfitRSD             decimal.Decimal
 	ProfitPct             decimal.Decimal
 }
@@ -88,8 +87,13 @@ func (s *FundService) Statistics(ctx context.Context, fund *model.InvestmentFund
 
 	stat.TotalValueRSD = stat.LiquidRSDBal.Add(stat.TotalHoldingsValueRSD)
 
-	// total_dividends_paid_rsd — always zero until E4.
-	stat.TotalDividendsPaidRSD = decimal.Zero
+	// total_dividends_paid_rsd — real value from fund_dividend_payments (E4.5).
+	if s.fundDividendRepo != nil {
+		if total, err := s.fundDividendRepo.SumByFundID(fund.ID); err == nil {
+			stat.TotalDividendsPaidRSD = total
+		}
+		// Graceful degradation: leave as decimal.Zero on repo error.
+	}
 
 	stat.ProfitRSD = stat.TotalValueRSD.Sub(stat.TotalContributedRSD)
 	if stat.TotalContributedRSD.IsPositive() {

@@ -67,6 +67,10 @@ type FundService struct {
 	// position-reads deps (optional; wired via WithPositionReads).
 	listingRepo *repository.ListingRepository
 
+	// dividend repo (optional; wired via WithDividendRepo).
+	// When nil, Statistics returns total_dividends_paid_rsd = 0.
+	fundDividendRepo *repository.FundDividendPaymentRepository
+
 	// liquidation dep (optional; wired via WithLiquidation). When nil,
 	// Redeem's insufficient-cash path returns ErrInsufficientFundCash directly.
 	orderPlacer FundOrderPlacer
@@ -132,6 +136,15 @@ var errSagaDepsNotWired = fmt.Errorf("fund saga dependencies not wired (Invest/R
 func (s *FundService) WithPositionReads(listingRepo *repository.ListingRepository) *FundService {
 	cp := *s
 	cp.listingRepo = listingRepo
+	return &cp
+}
+
+// WithDividendRepo wires the fund_dividend_payments repository so
+// Statistics can report the real total_dividends_paid_rsd.
+// Without this, Statistics returns "0.00" (E4 placeholder).
+func (s *FundService) WithDividendRepo(repo *repository.FundDividendPaymentRepository) *FundService {
+	cp := *s
+	cp.fundDividendRepo = repo
 	return &cp
 }
 
