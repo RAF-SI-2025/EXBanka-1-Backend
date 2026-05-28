@@ -204,6 +204,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Per-chain actions stay under /me/ since they always act on
 		// the caller's own chain (bid, counter, accept, reject, cancel).
 		me.GET("/otc/options/negotiations", bankIfEmp, h.OTCOptions.ListMyNegotiations)
+		me.GET("/otc/options/negotiations/:nid/revisions", bankIfEmp, h.OTCOptions.ListMyNegotiationRevisions)
 		me.POST("/otc/options/:id/negotiations/:nid/counter", bankIfEmp, h.OTCOptions.CounterMyNegotiation)
 		me.POST("/otc/options/:id/negotiations/:nid/accept", bankIfEmp, h.OTCOptions.AcceptMyNegotiation)
 		me.POST("/otc/options/:id/negotiations/:nid/reject", bankIfEmp, h.OTCOptions.RejectMyNegotiation)

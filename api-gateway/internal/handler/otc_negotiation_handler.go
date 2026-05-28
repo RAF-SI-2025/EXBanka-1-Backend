@@ -379,6 +379,36 @@ func (h *OTCOptionsHandler) ListMyNegotiations(c *gin.Context) {
 	})
 }
 
+// ListMyNegotiationRevisions godoc
+// @Summary      List the full revision chain of an OTC option negotiation
+// @Description  Returns all bid/counter/accept/reject revisions for a negotiation chain in revision_number order. Caller must be either the bidder or the parent listing's poster.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        nid path int true "negotiation chain id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{} "caller is not a party to this negotiation"
+// @Failure      404 {object} map[string]interface{} "negotiation not found"
+// @Router       /api/v3/me/otc/options/negotiations/{nid}/revisions [get]
+func (h *OTCOptionsHandler) ListMyNegotiationRevisions(c *gin.Context) {
+	negID, err := strconv.ParseUint(c.Param("nid"), 10, 64)
+	if err != nil || negID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid nid")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	resp, err := h.client.ListNegotiationRevisions(c.Request.Context(), &stockpb.ListNegotiationRevisionsRequest{
+		NegotiationId:   negID,
+		CallerOwnerType: identity.OwnerType,
+		CallerOwnerId:   derefU64(identity.OwnerID),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"revisions": resp.GetRevisions()})
+}
+
 // ListNegotiationsOnListing godoc
 // @Summary      List every negotiation chain against a given OTC option listing
 // @Description  Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal).
