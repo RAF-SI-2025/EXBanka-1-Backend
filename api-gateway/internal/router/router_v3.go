@@ -972,6 +972,27 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			opts.POST("/:option_id/orders", h.OptionsV2.CreateOrder)
 			opts.POST("/:option_id/exercise", h.OptionsV2.Exercise)
 		}
+
+		// ── Admin cron viewer (C9/C10 — 2026-05-28) ─────────────────────
+		// Three separate sub-groups let us apply distinct permissions to
+		// read vs trigger vs manage (pause/resume) routes.
+		adminCronRead := protected.Group("/admin/crons")
+		adminCronRead.Use(middleware.RequirePermission(perms.Admin.Crons.View))
+		{
+			adminCronRead.GET("", h.AdminCron.List)
+			adminCronRead.GET("/:service/:name", h.AdminCron.Get)
+		}
+		adminCronTrigger := protected.Group("/admin/crons")
+		adminCronTrigger.Use(middleware.RequirePermission(perms.Admin.Crons.Trigger))
+		{
+			adminCronTrigger.POST("/:service/:name/trigger", h.AdminCron.Trigger)
+		}
+		adminCronManage := protected.Group("/admin/crons")
+		adminCronManage.Use(middleware.RequirePermission(perms.Admin.Crons.Manage))
+		{
+			adminCronManage.POST("/:service/:name/pause", h.AdminCron.Pause)
+			adminCronManage.POST("/:service/:name/resume", h.AdminCron.Resume)
+		}
 	}
 
 	// ── Investment fund browsing + invest/redeem (AnyAuth) ──────

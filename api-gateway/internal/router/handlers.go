@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
+	gatewaykafka "github.com/exbanka/api-gateway/internal/kafka"
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
@@ -83,6 +85,15 @@ type Deps struct {
 	// (Phase 3 Task 11 of the SI-TX refactor; see docs/superpowers/specs/
 	// 2026-04-29-celina5-sitx-refactor-design.md).
 	OwnBankCode string
+
+	// AdminCronClients is the per-service pool of AdminCron gRPC clients
+	// (C9 — 2026-05-28). A nil entry means the service was unreachable at
+	// startup and will show as status "unreachable" in List responses.
+	AdminCronClients []*grpcclients.AdminCronClient
+
+	// AuditProducer is the Kafka producer used to publish admin cron audit
+	// events to the admin.cron-action topic (C10 — 2026-05-28).
+	AuditProducer *gatewaykafka.AuditProducer
 }
 
 // Handlers bundles every HTTP handler the gateway exposes. The constructor
@@ -142,6 +153,9 @@ type Handlers struct {
 	PeerOTC         *handler.PeerOTCHandler
 	PeerUser        *handler.PeerUserHandler
 	PeerOTCInitiate *handler.PeerOTCInitiateHandler
+
+	// AdminCron serves the /api/v3/admin/crons/* routes (C10 — 2026-05-28).
+	AdminCron *handler.AdminCronHandler
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.
@@ -194,5 +208,6 @@ func NewHandlers(d Deps) *Handlers {
 		PeerOTC:          handler.NewPeerOTCHandler(d.PeerOTCClient),
 		PeerUser:         handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
 		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, d.PeerOTCClient, d.AccountClient, ownRouting, d.OwnBankCode),
+		AdminCron:        handler.NewAdminCronHandler(d.AdminCronClients, d.AuditProducer),
 	}
 }

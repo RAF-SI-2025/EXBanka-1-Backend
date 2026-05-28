@@ -726,6 +726,11 @@ definitions:
     required:
     - email
     type: object
+  handler.pauseResumeBody:
+    properties:
+      reason:
+        type: string
+    type: object
   handler.peerForeignBankIdReq:
     properties:
       id:
@@ -966,6 +971,13 @@ definitions:
         type: string
     required:
     - duration_hours
+    type: object
+  handler.triggerBody:
+    properties:
+      force:
+        type: boolean
+      reason:
+        type: string
     type: object
   handler.updateAccountLimitsRequest:
     properties:
@@ -6747,6 +6759,251 @@ paths:
       summary: List payments by account (path-scoped)
       tags:
       - payments
+  /api/v3/admin/crons:
+    get:
+      description: Returns cron job information from every service that exposes the
+        AdminCron gRPC interface. Each service result carries status "ok" or "unreachable".
+        A single unreachable service does NOT fail the whole response.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all crons across services
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}:
+    get:
+      description: Returns the full CronInfo for a named cron on the specified service.
+      parameters:
+      - description: Service name (e.g. stock-service)
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name (e.g. tax-collection)
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one cron's detail
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}/pause:
+    post:
+      consumes:
+      - application/json
+      description: 'Pauses the named cron on the specified service. Optional body:
+        { "reason": string }.'
+      parameters:
+      - description: Service name
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Pause options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.pauseResumeBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Pause a cron
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}/resume:
+    post:
+      consumes:
+      - application/json
+      description: 'Resumes a previously paused cron on the specified service. Optional
+        body: { "reason": string }.'
+      parameters:
+      - description: Service name
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Resume options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.pauseResumeBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Resume a paused cron
+      tags:
+      - Admin
+  /api/v3/admin/crons/{service}/{name}/trigger:
+    post:
+      consumes:
+      - application/json
+      description: 'Forces an immediate execution of the named cron on the specified
+        service. Optional body: { "force": bool, "reason": string }.'
+      parameters:
+      - description: Service name
+        in: path
+        name: service
+        required: true
+        type: string
+      - description: Cron name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Trigger options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.triggerBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Trigger a cron manually
+      tags:
+      - Admin
   /api/v3/bank-accounts/{id}/activity:
     get:
       description: Returns paginated ledger entries (debits/credits) for a bank-owned

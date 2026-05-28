@@ -17,6 +17,7 @@ import (
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	"github.com/exbanka/api-gateway/internal/handler"
+	gatewaykafka "github.com/exbanka/api-gateway/internal/kafka"
 	"github.com/exbanka/api-gateway/internal/router"
 	"github.com/exbanka/contract/metrics"
 )
@@ -276,6 +277,38 @@ func main() {
 	peerNonceStore := cache.NewPeerNonceStore(redisClient, 10*time.Minute)
 	peerBankResolver := &grpcclients.PeerBankResolverAdapter{Client: peerBankAdminClient}
 
+	// ── Admin cron client pool (C9 — 2026-05-28) ──────────────────────────────
+	// One AdminCron gRPC client per service that exposes the AdminCron interface.
+	// Dial failures are non-fatal: the gateway starts, and the affected service
+	// shows up as status "unreachable" in GET /api/v3/admin/crons.
+	adminCronServiceAddrs := []struct {
+		Name string
+		Addr string
+	}{
+		{"stock-service", cfg.StockGRPCAddr},
+		{"credit-service", cfg.CreditGRPCAddr},
+		{"account-service", cfg.AccountGRPCAddr},
+		{"card-service", cfg.CardGRPCAddr},
+		{"transaction-service", cfg.TransactionGRPCAddr},
+		{"notification-service", cfg.NotificationGRPCAddr},
+		{"user-service", cfg.UserGRPCAddr},
+	}
+	adminCronClients := make([]*grpcclients.AdminCronClient, 0, len(adminCronServiceAddrs))
+	for _, svc := range adminCronServiceAddrs {
+		cl, err := grpcclients.NewAdminCronClient(svc.Name, svc.Addr)
+		if err != nil {
+			log.Printf("admin cron: failed to connect to %s (%s): %v — service will show as unreachable", svc.Name, svc.Addr, err)
+			adminCronClients = append(adminCronClients, nil)
+			continue
+		}
+		defer cl.Conn.Close()
+		adminCronClients = append(adminCronClients, cl)
+	}
+
+	// ── Audit Kafka producer (C10 — 2026-05-28) ────────────────────────────
+	auditProducer := gatewaykafka.NewAuditProducer(cfg.KafkaBrokers)
+	defer auditProducer.Close()
+
 	r := router.NewRouter()
 
 	// Wire every gRPC client into the router-level Deps bundle, then
@@ -321,6 +354,8 @@ func main() {
 		PeerBanks:            peerBankResolver,
 		OwnBankCode:          cfg.OwnBankCode,
 		PeerOTCClient:        peerOTCClient,
+		AdminCronClients:     adminCronClients,
+		AuditProducer:        auditProducer,
 	}
 	h := router.NewHandlers(deps)
 	router.SetupV3(r, h)

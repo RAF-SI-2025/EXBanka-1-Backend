@@ -8386,6 +8386,158 @@ All aliases use the same response shape as 48.1 and the same access enforcement 
 
 ---
 
+## 49. Admin / Cron Management (C10 — 2026-05-28)
+
+All five routes require an **employee JWT** (`AuthMiddleware`). Each sub-route carries its own permission; all three permissions are held by `EmployeeAdmin` via the wildcard grant.
+
+### 49.1 List all crons
+
+**GET /api/v3/admin/crons**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.view`
+- Fans out in parallel to all configured services (stock, credit, account, card, transaction, notification, user).
+- Each service appears in the response regardless of reachability.
+
+**Response 200:**
+```json
+{
+  "services": [
+    {
+      "service": "stock-service",
+      "status": "ok",
+      "crons": [
+        {
+          "name": "tax-collection",
+          "service": "stock-service",
+          "description": "...",
+          "interval": "24h",
+          "cron_expression": "",
+          "last_started_at": "2026-05-28T00:00:00Z",
+          "last_finished_at": "2026-05-28T00:01:05Z",
+          "last_error": "",
+          "next_scheduled_at": "2026-05-29T00:00:00Z",
+          "is_paused": false,
+          "paused_by_employee": 0,
+          "paused_at": "",
+          "run_count": 42,
+          "error_count": 1
+        }
+      ]
+    },
+    {
+      "service": "notification-service",
+      "status": "unreachable",
+      "crons": null,
+      "error": "connection refused"
+    }
+  ]
+}
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | Always returned, even if all services are unreachable |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+
+### 49.2 Get one cron
+
+**GET /api/v3/admin/crons/:service/:name**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.view`
+- `:service` — exact service label (e.g. `stock-service`)
+- `:name` — exact cron name as registered in the cron registry
+
+**Response 200:**
+```json
+{
+  "cron": { ...CronInfoMsg fields... }
+}
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | success |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service label unknown or cron name not found |
+| 500 | service returned an unexpected error |
+
+### 49.3 Trigger a cron
+
+**POST /api/v3/admin/crons/:service/:name/trigger**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.trigger`
+- Body (optional): `{ "force": bool, "reason": string }`
+  - `force`: if true, execute even if the cron is paused
+  - `reason`: free-text for audit log
+- Publishes `AdminCronActionMessage{action:"trigger"}` to `admin.cron-action` Kafka topic after success.
+
+**Response 200:**
+```json
+{ "status": "triggered" }
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | cron triggered |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service or cron not found |
+| 409 | cron is paused and force=false |
+| 500 | service error |
+
+### 49.4 Pause a cron
+
+**POST /api/v3/admin/crons/:service/:name/pause**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.manage`
+- Body (optional): `{ "reason": string }`
+- Publishes `AdminCronActionMessage{action:"pause"}` to `admin.cron-action` after success.
+
+**Response 200:**
+```json
+{ "status": "paused" }
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | cron paused |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service or cron not found |
+| 409 | already paused |
+| 500 | service error |
+
+### 49.5 Resume a cron
+
+**POST /api/v3/admin/crons/:service/:name/resume**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.manage`
+- Body (optional): `{ "reason": string }`
+- Publishes `AdminCronActionMessage{action:"resume"}` to `admin.cron-action` after success.
+
+**Response 200:**
+```json
+{ "status": "resumed" }
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | cron resumed |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service or cron not found |
+| 409 | not paused |
+| 500 | service error |
+
+---
+
 ## Password Requirements
 
 Passwords for both employees and clients must satisfy:
