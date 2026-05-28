@@ -14,11 +14,12 @@ proto:
 		client/client.proto account/account.proto card/card.proto \
 		transaction/transaction.proto credit/credit.proto \
 		exchange/exchange.proto stock/stock.proto \
-		verification/verification.proto
+		verification/verification.proto \
+		admin/admin_cron.proto
 	mkdir -p contract/authpb contract/userpb contract/notificationpb \
 		contract/clientpb contract/accountpb contract/cardpb \
 		contract/transactionpb contract/creditpb contract/exchangepb \
-		contract/stockpb contract/verificationpb
+		contract/stockpb contract/verificationpb contract/adminpb
 	mv contract/auth/*.pb.go contract/authpb/ 2>/dev/null || true
 	mv contract/user/*.pb.go contract/userpb/ 2>/dev/null || true
 	mv contract/notification/*.pb.go contract/notificationpb/ 2>/dev/null || true
@@ -30,6 +31,7 @@ proto:
 	mv contract/exchange/*.pb.go contract/exchangepb/ 2>/dev/null || true
 	mv contract/stock/*.pb.go contract/stockpb/ 2>/dev/null || true
 	mv contract/verification/*.pb.go contract/verificationpb/ 2>/dev/null || true
+	mv contract/admin/*.pb.go contract/adminpb/ 2>/dev/null || true
 	rmdir contract/auth contract/user contract/notification 2>/dev/null || true
 	rmdir contract/client contract/account contract/card \
 		contract/transaction contract/credit contract/exchange \
@@ -82,6 +84,7 @@ clean:
 	rm -f contract/clientpb/*.go contract/accountpb/*.go contract/cardpb/*.go
 	rm -f contract/transactionpb/*.go contract/creditpb/*.go contract/exchangepb/*.go contract/stockpb/*.go
 	rm -f contract/verificationpb/*.go
+	rm -f contract/adminpb/*.go
 	rm -f user-service/bin/* auth-service/bin/* api-gateway/bin/* notification-service/bin/*
 	rm -f client-service/bin/* account-service/bin/* card-service/bin/*
 	rm -f transaction-service/bin/* credit-service/bin/* exchange-service/bin/* stock-service/bin/*
