@@ -1141,6 +1141,7 @@ const (
 	PortfolioGRPCService_ExerciseOptionByOptionID_FullMethodName = "/stock.PortfolioGRPCService/ExerciseOptionByOptionID"
 	PortfolioGRPCService_GetHolding_FullMethodName               = "/stock.PortfolioGRPCService/GetHolding"
 	PortfolioGRPCService_ListHoldingTransactions_FullMethodName  = "/stock.PortfolioGRPCService/ListHoldingTransactions"
+	PortfolioGRPCService_GetUnifiedPortfolio_FullMethodName      = "/stock.PortfolioGRPCService/GetUnifiedPortfolio"
 )
 
 // PortfolioGRPCServiceClient is the client API for PortfolioGRPCService service.
@@ -1163,6 +1164,10 @@ type PortfolioGRPCServiceClient interface {
 	// surfaces the full buy/sell history for that security across every
 	// account the owner used.
 	ListHoldingTransactions(ctx context.Context, in *ListHoldingTransactionsRequest, opts ...grpc.CallOption) (*ListHoldingTransactionsResponse, error)
+	// GetUnifiedPortfolio returns all securities holdings and fund positions for
+	// one portfolio owner (client, bank, or investment fund), grouped by
+	// asset class with P/L totals computed on read.
+	GetUnifiedPortfolio(ctx context.Context, in *GetUnifiedPortfolioRequest, opts ...grpc.CallOption) (*UnifiedPortfolioResponse, error)
 }
 
 type portfolioGRPCServiceClient struct {
@@ -1243,6 +1248,16 @@ func (c *portfolioGRPCServiceClient) ListHoldingTransactions(ctx context.Context
 	return out, nil
 }
 
+func (c *portfolioGRPCServiceClient) GetUnifiedPortfolio(ctx context.Context, in *GetUnifiedPortfolioRequest, opts ...grpc.CallOption) (*UnifiedPortfolioResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnifiedPortfolioResponse)
+	err := c.cc.Invoke(ctx, PortfolioGRPCService_GetUnifiedPortfolio_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PortfolioGRPCServiceServer is the server API for PortfolioGRPCService service.
 // All implementations must embed UnimplementedPortfolioGRPCServiceServer
 // for forward compatibility.
@@ -1263,6 +1278,10 @@ type PortfolioGRPCServiceServer interface {
 	// surfaces the full buy/sell history for that security across every
 	// account the owner used.
 	ListHoldingTransactions(context.Context, *ListHoldingTransactionsRequest) (*ListHoldingTransactionsResponse, error)
+	// GetUnifiedPortfolio returns all securities holdings and fund positions for
+	// one portfolio owner (client, bank, or investment fund), grouped by
+	// asset class with P/L totals computed on read.
+	GetUnifiedPortfolio(context.Context, *GetUnifiedPortfolioRequest) (*UnifiedPortfolioResponse, error)
 	mustEmbedUnimplementedPortfolioGRPCServiceServer()
 }
 
@@ -1293,6 +1312,9 @@ func (UnimplementedPortfolioGRPCServiceServer) GetHolding(context.Context, *GetH
 }
 func (UnimplementedPortfolioGRPCServiceServer) ListHoldingTransactions(context.Context, *ListHoldingTransactionsRequest) (*ListHoldingTransactionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListHoldingTransactions not implemented")
+}
+func (UnimplementedPortfolioGRPCServiceServer) GetUnifiedPortfolio(context.Context, *GetUnifiedPortfolioRequest) (*UnifiedPortfolioResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUnifiedPortfolio not implemented")
 }
 func (UnimplementedPortfolioGRPCServiceServer) mustEmbedUnimplementedPortfolioGRPCServiceServer() {}
 func (UnimplementedPortfolioGRPCServiceServer) testEmbeddedByValue()                              {}
@@ -1441,6 +1463,24 @@ func _PortfolioGRPCService_ListHoldingTransactions_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PortfolioGRPCService_GetUnifiedPortfolio_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUnifiedPortfolioRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PortfolioGRPCServiceServer).GetUnifiedPortfolio(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PortfolioGRPCService_GetUnifiedPortfolio_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PortfolioGRPCServiceServer).GetUnifiedPortfolio(ctx, req.(*GetUnifiedPortfolioRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PortfolioGRPCService_ServiceDesc is the grpc.ServiceDesc for PortfolioGRPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1475,6 +1515,10 @@ var PortfolioGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListHoldingTransactions",
 			Handler:    _PortfolioGRPCService_ListHoldingTransactions_Handler,
+		},
+		{
+			MethodName: "GetUnifiedPortfolio",
+			Handler:    _PortfolioGRPCService_GetUnifiedPortfolio_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

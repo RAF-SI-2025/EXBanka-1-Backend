@@ -522,6 +522,57 @@ service PortfolioGRPCService {
   // surfaces the full buy/sell history for that security across every
   // account the owner used.
   rpc ListHoldingTransactions(ListHoldingTransactionsRequest) returns (ListHoldingTransactionsResponse);
+  // GetUnifiedPortfolio returns all securities holdings and fund positions for
+  // one portfolio owner (client, bank, or investment fund), grouped by
+  // asset class with P/L totals computed on read.
+  rpc GetUnifiedPortfolio(GetUnifiedPortfolioRequest) returns (UnifiedPortfolioResponse);
+}
+
+// ── Unified Portfolio messages ──────────────────────────────────────────────
+
+message GetUnifiedPortfolioRequest {
+  string owner_type = 1; // "client" | "bank" | "investment_fund"
+  uint64 owner_id   = 2; // 0 when owner_type == "bank"
+}
+
+message PortfolioPosition {
+  string asset_type          = 1;  // "stock"|"option"|"future"|"investment_fund"
+  string symbol              = 2;  // for stocks/options/futures
+  uint64 fund_id             = 3;  // for fund positions
+  string fund_name           = 4;  // for fund positions
+  uint64 contract_id         = 5;  // for options/futures
+  int64  quantity            = 6;
+  string avg_cost_rsd        = 7;  // decimal as string
+  string current_price_rsd   = 8;
+  string current_value_rsd   = 9;
+  string p_l_rsd             = 10;
+  string p_l_pct             = 11;
+  string amount_invested_rsd = 12; // fund positions
+  string pct_of_fund         = 13;
+  string strike_rsd          = 14;
+  string premium_paid_rsd    = 15;
+  string intrinsic_value_rsd = 16;
+  string settlement_date     = 17;
+  string last_updated        = 18;
+}
+
+message PortfolioGroup {
+  string total_value_rsd           = 1;
+  string total_profit_rsd          = 2;
+  string total_profit_pct          = 3;
+  repeated PortfolioPosition positions = 4;
+}
+
+message UnifiedPortfolioResponse {
+  string         portfolio_id     = 1;
+  string         owner_type       = 2;
+  uint64         owner_id         = 3;
+  string         owner_name       = 4;
+  string         total_value_rsd  = 5;
+  string         total_profit_rsd = 6;
+  string         total_profit_pct = 7;
+  PortfolioGroup securities       = 8;
+  PortfolioGroup funds            = 9;
 }
 
 message Holding {
