@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}, &cronreg.CronPauseState{}); err != nil {
+	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}, &cronreg.CronPauseState{}, &model.AdminAuditLog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 	cronRegistry := cronreg.NewRegistry("notification-service", cronreg.NewGormPauseStore(db))
@@ -88,6 +88,11 @@ func main() {
 	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo, templateSvc)
 	generalConsumer.Start(ctx)
 	defer generalConsumer.Close()
+
+	// Admin cron audit consumer (persists admin.cron-action events to admin_audit_logs)
+	adminAuditConsumer := consumer.NewAdminAuditConsumer(cfg.KafkaBrokers, db)
+	adminAuditConsumer.Start(ctx)
+	defer adminAuditConsumer.Close()
 
 	// Background inbox cleanup
 	cleanupSvc := service.NewInboxCleanupService(inboxRepo, cronRegistry)
