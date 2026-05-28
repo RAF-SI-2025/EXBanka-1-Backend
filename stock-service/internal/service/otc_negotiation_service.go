@@ -571,6 +571,30 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 		return nil, fmt.Errorf("mint contract: %w", mintErr)
 	}
 	result.Contract = contract
+
+	// Persist the contract link on the winning negotiation row so the
+	// list endpoint can surface minted_contract_id. Versioned Save
+	// (CLAUDE.md optimistic-lock pattern). Best-effort — a failure here
+	// does NOT roll back the already-committed state TX or the minted
+	// contract; the contract exists, the user can still find it; the
+	// link field just stays nil until a future retry or background job
+	// backfills it.
+	if contract != nil {
+		linkErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			neg, err := s.negRepo.LockByID(tx, result.WinningNegotiation.ID)
+			if err != nil {
+				return err
+			}
+			neg.MintedContractID = &contract.ID
+			return s.negRepo.SaveTx(tx, neg)
+		})
+		if linkErr != nil {
+			log.Printf("WARN: failed to set minted_contract_id on negotiation %d: %v", result.WinningNegotiation.ID, linkErr)
+		} else {
+			result.WinningNegotiation.MintedContractID = &contract.ID
+		}
+	}
+
 	// Notify each cancelled sibling's bidder that their chain lost to
 	// a competing accept. accepted_premium = the winning premium so
 	// the bidder sees the going rate.
@@ -861,6 +885,38 @@ func (s *OTCNegotiationService) ListMyNegotiations(
 // Used by the listing's poster to see all incoming bids.
 func (s *OTCNegotiationService) ListByParentOffer(ctx context.Context, parentOfferID uint64) ([]model.OTCNegotiation, error) {
 	return s.negRepo.ListByParentOffer(parentOfferID)
+}
+
+// ListRevisions returns the full revision history for a negotiation chain,
+// ordered by revision_number ascending. Either party (bidder or listing
+// poster) may call this — authorization is verified against the negotiation
+// row and its parent offer. A third-party caller receives PermissionDenied.
+func (s *OTCNegotiationService) ListRevisions(
+	ctx context.Context,
+	negotiationID uint64,
+	callerOwnerType model.OwnerType,
+	callerOwnerID *uint64,
+) ([]model.OTCNegotiationRevision, error) {
+	neg, err := s.negRepo.GetByID(negotiationID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrOTCNegotiationNotFound
+		}
+		return nil, err
+	}
+	// Authorization: caller must be the bidder OR the parent listing's poster.
+	isBidder := ownerMatches(neg.BidderOwnerType, neg.BidderOwnerID, callerOwnerType, callerOwnerID)
+	if !isBidder {
+		parent, perr := s.offerRepo.GetByIDTx(s.db, neg.ParentOfferID)
+		if perr != nil {
+			return nil, ErrOTCNegotiationNotFound
+		}
+		isPoster := ownerMatches(parent.InitiatorOwnerType, parent.InitiatorOwnerID, callerOwnerType, callerOwnerID)
+		if !isPoster {
+			return nil, ErrOTCRevisionsUnauthorized
+		}
+	}
+	return s.negRepo.ListRevisions(negotiationID)
 }
 
 // ---------- helpers ----------
