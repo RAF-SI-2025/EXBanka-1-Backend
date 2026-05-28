@@ -3,12 +3,15 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	contractsitx "github.com/exbanka/contract/sitx"
@@ -582,6 +585,80 @@ func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model
 	default:
 		ownPeerCode := strconv.FormatInt(h.ownRouting, 10)
 		return h.executor.ReverseLocal(ctx, postings, ownPeerCode, idem)
+	}
+}
+
+// GetTxStatus implements the Celina-5 CHECK_STATUS mechanism. A peer bank
+// can query the state of a cross-bank transaction by its transactionId
+// (which equals our IdempotenceKey / UUID). We check both sender-side
+// (outbound_peer_txs) and receiver-side (peer_idempotence_records) tables
+// and return a unified status so both parties can resume from where they
+// stopped.
+func (h *PeerTxGRPCHandler) GetTxStatus(ctx context.Context, req *transactionpb.GetTxStatusRequest) (*transactionpb.GetTxStatusResponse, error) {
+	txID := req.GetTransactionId()
+	callerCode := req.GetCallerPeerBankCode()
+	if txID == "" {
+		return nil, status.Error(codes.InvalidArgument, "transaction_id required")
+	}
+
+	// 1. Check sender-side: did WE initiate this outbound TX?
+	if h.outRepo != nil {
+		row, err := h.outRepo.GetByIdempotenceKey(txID)
+		if err == nil && row != nil {
+			lastActionAt := row.UpdatedAt.UTC().Format(time.RFC3339)
+			return &transactionpb.GetTxStatusResponse{
+				State:        senderState(row.Status),
+				OurRole:      "sender",
+				LastActionAt: lastActionAt,
+				LastError:    row.LastError,
+			}, nil
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(codes.Internal, "outbound lookup: %v", err)
+		}
+	}
+
+	// 2. Check receiver-side: did WE receive a NEW_TX from this peer for
+	// this transaction? The idempotence record is keyed by (peer_bank_code,
+	// locally_generated_key). The locally_generated_key is the sender's UUID
+	// which we store as TransactionID in the idempotence record.
+	if callerCode != "" {
+		rec, found, err := h.idemRepo.LookupByTransactionID(callerCode, txID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "idem lookup: %v", err)
+		}
+		if found {
+			lastActionAt := rec.CreatedAt.UTC().Format(time.RFC3339)
+			return &transactionpb.GetTxStatusResponse{
+				State:        "committed",
+				OurRole:      "receiver",
+				LastActionAt: lastActionAt,
+				LastError:    "",
+			}, nil
+		}
+	}
+
+	// 3. Unknown — we have no record of this transaction.
+	return &transactionpb.GetTxStatusResponse{
+		State:        "unknown",
+		OurRole:      "",
+		LastActionAt: "",
+		LastError:    "",
+	}, nil
+}
+
+// senderState maps the internal outbound_peer_tx status to the public
+// CHECK_STATUS vocabulary.
+func senderState(s string) string {
+	switch s {
+	case "committed":
+		return "committed"
+	case "rolled_back":
+		return "rolled_back"
+	case "failed":
+		return "dead_letter"
+	default:
+		// "pending" | "committing" | anything unexpected → "prepared"
+		return "prepared"
 	}
 }
 
