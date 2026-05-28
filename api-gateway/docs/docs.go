@@ -169,45 +169,6 @@ const docTemplate = `{
             }
         },
         "/api/v1/investment-funds/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "InvestmentFunds"
-                ],
-                "summary": "Get investment fund detail",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "fund id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
             "put": {
                 "security": [
                     {
@@ -10744,6 +10705,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/investment-funds/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the fund's basic fields plus computed statistics: investor_count, total_contributed_rsd, liquid_rsd_balance, total_holdings_value_rsd, total_value_rsd, total_dividends_paid_rsd (always \"0.00\" until E4), profit_rsd, profit_pct, and a holdings[] array with current_value_rsd per position.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "InvestmentFunds"
+                ],
+                "summary": "Get investment fund detail (enriched — E1)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "fund id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/loan-requests": {
             "get": {
                 "security": [
@@ -14833,6 +14836,10 @@ const docTemplate = `{
             "properties": {
                 "acceptor_account_id": {
                     "type": "integer"
+                },
+                "on_behalf_of_fund_id": {
+                    "description": "OnBehalfOfFundID, when non-zero, places this accept on behalf of a fund (E2).\nThe acceptor_account_id must equal the fund's RSD account.\nCaller must be the fund's manager (acting_employee_id enforced in stock-service).",
+                    "type": "integer"
                 }
             }
         },
@@ -15711,6 +15718,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "on_behalf_of_client_id": {
+                    "type": "integer"
+                },
+                "on_behalf_of_fund_id": {
+                    "description": "OnBehalfOfFundID, when non-zero, exercises this contract on behalf of a fund (E2).\nCaller must be the fund's manager (enforced in stock-service).",
                     "type": "integer"
                 }
             }

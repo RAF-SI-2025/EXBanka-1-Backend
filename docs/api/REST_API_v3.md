@@ -5690,18 +5690,52 @@ List investment funds (Discovery page).
 
 ### GET /api/v3/investment-funds/:id
 
-Get one fund detail (used by the Detaljan prikaz page).
+Get one fund detail with enriched statistics (E1, Plan E 2026-05-28).
 
 **Authentication:** Any JWT
 
 **Response 200:**
 ```json
 {
-  "fund": { "id": 101, "name": "Alpha Growth Fund", ... },
-  "holdings": [ { "stock_id": 42, "quantity": "100", "acquired_at": "..." } ],
-  "performance": [ { "as_of": "2026-04-01", "fund_value_rsd": "2600000.00" } ]
+  "fund": {
+    "id": 7,
+    "name": "Alpha Growth",
+    "description": "...",
+    "manager_employee_id": 3,
+    "minimum_contribution_rsd": "1000.00",
+    "rsd_account_id": 12345,
+    "active": true,
+    "created_at": "...",
+    "updated_at": "..."
+  },
+  "holdings": [
+    {
+      "security_type": "stock",
+      "security_id": 42,
+      "ticker": "AAPL",
+      "quantity": 100,
+      "average_price_rsd": "20000.00",
+      "current_price_rsd": "22000.00",
+      "current_value_rsd": "2200000.00",
+      "acquired_at": "2026-05-01T00:00:00Z"
+    }
+  ],
+  "investor_count": 42,
+  "total_contributed_rsd": "5000000.00",
+  "liquid_rsd_balance": "1500000.00",
+  "total_holdings_value_rsd": "3500000.00",
+  "total_value_rsd": "5000000.00",
+  "total_dividends_paid_rsd": "0.00",
+  "profit_rsd": "0.00",
+  "profit_pct": "0.0000"
 }
 ```
+
+**Notes:**
+- `total_dividends_paid_rsd` is always `"0.00"` until Plan E sub-plan E4 (dividend infrastructure) is implemented.
+- `profit_rsd` = `total_value_rsd` − `total_contributed_rsd`.
+- `profit_pct` = `profit_rsd / total_contributed_rsd × 100` (4 decimal places). Zero when `total_contributed_rsd` is zero.
+- `current_value_rsd` per holding = `quantity × current_price_rsd` (computed server-side).
 
 ---
 
@@ -7929,13 +7963,15 @@ Accept the current terms on a chain. Caller must be the party **opposite** to wh
 **Request Body:**
 ```json
 {
-  "acceptor_account_id": 42
+  "acceptor_account_id": 42,
+  "on_behalf_of_fund_id": 0
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `acceptor_account_id` | int | Caller's account — pays the premium if accepter is the buyer (parent direction = `sell_initiated`); receives the premium if accepter is the seller (parent direction = `buy_initiated`). Currency must match the seller's account currency or a cross-currency FX conversion is performed via exchange-service. |
+| `on_behalf_of_fund_id` | int | *Optional.* When non-zero, places this accept on behalf of an investment fund (E2, Plan E). `acceptor_account_id` **must** equal the fund's RSD account. Caller must be the fund's manager (`acting_employee_id` = `fund.manager_employee_id`). The resulting `OptionContract` records `on_behalf_of_fund_id` so that exercise credits `fund_holdings`. |
 
 **Stage 1 — negotiation state TX (first-accept-wins):**
 1. `SELECT FOR UPDATE` on the winning negotiation row.
@@ -7983,7 +8019,15 @@ Accept the current terms on a chain. Caller must be the party **opposite** to wh
 
 `contract` is `null` when the formation saga failed; in that case the negotiation status is `failed`, the parent stays `consumed`, and the front-end can surface a "contract not formed" warning + suggest re-listing.
 
-**Exercise:** the minted `OptionContract` row is consumable by `POST /api/v3/otc/contracts/:id/exercise` (see existing exercise route) — strike money moves buyer→seller, the reserved seller shares are consumed and credited to the buyer's holding.
+**Exercise:** the minted `OptionContract` row is consumable by `POST /api/v3/otc/contracts/:id/exercise` (see existing exercise route) — strike money moves buyer→seller, the reserved seller shares are consumed and credited to the buyer's holding. When the contract has `on_behalf_of_fund_id` set, the `exercise` endpoint also accepts `on_behalf_of_fund_id` in the request body (same fund-manager validation applies) and shares land in `fund_holdings`.
+
+**Fund-on-behalf accept (`on_behalf_of_fund_id`):**
+When this field is non-zero:
+- `acceptor_account_id` **must** equal the fund's `rsd_account_id`.
+- The acting employee must be the fund's manager.
+- The minted contract records `on_behalf_of_fund_id`; on exercise, shares land in `fund_holdings` instead of personal holdings.
+- Returns 403 `fund_not_managed_by_actor` if manager check fails.
+- Returns 400 `acceptor_account_id must equal fund RSD account for fund orders` if account mismatch.
 
 **Response 400:**
 - `acceptor_account_id` missing or zero.
@@ -7992,6 +8036,7 @@ Accept the current terms on a chain. Caller must be the party **opposite** to wh
 **Response 403:**
 - Caller proposed the current terms (`ErrOTCAcceptUnauthorized`) or is not a party to the chain.
 - `acceptor_account_id` does not belong to caller (gateway-side ownership check).
+- `on_behalf_of_fund_id` set but acting employee is not the fund manager.
 
 **Response 412:**
 - Parent listing no longer open OR negotiation is in a terminal state.

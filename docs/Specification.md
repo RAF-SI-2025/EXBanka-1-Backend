@@ -2433,6 +2433,13 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - Forex pairs are NOT oscillated; cross-currency conversion via `exchange-service.Convert` depends on stable rates for fill pricing and fee math.
 - The security price refresh interval default is `1` minute (env `SECURITY_SYNC_INTERVAL_MINUTES`, default in `stock-service/internal/config/config.go`) so the DB visibly steps to the new phase each minute. The `external` and `simulator` sources are unaffected by the oscillation.
 
+**Fund RSD Account Outflow Restriction (E0 — Celina-4, 2026-05-28):**
+- Money in an investment fund's RSD account may ONLY leave via three permitted paths: (a) a buy order placed on behalf of the fund (`on_behalf_of_fund_id` in a stock order or OTC accept), (b) a dividend payout to fund investors (E4 — not yet implemented), or (c) a redemption by an investor of their position (`FundService.Redeem`).
+- **FORBIDDEN:** An employee CANNOT transfer money from a fund's RSD account to any arbitrary other account via the generic transfer/payment routes (`POST /api/v3/me/payments`, `POST /api/v3/me/transfers`, or any employee transfer/payment route).
+- Enforcement: fund RSD accounts are tagged `account_category = "investment_fund"` in account-service at creation time. `transaction-service`'s `PaymentService.CreatePayment` and `TransferService.CreateTransfer` reject any source account with `account_category == "investment_fund"` with `ErrFundAccountRestricted` (codes.PermissionDenied).
+- **`GET /api/v3/investment-funds/:id` enrichment (E1 — 2026-05-28):** Returns `investor_count`, `total_contributed_rsd`, `liquid_rsd_balance`, `total_holdings_value_rsd`, `total_value_rsd`, `total_dividends_paid_rsd` (always `"0.00"` until E4), `profit_rsd`, `profit_pct`, and `holdings[].current_value_rsd`.
+- **OTC buy on behalf of fund (E2 — 2026-05-28):** `POST /api/v3/me/otc/options/:id/negotiations/:nid/accept` and `POST /api/v3/otc/contracts/:id/exercise` now accept `on_behalf_of_fund_id`. When set, debit comes from fund's RSD account; resulting holding lands in `fund_holdings`. Manager-only (`acting_employee_id == fund.manager_employee_id`).
+
 **Accounts:**
 - `current` accounts → RSD only
 - `foreign` accounts → EUR, CHF, USD, GBP, JPY, CAD, AUD
