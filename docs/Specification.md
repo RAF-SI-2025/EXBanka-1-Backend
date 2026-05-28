@@ -537,6 +537,7 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 | notifications | `notifications.templates.manage` — allows `EmployeeAdmin` to customize notification template subject/body text |
 | portfolio | `portfolio.view.client` — allows an employee to read any client's portfolio via the unified portfolio routes; `portfolio.view.fund` — allows reading any investment-fund's portfolio. Both granted to `EmployeeSupervisor` (and via inheritance to `EmployeeAdmin`). |
 | admin | `admin.crons.view` — list/read all cron jobs across services; `admin.crons.trigger` — manually trigger a cron execution; `admin.crons.manage` — pause and resume crons. All three granted to `EmployeeAdmin` via the wildcard `*` grant. (C5 — 2026-05-28) |
+| admin | `admin.audit.view` — read the global changelog and cron-action audit tables without specifying an entity (D1 — 2026-05-28). Granted to `EmployeeAdmin` via the wildcard `*` grant. |
 
 ### Role Definitions
 
@@ -1614,6 +1615,21 @@ Protected by `AuthMiddleware` (employee JWT). Each sub-group has a distinct perm
 | POST | `/api/v3/admin/crons/:service/:name/resume` | `admin.crons.manage` | AdminCronHandler.Resume | Resume a paused cron; optional body `{"reason": string}` |
 
 `GET /api/v3/admin/crons` fans out in parallel (`errgroup`) to all configured services. Each service appears as a result entry with `status: "ok"` or `status: "unreachable"`. An unreachable service does NOT fail the whole response. After a successful Trigger/Pause/Resume the gateway publishes an `AdminCronActionMessage` to `admin.cron-action` (see §19). `:service` must match an exact label (e.g. `stock-service`, `credit-service`).
+
+**`/api/v3/admin/audit/*` — Admin Audit Log Reader (D4 — 2026-05-28)**
+
+Six global changelog read endpoints. All require `admin.audit.view` (EmployeeAdmin only). Common query params: `page` (default 1), `page_size` (default 50, max 200), `since=YYYY-MM-DD`, `until=YYYY-MM-DD`, `actor_id` (employee ID), `action` (exact string match).
+
+| Method | Path | Permission | Handler | Description |
+|---|---|---|---|---|
+| GET | `/api/v3/admin/audit/clients-changelog` | `admin.audit.view` | AdminAuditHandler.ListClientsChangelog | Global changelog from client-service |
+| GET | `/api/v3/admin/audit/accounts-changelog` | `admin.audit.view` | AdminAuditHandler.ListAccountsChangelog | Global changelog from account-service |
+| GET | `/api/v3/admin/audit/cards-changelog` | `admin.audit.view` | AdminAuditHandler.ListCardsChangelog | Global changelog from card-service |
+| GET | `/api/v3/admin/audit/loans-changelog` | `admin.audit.view` | AdminAuditHandler.ListLoansChangelog | Global changelog from credit-service |
+| GET | `/api/v3/admin/audit/employees-changelog` | `admin.audit.view` | AdminAuditHandler.ListEmployeesChangelog | Global changelog from user-service |
+| GET | `/api/v3/admin/audit/cron-actions` | `admin.audit.view` | AdminAuditHandler.ListCronActions | Admin cron-action audit log from notification-service |
+
+Response shape: `{entries: [...], total, page, page_size}`. Changelog entries carry `{id, entity_type, entity_id, action, field_name, old_value, new_value, actor_id, timestamp, reason}`. Cron-action entries carry `{id, action, service, cron_name, employee_id, reason, timestamp}`.
 
 ---
 

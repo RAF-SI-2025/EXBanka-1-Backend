@@ -8663,6 +8663,158 @@ All five routes require an **employee JWT** (`AuthMiddleware`). Each sub-route c
 
 ---
 
+## 50. Admin / Audit Logs (D4 — 2026-05-28)
+
+Six global audit-log read endpoints. Each returns the full changelog table for one service (or the cron-action audit table in notification-service), paginated and optionally filtered. All six routes require **EmployeeAdmin** role (permission `admin.audit.view`).
+
+### Common query parameters (all six routes)
+
+| Parameter  | Type   | Default | Description |
+|------------|--------|---------|-------------|
+| `page`     | int    | 1       | 1-based page number |
+| `page_size`| int    | 50      | Entries per page (max 200) |
+| `since`    | string | —       | Filter entries from this date inclusive (`YYYY-MM-DD`) |
+| `until`    | string | —       | Filter entries up to this date inclusive (`YYYY-MM-DD`) |
+| `actor_id` | int    | —       | Filter by employee (actor) ID |
+| `action`   | string | —       | Filter by action string (exact match) |
+
+### Common response shape (changelog routes)
+
+```json
+{
+  "entries": [
+    {
+      "id": 123,
+      "entity_type": "client",
+      "entity_id": 42,
+      "action": "updated",
+      "field_name": "first_name",
+      "old_value": "Marko",
+      "new_value": "Marija",
+      "actor_id": 7,
+      "timestamp": "2026-05-28T10:00:00Z",
+      "reason": ""
+    }
+  ],
+  "total": 1234,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+**GET /api/v3/admin/audit/clients-changelog**
+
+Returns all changelog entries from client-service across all clients.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/accounts-changelog**
+
+Returns all changelog entries from account-service across all accounts.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/cards-changelog**
+
+Returns all changelog entries from card-service across all cards.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/loans-changelog**
+
+Returns all changelog entries from credit-service across all loans and loan requests.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/employees-changelog**
+
+Returns all changelog entries from user-service across all employees.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/cron-actions**
+
+Returns admin cron-action audit log entries (trigger/pause/resume) persisted by notification-service.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+Response shape:
+
+```json
+{
+  "entries": [
+    {
+      "id": 1,
+      "action": "trigger",
+      "service": "credit-service",
+      "cron_name": "overdue-marking",
+      "employee_id": 5,
+      "reason": "Manual trigger for testing",
+      "timestamp": "2026-05-28T10:00:00Z"
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated cron-action audit log entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+---
+
 ## Password Requirements
 
 Passwords for both employees and clients must satisfy:
