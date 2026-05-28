@@ -304,6 +304,10 @@ var (
 	// longer in an open status (e.g. already consumed, expired, or cancelled).
 	ErrOTCListingNotOpen = svcerr.New(codes.FailedPrecondition, "OTC listing is not open")
 
+	// ErrOTCRevisionsUnauthorized — caller is neither the bidder nor the
+	// parent listing's poster so may not view the revision chain.
+	ErrOTCRevisionsUnauthorized = svcerr.New(codes.PermissionDenied, "only the negotiation's participants may view its revision history")
+
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---
 

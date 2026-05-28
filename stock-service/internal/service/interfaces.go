@@ -97,7 +97,9 @@ type Wiper interface {
 type DailyPriceRepo interface {
 	Create(info *model.ListingDailyPriceInfo) error
 	UpsertByListingAndDate(info *model.ListingDailyPriceInfo) error
+	UpsertManyByListingAndDate(infos []model.ListingDailyPriceInfo) error
 	GetHistory(listingID uint64, from, to time.Time, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error)
+	GetHistoryBucketed(listingID uint64, from, to time.Time, bucketSeconds int) ([]model.ListingDailyPriceInfo, error)
 }
 
 type OrderRepo interface {
@@ -163,6 +165,11 @@ type HoldingRepo interface {
 
 type CapitalGainRepo interface {
 	Create(gain *model.CapitalGain) error
+	// DeleteByIdempotencyKey deletes the capital_gain row with the given key.
+	// Called by saga Backward closures to undo a row written in a Forward step
+	// that is being compensated. No-op (nil error) when no row matches — safe
+	// for retry.
+	DeleteByIdempotencyKey(key string) error
 	ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
 	SumByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
 	SumUncollectedByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]AccountGainSummary, error)

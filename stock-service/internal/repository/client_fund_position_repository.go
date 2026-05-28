@@ -134,6 +134,14 @@ func (r *ClientFundPositionRepository) ListByOwner(ownerType model.OwnerType, ow
 	return out, err
 }
 
+// ListByFund returns all investor positions for a given fund. Used by
+// UnifiedPortfolioService to compute each position's pct_of_fund.
+func (r *ClientFundPositionRepository) ListByFund(fundID uint64) ([]model.ClientFundPosition, error) {
+	var out []model.ClientFundPosition
+	err := r.db.Where("fund_id = ?", fundID).Find(&out).Error
+	return out, err
+}
+
 func (r *ClientFundPositionRepository) SumTotalContributed(fundID uint64) (decimal.Decimal, error) {
 	var result struct{ Total decimal.Decimal }
 	err := r.db.Model(&model.ClientFundPosition{}).

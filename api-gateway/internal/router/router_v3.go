@@ -127,7 +127,11 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/orders/:id/cancel", bankIfEmp, h.StockOrder.CancelOrder)
 
 		// Portfolio
-		me.GET("/portfolio", bankIfEmp, h.Portfolio.ListHoldings)
+		// GET /me/portfolio returns the unified portfolio (securities + fund positions)
+		// for the caller. Replaced legacy ListHoldings with the unified handler so
+		// the response now includes fund positions and P/L totals. The legacy
+		// /me/portfolio/summary endpoint keeps the old summary view.
+		me.GET("/portfolio", bankIfEmp, h.UnifiedPortfolio.GetMy)
 		me.GET("/portfolio/summary", bankIfEmp, h.Portfolio.GetPortfolioSummary)
 		// (Phase 8) /me/portfolio/:id/make-public deleted — use
 		// POST /api/v3/me/otc/stocks with direction=sell.
@@ -181,6 +185,10 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 
 		// Investment funds (Celina-4): caller's positions.
 		me.GET("/investment-funds", bankIfEmp, h.Fund.ListMyPositions)
+		// E4: caller's dividend payout history.
+		me.GET("/dividends",
+			middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
+			h.Dividend.ListMyDividends)
 
 		// OTC option trading (Spec 2): caller's offers/contracts.
 		// (Phase 8) /me/otc/offers renamed to /me/otc/options.
@@ -200,6 +208,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Per-chain actions stay under /me/ since they always act on
 		// the caller's own chain (bid, counter, accept, reject, cancel).
 		me.GET("/otc/options/negotiations", bankIfEmp, h.OTCOptions.ListMyNegotiations)
+		me.GET("/otc/options/negotiations/:nid/revisions", bankIfEmp, h.OTCOptions.ListMyNegotiationRevisions)
 		me.POST("/otc/options/:id/negotiations/:nid/counter", bankIfEmp, h.OTCOptions.CounterMyNegotiation)
 		me.POST("/otc/options/:id/negotiations/:nid/accept", bankIfEmp, h.OTCOptions.AcceptMyNegotiation)
 		me.POST("/otc/options/:id/negotiations/:nid/reject", bankIfEmp, h.OTCOptions.RejectMyNegotiation)
@@ -231,30 +240,30 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.DELETE("/peer-otc/negotiations/:rid/:id", h.PeerOTCInitiate.CancelPeerNegotiation)
 	}
 
-	// ── SI-TX peer-facing route (Phase 2 Task 14) ────────────────────
-	// POST /api/v3/interbank: receives Message<Type> envelope from peer
-	// banks, dispatches by messageType to PeerTxService gRPC. Phase 2
-	// returns 501 (Unimplemented passthrough); Phase 3 fills in actual
-	// TX execution.
-	peer := v3.Group("")
-	peer.Use(h.PeerAuthMW)
+	// ── SI-TX canonical prefix ───────────────────────────────────────
+	// All cross-bank wire-protocol routes live exclusively under
+	// /cross-bank-protocol/... — there is no legacy alias. Cohort banks
+	// MUST register this bank's base_url as .../api/v3/cross-bank-protocol
+	// to interoperate. Legacy paths (/api/v3/interbank, /api/v3/public-stock,
+	// etc.) were removed on 2026-05-29 per user direction.
+	crossBank := v3.Group("/cross-bank-protocol")
+	crossBank.Use(h.PeerAuthMW)
 	{
-		peer.POST("/interbank", h.PeerTx.PostInterbank)
-
-		// Phase 4 SI-TX OTC peer endpoints (Celina 5). Auth is the same
-		// hybrid X-Api-Key/HMAC bundle as /interbank — peer_bank_code is
-		// stamped on the gin context by middleware.PeerAuth and read
-		// inside each handler.
-		peer.GET("/public-stock", h.PeerOTC.GetPublicStocks)
-		// Phase 6: cross-bank discovery of OPEN OTC OPTION listings.
-		// Same auth (PeerAuth) and shape conventions as /public-stock.
-		peer.GET("/public-option-offers", h.PeerOTC.GetPublicOptionOffers)
-		peer.POST("/negotiations", h.PeerOTC.CreateNegotiation)
-		peer.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
-		peer.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
-		peer.DELETE("/negotiations/:rid/:id", h.PeerOTC.DeleteNegotiation)
-		peer.GET("/negotiations/:rid/:id/accept", h.PeerOTC.AcceptNegotiation)
-		peer.GET("/user/:rid/:id", h.PeerUser.GetUser)
+		// SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX / VOTE)
+		crossBank.POST("/interbank", h.PeerTx.PostInterbank)
+		// CHECK_STATUS: peer banks query state of a cross-bank TX (Celina-5 §"Mehanizam za Retry")
+		crossBank.GET("/interbank/:transaction_id/status", h.PeerTxStatus.GetTxStatus)
+		// OTC stock + option discovery (Phase 4 + 6)
+		crossBank.GET("/public-stock", h.PeerOTC.GetPublicStocks)
+		crossBank.GET("/public-option-offers", h.PeerOTC.GetPublicOptionOffers)
+		// Cross-bank OTC negotiations (Phase 4)
+		crossBank.POST("/negotiations", h.PeerOTC.CreateNegotiation)
+		crossBank.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
+		crossBank.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
+		crossBank.DELETE("/negotiations/:rid/:id", h.PeerOTC.DeleteNegotiation)
+		crossBank.GET("/negotiations/:rid/:id/accept", h.PeerOTC.AcceptNegotiation)
+		// Counterparty user identity lookup
+		crossBank.GET("/user/:rid/:id", h.PeerUser.GetUser)
 	}
 
 	// ── Stock exchanges (AnyAuth — market data is browsable) ────
@@ -908,6 +917,37 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			changelogLoans.GET("/:id/changelog", h.Changelog.GetLoanChangelog)
 		}
 
+		// ── Unified portfolio routes (B6 — 2026-05-28) ────────────────
+		// Static paths (/bank, /client/:id, /investment-fund/:id) are
+		// registered BEFORE the wildcard /portfolio/:portfolio_id so
+		// Gin's static-segment-wins rule resolves correctly.
+		//
+		// All routes use AuthMiddleware (employee only) because:
+		//   - clients use GET /me/portfolio (above)
+		//   - employees need portfolio.view_client or portfolio.view_fund
+		//     to view portfolios other than the bank's own
+		//
+		// ResolveIdentity(OwnerIsBankIfEmployee) is wired per route
+		// group below so identity is available to enforcePortfolioAccess.
+		portfolioBank := protected.Group("/portfolio")
+		portfolioBank.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+		{
+			portfolioBank.GET("/bank", h.UnifiedPortfolio.GetBank)
+			portfolioBank.GET("/client/:client_id", h.UnifiedPortfolio.GetByClientID)
+			portfolioBank.GET("/investment-fund/:fund_id", h.UnifiedPortfolio.GetByFundID)
+			portfolioBank.GET("/:portfolio_id", h.UnifiedPortfolio.GetByPortfolioID)
+		}
+
+		// ── Watchlist by portfolio_id (B7 — 2026-05-28) ─────────────
+		// The /me/watchlist routes above remain untouched.
+		// This route allows employees (with the appropriate portfolio perm)
+		// to view any owner's watchlist via the portfolio-id model.
+		watchlistByPortfolio := protected.Group("/watchlist")
+		watchlistByPortfolio.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+		{
+			watchlistByPortfolio.GET("/:portfolio_id", h.Watchlist.GetByPortfolioID)
+		}
+
 		// ── Investment funds (Celina-4) ────────────────────────────
 		// Manage (create/update) requires funds.manage.catalog.
 		fundsManage := protected.Group("/investment-funds")
@@ -934,6 +974,41 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			opts.POST("/:option_id/orders", h.OptionsV2.CreateOrder)
 			opts.POST("/:option_id/exercise", h.OptionsV2.Exercise)
 		}
+
+		// ── Admin cron viewer (C9/C10 — 2026-05-28) ─────────────────────
+		// Three separate sub-groups let us apply distinct permissions to
+		// read vs trigger vs manage (pause/resume) routes.
+		adminCronRead := protected.Group("/admin/crons")
+		adminCronRead.Use(middleware.RequirePermission(perms.Admin.Crons.View))
+		{
+			adminCronRead.GET("", h.AdminCron.List)
+			adminCronRead.GET("/:service/:name", h.AdminCron.Get)
+		}
+		adminCronTrigger := protected.Group("/admin/crons")
+		adminCronTrigger.Use(middleware.RequirePermission(perms.Admin.Crons.Trigger))
+		{
+			adminCronTrigger.POST("/:service/:name/trigger", h.AdminCron.Trigger)
+		}
+		adminCronManage := protected.Group("/admin/crons")
+		adminCronManage.Use(middleware.RequirePermission(perms.Admin.Crons.Manage))
+		{
+			adminCronManage.POST("/:service/:name/pause", h.AdminCron.Pause)
+			adminCronManage.POST("/:service/:name/resume", h.AdminCron.Resume)
+		}
+
+		// ── Admin audit log viewer (D4 — 2026-05-28) ──────────────────────
+		// All six routes require admin.audit.view. Returns full changelog
+		// tables (paginated, filterable) without scoping to a single entity.
+		auditAdmin := protected.Group("/admin/audit")
+		auditAdmin.Use(middleware.RequirePermission(perms.Admin.Audit.View))
+		{
+			auditAdmin.GET("/clients-changelog", h.AdminAudit.ListClientsChangelog)
+			auditAdmin.GET("/accounts-changelog", h.AdminAudit.ListAccountsChangelog)
+			auditAdmin.GET("/cards-changelog", h.AdminAudit.ListCardsChangelog)
+			auditAdmin.GET("/loans-changelog", h.AdminAudit.ListLoansChangelog)
+			auditAdmin.GET("/employees-changelog", h.AdminAudit.ListEmployeesChangelog)
+			auditAdmin.GET("/cron-actions", h.AdminAudit.ListCronActions)
+		}
 	}
 
 	// ── Investment fund browsing + invest/redeem (AnyAuth) ──────
@@ -949,6 +1024,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		fundsAny.POST("/:id/redeem",
 			middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
 			h.Fund.Redeem)
+		// E4: fund dividend history (AnyAuth — fund manager + portfolio.view_fund)
+		fundsAny.GET("/:id/dividends", h.Dividend.ListFundDividends)
+	}
+
+	// ── Dividend admin routes (E4 — 2026-05-28) ───────────────────
+	dividendAdmin := protected.Group("/admin/dividends")
+	dividendAdmin.Use(middleware.RequirePermission(perms.Securities.Manage.Catalog))
+	{
+		dividendAdmin.POST("", h.Dividend.DeclareDividend)
+		dividendAdmin.POST("/:id/payout", h.Dividend.PayoutDividend)
 	}
 
 	// Catch-all 404 for any path not served by v3 or the swagger UI.

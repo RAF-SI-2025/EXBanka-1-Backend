@@ -255,6 +255,11 @@ service PeerTxService {
   rpc HandleRollbackTx(SiTxRollbackRequest) returns (SiTxAckResponse);
   rpc InitiateOutboundTx(SiTxInitiateRequest) returns (SiTxInitiateResponse);
   rpc InitiateOutboundTxWithPostings(SiTxInitiateWithPostingsRequest) returns (SiTxInitiateResponse);
+  // GetTxStatus allows a peer bank to query the status of a cross-bank
+  // transaction by its transactionId (= our idempotenceKey). Used by the
+  // Celina-5 CHECK_STATUS mechanism so both sides can resolve stuck sagas
+  // when communication breaks mid-flight.
+  rpc GetTxStatus(GetTxStatusRequest) returns (GetTxStatusResponse);
 }
 
 message SiTxIdempotenceKey {
@@ -321,6 +326,18 @@ message SiTxInitiateWithPostingsRequest {
   string peer_bank_code = 1;
   repeated SiTxPosting postings = 2;
   string tx_kind = 3; // "transfer" | "otc-accept" | "otc-exercise"
+}
+
+message GetTxStatusRequest {
+  string transaction_id = 1;       // the SI-TX idempotence key / UUID
+  string caller_peer_bank_code = 2; // bank code of the requesting peer
+}
+
+message GetTxStatusResponse {
+  string state = 1;          // "prepared"|"committed"|"rolled_back"|"dead_letter"|"unknown"
+  string our_role = 2;       // "sender"|"receiver"|""
+  string last_action_at = 3; // RFC3339 timestamp of last update
+  string last_error = 4;     // last recorded error, if any
 }
 
 // PeerBankAdminService is the runtime-editable peer-bank registry. Lets

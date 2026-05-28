@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -19,13 +20,16 @@ type PriceAlertCron struct {
 	listingRepo ListingRepo
 	repo        *repository.PriceAlertRepository
 	interval    time.Duration
+	entry       *cronreg.Entry
 }
 
-func NewPriceAlertCron(alertSvc *PriceAlertService, listings ListingRepo, repo *repository.PriceAlertRepository, interval time.Duration) *PriceAlertCron {
+func NewPriceAlertCron(alertSvc *PriceAlertService, listings ListingRepo, repo *repository.PriceAlertRepository, interval time.Duration, registry *cronreg.Registry) *PriceAlertCron {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
-	return &PriceAlertCron{alertSvc: alertSvc, listingRepo: listings, repo: repo, interval: interval}
+	c := &PriceAlertCron{alertSvc: alertSvc, listingRepo: listings, repo: repo, interval: interval}
+	c.entry = registry.Register("price-alert-cron", "Evaluate active price alerts against current listing prices", interval)
+	return c
 }
 
 // Run blocks until ctx is cancelled; evaluates every active alert on each tick.
@@ -37,7 +41,17 @@ func (c *PriceAlertCron) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !c.entry.BeginRun() {
+				continue
+			}
 			c.tick(ctx)
+			c.entry.EndRun(nil)
+		case <-c.entry.TriggerChan():
+			if !c.entry.BeginRun() {
+				continue
+			}
+			c.tick(ctx)
+			c.entry.EndRun(nil)
 		}
 	}
 }

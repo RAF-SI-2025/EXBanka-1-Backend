@@ -94,6 +94,9 @@ func (m *mockCronAccountClient) ReleaseIncoming(_ context.Context, _ *accountpb.
 func (m *mockCronAccountClient) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }
+func (m *mockCronAccountClient) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 func newCronTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -140,7 +143,7 @@ func TestProcessInstallment_MarkPaidFailure_Compensates(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,

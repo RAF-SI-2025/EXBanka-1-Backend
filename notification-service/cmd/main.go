@@ -6,6 +6,8 @@ import (
 	"log"
 	"time"
 
+	adminpb "github.com/exbanka/contract/adminpb"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/metrics"
 	notifpb "github.com/exbanka/contract/notificationpb"
 	shared "github.com/exbanka/contract/shared"
@@ -34,14 +36,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}); err != nil {
+	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}, &cronreg.CronPauseState{}, &model.AdminAuditLog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	// Partial unique index for watchlist-alert (and any future) idempotency keys.
+	// PostgreSQL partial unique indexes are not expressible via GORM struct tags,
+	// so we create them explicitly. Safe: CREATE UNIQUE INDEX IF NOT EXISTS is a
+	// no-op when the index already exists.
+	if err := db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_general_notif_idem_key
+		 ON general_notifications (idempotency_key)
+		 WHERE idempotency_key <> ''`,
+	).Error; err != nil {
+		log.Printf("WARN: create idempotency_key partial index: %v", err)
+	}
+	cronRegistry := cronreg.NewRegistry("notification-service", cronreg.NewGormPauseStore(db))
 
 	// Repositories
 	inboxRepo := repository.NewMobileInboxRepository(db)
 	notifRepo := repository.NewGeneralNotificationRepository(db)
 	templateRepo := repository.NewTemplateRepository(db)
+	adminAuditRepo := repository.NewAdminAuditLogRepository(db)
 
 	// Template service (registry-backed render + admin CRUD)
 	templateSvc := service.NewTemplateService(templateRepo)
@@ -64,6 +79,8 @@ func main() {
 		"verification.challenge-created",
 		"notification.mobile-push",
 		"notification.general",
+		"notification.watchlist-alert",
+		"admin.cron-action",
 	)
 
 	// Kafka consumer (email events)
@@ -85,8 +102,18 @@ func main() {
 	generalConsumer.Start(ctx)
 	defer generalConsumer.Close()
 
+	// Watchlist alert consumer (persists daily price-move alerts to general_notifications)
+	watchlistAlertConsumer := consumer.NewWatchlistAlertConsumer(cfg.KafkaBrokers, notifRepo, templateSvc)
+	watchlistAlertConsumer.Start(ctx)
+	defer func() { _ = watchlistAlertConsumer.Close() }()
+
+	// Admin cron audit consumer (persists admin.cron-action events to admin_audit_logs)
+	adminAuditConsumer := consumer.NewAdminAuditConsumer(cfg.KafkaBrokers, db)
+	adminAuditConsumer.Start(ctx)
+	defer adminAuditConsumer.Close()
+
 	// Background inbox cleanup
-	cleanupSvc := service.NewInboxCleanupService(inboxRepo)
+	cleanupSvc := service.NewInboxCleanupService(inboxRepo, cronRegistry)
 	cleanupSvc.StartCleanupCron(ctx)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
@@ -108,7 +135,8 @@ func main() {
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
 		Register: func(s *grpc.Server) {
-			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo, templateSvc))
+			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo, templateSvc, adminAuditRepo))
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "notification-service")
 			reflection.Register(s)
 			metrics.InitializeGRPCMetrics(s)

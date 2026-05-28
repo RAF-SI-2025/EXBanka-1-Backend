@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/stock-service/internal/model"
@@ -199,13 +200,16 @@ func (s *RecurringFundService) notify(ctx context.Context, row *model.RecurringF
 type RecurringFundCron struct {
 	svc      *RecurringFundService
 	interval time.Duration
+	entry    *cronreg.Entry
 }
 
-func NewRecurringFundCron(svc *RecurringFundService, interval time.Duration) *RecurringFundCron {
+func NewRecurringFundCron(svc *RecurringFundService, interval time.Duration, registry *cronreg.Registry) *RecurringFundCron {
 	if interval <= 0 {
 		interval = time.Hour
 	}
-	return &RecurringFundCron{svc: svc, interval: interval}
+	c := &RecurringFundCron{svc: svc, interval: interval}
+	c.entry = registry.Register("recurring-fund-cron", "Execute due recurring fund investments", interval)
+	return c
 }
 
 func (c *RecurringFundCron) Run(ctx context.Context) {
@@ -216,7 +220,17 @@ func (c *RecurringFundCron) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case t := <-ticker.C:
+			if !c.entry.BeginRun() {
+				continue
+			}
 			c.svc.RunDue(ctx, t.UTC())
+			c.entry.EndRun(nil)
+		case <-c.entry.TriggerChan():
+			if !c.entry.BeginRun() {
+				continue
+			}
+			c.svc.RunDue(ctx, time.Now().UTC())
+			c.entry.EndRun(nil)
 		}
 	}
 }

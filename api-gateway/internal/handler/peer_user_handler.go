@@ -37,7 +37,7 @@ func NewPeerUserHandler(c clientpb.ClientServiceClient, u userpb.UserServiceClie
 // @Success      200 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Router       /api/v3/user/{rid}/{id} [get]
+// @Router       /api/v3/cross-bank-protocol/user/{rid}/{id} [get]
 func (h *PeerUserHandler) GetUser(c *gin.Context) {
 	rid, err := strconv.ParseInt(c.Param("rid"), 10, 64)
 	if err != nil {

@@ -257,6 +257,16 @@ func (r *HoldingRepository) ListPublic() ([]model.Holding, error) {
 	return rows, nil
 }
 
+// ListBySecurityID returns all holdings with quantity > 0 for a given security.
+// Used by DividendService.Payout to fan out dividend credits to every holder.
+func (r *HoldingRepository) ListBySecurityID(securityID uint64) ([]model.Holding, error) {
+	var rows []model.Holding
+	if err := r.db.Where("security_id = ? AND quantity > 0", securityID).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // ListPublicOffers returns holdings with public_quantity > 0 (for OTC).
 func (r *HoldingRepository) ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error) {
 	var holdings []model.Holding

@@ -90,14 +90,15 @@ func (h *InvestmentFundHandler) ListFunds(c *gin.Context) {
 }
 
 // GetFund godoc
-// @Summary      Get investment fund detail
+// @Summary      Get investment fund detail (enriched — E1)
+// @Description  Returns the fund's basic fields plus computed statistics: investor_count, total_contributed_rsd, liquid_rsd_balance, total_holdings_value_rsd, total_value_rsd, total_dividends_paid_rsd (always "0.00" until E4), profit_rsd, profit_pct, and a holdings[] array with current_value_rsd per position.
 // @Tags         InvestmentFunds
 // @Security     BearerAuth
 // @Produce      json
 // @Param        id path int true "fund id"
 // @Success      200 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Router       /api/v1/investment-funds/{id} [get]
+// @Router       /api/v3/investment-funds/{id} [get]
 func (h *InvestmentFundHandler) GetFund(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -109,7 +110,21 @@ func (h *InvestmentFundHandler) GetFund(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	// Return the full enriched shape. The proto fields are already populated
+	// by the stock-service handler (E1). We shape the JSON response here so
+	// the frontend gets a flat structure with all statistics at the top level.
+	c.JSON(http.StatusOK, gin.H{
+		"fund":                     resp.GetFund(),
+		"holdings":                 resp.GetHoldings(),
+		"investor_count":           resp.GetInvestorCount(),
+		"total_contributed_rsd":    resp.GetTotalContributedRsd(),
+		"liquid_rsd_balance":       resp.GetLiquidRsdBalance(),
+		"total_holdings_value_rsd": resp.GetTotalHoldingsValueRsd(),
+		"total_value_rsd":          resp.GetTotalValueRsd(),
+		"total_dividends_paid_rsd": resp.GetTotalDividendsPaidRsd(),
+		"profit_rsd":               resp.GetProfitRsd(),
+		"profit_pct":               resp.GetProfitPct(),
+	})
 }
 
 type updateFundRequest struct {

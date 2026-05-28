@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
+	gatewaykafka "github.com/exbanka/api-gateway/internal/kafka"
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
@@ -83,6 +85,15 @@ type Deps struct {
 	// (Phase 3 Task 11 of the SI-TX refactor; see docs/superpowers/specs/
 	// 2026-04-29-celina5-sitx-refactor-design.md).
 	OwnBankCode string
+
+	// AdminCronClients is the per-service pool of AdminCron gRPC clients
+	// (C9 — 2026-05-28). A nil entry means the service was unreachable at
+	// startup and will show as status "unreachable" in List responses.
+	AdminCronClients []*grpcclients.AdminCronClient
+
+	// AuditProducer is the Kafka producer used to publish admin cron audit
+	// events to the admin.cron-action topic (C10 — 2026-05-28).
+	AuditProducer *gatewaykafka.AuditProducer
 }
 
 // Handlers bundles every HTTP handler the gateway exposes. The constructor
@@ -105,6 +116,7 @@ type Handlers struct {
 	Securities       *handler.SecuritiesHandler
 	StockOrder       *handler.StockOrderHandler
 	Portfolio        *handler.PortfolioHandler
+	UnifiedPortfolio *handler.UnifiedPortfolioHandler
 	Actuary          *handler.ActuaryHandler
 	Blueprint        *handler.BlueprintHandler
 	Tax              *handler.TaxHandler
@@ -128,6 +140,7 @@ type Handlers struct {
 	// admin routes, and PeerAuthMW is the hybrid auth middleware
 	// (X-Api-Key OR HMAC bundle) that protects /interbank.
 	PeerTx        *handler.PeerTxHandler
+	PeerTxStatus  *handler.PeerTxStatusHandler
 	PeerBankAdmin *handler.PeerBankAdminHandler
 	PeerAuthMW    gin.HandlerFunc
 
@@ -140,6 +153,16 @@ type Handlers struct {
 	PeerOTC         *handler.PeerOTCHandler
 	PeerUser        *handler.PeerUserHandler
 	PeerOTCInitiate *handler.PeerOTCInitiateHandler
+
+	// AdminCron serves the /api/v3/admin/crons/* routes (C10 — 2026-05-28).
+	AdminCron *handler.AdminCronHandler
+
+	// AdminAudit serves the /api/v3/admin/audit/* routes (D4 — 2026-05-28).
+	AdminAudit *handler.AdminAuditHandler
+
+	// Dividend serves the /api/v3/admin/dividends/* and /api/v3/me/dividends
+	// routes (E4 — 2026-05-28).
+	Dividend *handler.DividendHandler
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.
@@ -167,6 +190,7 @@ func NewHandlers(d Deps) *Handlers {
 		Securities:       handler.NewSecuritiesHandler(d.SecurityClient),
 		StockOrder:       handler.NewStockOrderHandler(d.OrderClient, d.AccountClient),
 		Portfolio:        handler.NewPortfolioHandler(d.PortfolioClient, d.OTCClient, d.AccountClient),
+		UnifiedPortfolio: handler.NewUnifiedPortfolioHandler(d.PortfolioClient),
 		Actuary:          handler.NewActuaryHandler(d.ActuaryClient),
 		Blueprint:        handler.NewBlueprintHandler(d.BlueprintClient),
 		Tax:              handler.NewTaxHandler(d.TaxClient),
@@ -185,10 +209,14 @@ func NewHandlers(d Deps) *Handlers {
 		RecurringOrder:   handler.NewRecurringOrderHandler(d.RecurringOrderClient),
 		RecurringFund:    handler.NewRecurringFundHandler(d.RecurringFundClient),
 		PeerTx:           handler.NewPeerTxHandler(d.PeerTxClient),
+		PeerTxStatus:     handler.NewPeerTxStatusHandler(d.PeerTxClient),
 		PeerBankAdmin:    handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
 		PeerAuthMW:       middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
 		PeerOTC:          handler.NewPeerOTCHandler(d.PeerOTCClient),
 		PeerUser:         handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
 		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, d.PeerOTCClient, d.AccountClient, ownRouting, d.OwnBankCode),
+		AdminCron:        handler.NewAdminCronHandler(d.AdminCronClients, d.AuditProducer),
+		AdminAudit:       handler.NewAdminAuditHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient, d.NotificationClient),
+		Dividend:         handler.NewDividendHandler(d.FundClient),
 	}
 }

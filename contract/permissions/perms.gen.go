@@ -76,6 +76,12 @@ var Catalog = []Permission{
 	"exchange_rates.read.any",
 	"exchange_rates.update.any",
 	"notifications.templates.manage",
+	"portfolio.view.client",
+	"portfolio.view.fund",
+	"admin.crons.view",
+	"admin.crons.trigger",
+	"admin.crons.manage",
+	"admin.audit.view",
 }
 
 var Accounts = struct {
@@ -140,6 +146,32 @@ var Actuaries = struct {
 		All Permission
 	}{
 		All: "actuaries.read.all",
+	},
+}
+
+var Admin = struct {
+	Audit struct {
+		View Permission
+	}
+	Crons struct {
+		Manage  Permission
+		Trigger Permission
+		View    Permission
+	}
+}{
+	Audit: struct {
+		View Permission
+	}{
+		View: "admin.audit.view",
+	},
+	Crons: struct {
+		Manage  Permission
+		Trigger Permission
+		View    Permission
+	}{
+		Manage:  "admin.crons.manage",
+		Trigger: "admin.crons.trigger",
+		View:    "admin.crons.view",
 	},
 }
 
@@ -544,6 +576,21 @@ var PeerBanks = struct {
 	},
 }
 
+var Portfolio = struct {
+	View struct {
+		Client Permission
+		Fund   Permission
+	}
+}{
+	View: struct {
+		Client Permission
+		Fund   Permission
+	}{
+		Client: "portfolio.view.client",
+		Fund:   "portfolio.view.fund",
+	},
+}
+
 var Roles = struct {
 	Permissions struct {
 		Assign Permission
@@ -637,6 +684,10 @@ var DefaultRoles = map[string][]Permission{
 		"accounts.update.name",
 		"actuaries.manage.any",
 		"actuaries.read.all",
+		"admin.audit.view",
+		"admin.crons.manage",
+		"admin.crons.trigger",
+		"admin.crons.view",
 		"bank_accounts.manage.any",
 		"cards.approve.physical",
 		"cards.approve.virtual",
@@ -692,6 +743,8 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.expire",
 		"otc.trade.on_behalf",
 		"peer_banks.manage.any",
+		"portfolio.view.client",
+		"portfolio.view.fund",
 		"roles.permissions.assign",
 		"roles.permissions.revoke",
 		"roles.read.all",
@@ -783,6 +836,8 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.exercise",
 		"otc.trade.expire",
 		"otc.trade.on_behalf",
+		"portfolio.view.client",
+		"portfolio.view.fund",
 		"securities.manage.catalog",
 		"securities.read.holdings_all",
 		"securities.read.holdings_own",

@@ -77,9 +77,22 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 37. [Notifications](#37-notifications)
 38. [Stock Data Source](#38-stock-data-source)
 39. [Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)](#39-peer-banks-admin--si-tx-cross-bank-registry-celina-5)
-40. [Error Response Format](#error-response-format)
-41. [Password Requirements](#password-requirements)
-42. [Notes for Frontend Developers](#notes-for-frontend-developers)
+40. [Watchlist (Celina 3)](#40-watchlist-celina-3)
+41. [OTC Negotiation History (Celina 3)](#41-otc-negotiation-history-celina-3)
+42. [OTC Trader Ratings (Celina 3)](#42-otc-trader-ratings-celina-3)
+43. [Price Alerts (Celina 3)](#43-price-alerts-celina-3)
+44. [Transfer Status (Celina 4 / SI-TX)](#44-transfer-status-celina-4--si-tx)
+45. [Recurring Securities Orders (Celina 3)](#45-recurring-securities-orders-celina-3)
+46. [Recurring Fund Investments (Celina 4)](#46-recurring-fund-investments-celina-4)
+47. [OTC Marketplace Refactor (Phases 2-6)](#47-otc-marketplace-refactor-phases-2-6)
+48. [Unified Portfolio Routes (2026-05-28)](#48-unified-portfolio-routes-2026-05-28)
+49. [Admin / Cron Management (C10 — 2026-05-28)](#49-admin--cron-management-c10--2026-05-28)
+50. [Admin / Audit Logs (D4 — 2026-05-28)](#50-admin--audit-logs-d4--2026-05-28)
+51. [Dividends (E4 — 2026-05-28)](#51-dividends-e4--2026-05-28)
+52. [Cross-Bank Protocol](#cross-bank-protocol-cross-bank-protocol)
+53. [Error Response Format](#error-response-format)
+54. [Password Requirements](#password-requirements)
+55. [Notes for Frontend Developers](#notes-for-frontend-developers)
 
 ---
 
@@ -1604,6 +1617,8 @@ Initiate a new payment from a client account.
 
 > **Note:** Payment is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/v3/verifications` and then poll `GET /api/v3/verifications/:id/status` until verified. Once verified, call `POST /api/v3/me/payments/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
+> **Fund account restriction (E0, Plan E 2026-05-28):** The source account (`from_account_number`) must NOT belong to an investment fund's RSD account (`account_category = "investment_fund"`). Fund cash may only exit via dedicated fund operations (buy on behalf of fund, dividend payout, investor redemption). Using a fund account as the source returns `403 forbidden` with code `fund_account_outflow_restricted`.
+
 ---
 
 ### GET /api/v3/payments/:id
@@ -1803,6 +1818,8 @@ Initiate a currency transfer between accounts.
 > **Note:** Transfer is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/v3/verifications` and then poll `GET /api/v3/verifications/:id/status` until verified. Once verified, call `POST /api/v3/me/transfers/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
 > **Inter-bank dispatch (Phase 3):** When `to_account_number`'s 3-digit prefix differs from this bank's `OWN_BANK_CODE`, the request is dispatched to `PeerTxService.InitiateOutboundTx` via gRPC and returns `202 Accepted` with `{transaction_id, poll_url, status}`. Poll the returned URL for SI-TX completion status. Intra-bank receivers (own prefix) keep the legacy `201 Created` shape above.
+
+> **Fund account restriction (E0, Plan E 2026-05-28):** The source account (`from_account_number`) must NOT belong to an investment fund's RSD account (`account_category = "investment_fund"`). Fund cash may only exit via dedicated fund operations (buy on behalf of fund, dividend payout, investor redemption). Using a fund account as the source returns `403 forbidden` with code `fund_account_outflow_restricted`.
 
 ---
 
@@ -5411,11 +5428,13 @@ Exercise an option by `option_id`. If `holding_id` is omitted, the backend auto-
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `holding_id` | uint64 | No | Holding to consume; auto-resolved when omitted |
+| `on_behalf_of_fund_id` | uint64 | No | *E2, Plan E.* When non-zero, exercises the contract on behalf of an investment fund. The acting employee must be the fund's manager. Acquired shares land in `fund_holdings` instead of personal holdings. Only valid when the underlying `OptionContract` was itself accepted on behalf of a fund (i.e. its `on_behalf_of_fund_id` is set). |
 
 **Response 200:** Exercise result (holding update + ledger entries).
 
 **Error Responses:**
 - `400` — invalid `option_id`
+- `403` — `on_behalf_of_fund_id` set but acting employee is not the fund's manager
 - `404` — option / holding not found
 
 ---
@@ -5424,52 +5443,13 @@ Exercise an option by `option_id`. If `holding_id` is omitted, the backend auto-
 
 ### GET /api/v3/me/portfolio
 
-List authenticated user's holdings.
+> **Shape updated in Plan B (2026-05-28).** This endpoint now returns the unified grouped portfolio shape with separate `securities` and `funds` groups, full P/L totals, and per-position `dividends_received_rsd` / `fund_status` fields. See [Section 48.1](#481-my-portfolio-client-or-bank) for the current canonical documentation and response shape.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
+- Client principal → returns caller's own portfolio.
+- Employee principal → returns the bank's portfolio (identity rule: `OwnerIsBankIfEmployee`).
 
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `page` | int | Page number (default: 1) |
-| `page_size` | int | Items per page (default: 10) |
-| `security_type` | string | `stock`, `futures`, or `option` |
-
-**Response 200:**
-
-Holdings aggregate per `(user_id, system_type, security_type, security_id)` — buying the same stock from two different accounts returns a single row with the combined quantity. Per-purchase price, profit, and FX details are available at [GET /me/holdings/{id}/transactions](#get-apiv1meholdingsidtransactions).
-
-```json
-{
-  "holdings": [
-    {
-      "id": 1,
-      "security_type": "stock",
-      "ticker": "AAPL",
-      "name": "Apple Inc.",
-      "quantity": 10,
-      "public_quantity": 3,
-      "account_id": 42,
-      "last_modified": "2026-04-01T12:00:00Z"
-    }
-  ],
-  "total_count": 10
-}
-```
-
-**Holding object fields:**
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | uint64 | Holding ID |
-| `security_type` | string | `stock`, `futures`, or `option` |
-| `ticker` | string | Security ticker symbol |
-| `name` | string | Security name |
-| `quantity` | int64 | Total units owned (aggregated across every account used) |
-| `public_quantity` | int64 | Units listed on OTC market |
-| `account_id` | uint64 | Last-used account (audit pointer, not authoritative) |
-| `last_modified` | string | ISO 8601 timestamp of last update |
+**Response 200:** See [§48.1](#481-my-portfolio-client-or-bank) for the full response shape (grouped `securities` + `funds` with P/L totals and dividend fields).
 
 ### GET /api/v3/me/holdings/{id}/transactions
 
@@ -5587,7 +5567,7 @@ Exercise an options contract.
 | *(new)* | `GET /api/v3/otc/options/:id/negotiations` (every chain on a listing — visible to all parties) |
 | *(new)* | `GET /api/v3/me/otc/options/negotiations` (caller's chains) |
 | *(new)* | `GET /api/v3/otc/options` (unified local + remote discovery) |
-| *(new — peer)* | `GET /api/v3/public-option-offers` (cross-bank discovery endpoint) |
+| *(new — peer)* | `GET /api/v3/cross-bank-protocol/public-option-offers` (cross-bank discovery endpoint) |
 
 The exercise route, contract list, contract detail, ratings, and negotiation-history routes from the old §30 are unchanged — they're still at their existing paths under `/me/otc/contracts/...`, `/me/otc/history`, and `/otc/traders/...`.
 
@@ -5690,18 +5670,52 @@ List investment funds (Discovery page).
 
 ### GET /api/v3/investment-funds/:id
 
-Get one fund detail (used by the Detaljan prikaz page).
+Get one fund detail with enriched statistics (E1, Plan E 2026-05-28).
 
 **Authentication:** Any JWT
 
 **Response 200:**
 ```json
 {
-  "fund": { "id": 101, "name": "Alpha Growth Fund", ... },
-  "holdings": [ { "stock_id": 42, "quantity": "100", "acquired_at": "..." } ],
-  "performance": [ { "as_of": "2026-04-01", "fund_value_rsd": "2600000.00" } ]
+  "fund": {
+    "id": 7,
+    "name": "Alpha Growth",
+    "description": "...",
+    "manager_employee_id": 3,
+    "minimum_contribution_rsd": "1000.00",
+    "rsd_account_id": 12345,
+    "active": true,
+    "created_at": "...",
+    "updated_at": "..."
+  },
+  "holdings": [
+    {
+      "security_type": "stock",
+      "security_id": 42,
+      "ticker": "AAPL",
+      "quantity": 100,
+      "average_price_rsd": "20000.00",
+      "current_price_rsd": "22000.00",
+      "current_value_rsd": "2200000.00",
+      "acquired_at": "2026-05-01T00:00:00Z"
+    }
+  ],
+  "investor_count": 42,
+  "total_contributed_rsd": "5000000.00",
+  "liquid_rsd_balance": "1500000.00",
+  "total_holdings_value_rsd": "3500000.00",
+  "total_value_rsd": "5000000.00",
+  "total_dividends_paid_rsd": "0.00",
+  "profit_rsd": "0.00",
+  "profit_pct": "0.0000"
 }
 ```
+
+**Notes:**
+- `total_dividends_paid_rsd` = sum of all `fund_dividend_payments.amount_rsd` for this fund (E4). Returns `"0.00"` when no dividends have been paid out yet.
+- `profit_rsd` = `total_value_rsd` − `total_contributed_rsd`.
+- `profit_pct` = `profit_rsd / total_contributed_rsd × 100` (4 decimal places). Zero when `total_contributed_rsd` is zero.
+- `current_value_rsd` per holding = `quantity × current_price_rsd` (computed server-side).
 
 ---
 
@@ -6811,9 +6825,9 @@ When `status=failed`, `last_error` contains the failure reason. The admin can re
 
 ## 39. Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)
 
-Runtime registry of cross-bank peer banks. Backs the SI-TX `POST /api/v3/interbank` middleware, which looks up peer authentication credentials in this table. EmployeeAdmin only (`peer_banks.manage.any` permission).
+Runtime registry of cross-bank peer banks. Backs the SI-TX `POST /api/v3/cross-bank-protocol/interbank` middleware, which looks up peer authentication credentials in this table. EmployeeAdmin only (`peer_banks.manage.any` permission).
 
-> **Status:** fully wired. The admin CRUD, the `POST /api/v3/interbank` envelope handler (`NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX`), and both auth paths (`X-Api-Key` via `ResolvePeerByAPIToken` and the HMAC bundle via `ResolvePeerByBankCode`) are all implemented. `POST /api/v3/interbank` only returns `501 Not Implemented` if the gRPC backend itself returns `Unimplemented`, which it does not in the current build.
+> **Status:** fully wired. The admin CRUD, the `POST /api/v3/cross-bank-protocol/interbank` envelope handler (`NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX`), and both auth paths (`X-Api-Key` via `ResolvePeerByAPIToken` and the HMAC bundle via `ResolvePeerByBankCode`) are all implemented. `POST /api/v3/cross-bank-protocol/interbank` only returns `501 Not Implemented` if the gRPC backend itself returns `Unimplemented`, which it does not in the current build.
 
 ### GET /api/v3/peer-banks
 
@@ -6926,7 +6940,36 @@ Remove a peer bank.
 
 ---
 
-### POST /api/v3/interbank
+---
+
+## Cross-Bank Protocol (`/cross-bank-protocol`)
+
+> **Cross-bank protocol routes live ONLY at `/api/v3/cross-bank-protocol/...`. There is no legacy alias.**
+>
+> As of 2026-05-29, the legacy paths (`/api/v3/interbank`, `/api/v3/public-stock`, `/api/v3/negotiations/*`, `/api/v3/user/*`) have been removed. Any cohort bank still using the old prefix will receive 404 and MUST update its peer-banks registration immediately.
+>
+> Authentication for all routes in this section: PeerAuth (hybrid `X-Api-Key` or HMAC bundle — see §39 for the trust setup).
+>
+> **Registering this bank:** Set `base_url` to `http://<this-bank-host>/api/v3/cross-bank-protocol` in your `peer_banks` table. The outbound HTTP client appends only the leaf names (`/interbank`, `/public-stock`, `/negotiations`, `/user`) to `base_url`.
+
+### Route Summary
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v3/cross-bank-protocol/interbank` | SI-TX `Message<Type>` envelope (NEW_TX / COMMIT_TX / ROLLBACK_TX) |
+| `GET` | `/api/v3/cross-bank-protocol/interbank/:transaction_id/status` | CHECK_STATUS: query cross-bank TX state |
+| `GET` | `/api/v3/cross-bank-protocol/public-stock` | List this bank's OTC-public stock holdings |
+| `GET` | `/api/v3/cross-bank-protocol/public-option-offers` | List this bank's OPEN OTC option listings (Phase 6) |
+| `POST` | `/api/v3/cross-bank-protocol/negotiations` | Create cross-bank OTC negotiation |
+| `PUT` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Counter-offer on existing negotiation |
+| `GET` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Read negotiation state |
+| `DELETE` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | Cancel negotiation |
+| `GET` | `/api/v3/cross-bank-protocol/negotiations/:rid/:id/accept` | Accept negotiation (triggers 4-posting SI-TX) |
+| `GET` | `/api/v3/cross-bank-protocol/user/:rid/:id` | Counterparty user identity lookup |
+
+---
+
+### POST /api/v3/cross-bank-protocol/interbank
 
 Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 3 implementation is fully wired: `NEW_TX` validates postings (UNBALANCED_TX check + per-posting account/asset/active checks), reserves credit-postings via `account-service.ReserveIncoming`, and emits `TransactionVote`. `COMMIT_TX` finalises reservations; `ROLLBACK_TX` releases them. Idempotence-key replay returns the cached vote.
 
@@ -6959,7 +7002,40 @@ Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 3 implementat
 
 ---
 
-### GET /api/v3/public-stock
+### GET /api/v3/cross-bank-protocol/interbank/:transaction_id/status
+
+Allows a peer bank to query the status of a cross-bank SI-TX transaction by its `transactionId` (the UUID / idempotence key used in the original `NEW_TX` envelope). Used by the Celina-5 CHECK_STATUS mechanism so stuck sagas can be resolved by either side when communication breaks mid-flight.
+
+**Authentication:** PeerAuth (X-Api-Key or HMAC bundle).
+
+**Path Parameters:**
+- `transaction_id` — the SI-TX transaction UUID (= the `locallyGeneratedKey` sent in the original `NEW_TX` envelope).
+
+**Response 200:**
+```json
+{
+  "transaction_id": "abc-123-uuid",
+  "state":          "committed",
+  "our_role":       "sender",
+  "last_action_at": "2026-05-28T12:00:00Z",
+  "last_error":     ""
+}
+```
+
+- `state`: one of `"prepared"` (pending/in-progress), `"committed"`, `"rolled_back"`, `"dead_letter"` (terminal failure, max retries exceeded), `"unknown"` (no record found).
+- `our_role`: `"sender"` (we initiated this TX via `InitiateOutboundTx`), `"receiver"` (we received a `NEW_TX` from the caller), or `""` when unknown.
+- `last_action_at`: RFC3339 timestamp of the last status update, empty when unknown.
+- `last_error`: last recorded error string, empty on success.
+
+**Responses:**
+- **200 OK** — always returned for any known or unknown transaction (unknown → `state: "unknown"`).
+- **400 Bad Request** — `transaction_id` missing (path param required).
+- **401 Unauthorized** — peer auth failed.
+- **500 Internal Server Error** — unexpected backend error.
+
+---
+
+### GET /api/v3/cross-bank-protocol/public-stock
 
 Peer-facing OTC discovery — returns stock holdings on this bank flagged for OTC public trading. Used by peer banks to populate their OTC discovery pages.
 
@@ -6982,7 +7058,7 @@ Peer-facing OTC discovery — returns stock holdings on this bank flagged for OT
 
 ---
 
-### POST /api/v3/negotiations
+### POST /api/v3/cross-bank-protocol/negotiations
 
 Peer initiates a cross-bank OTC negotiation against a publicly-listed holding on this bank. The peer's offer is persisted in `peer_otc_negotiations` and gets a fresh negotiation ID owned by this bank.
 
@@ -7011,9 +7087,9 @@ Peer initiates a cross-bank OTC negotiation against a publicly-listed holding on
 
 ---
 
-### PUT /api/v3/negotiations/:rid/:id
+### PUT /api/v3/cross-bank-protocol/negotiations/:rid/:id
 
-Counter-offer on an existing negotiation. The negotiation must have been created via `POST /api/v3/negotiations` first.
+Counter-offer on an existing negotiation.
 
 **Authentication:** PeerAuth.
 
@@ -7027,7 +7103,7 @@ Counter-offer on an existing negotiation. The negotiation must have been created
 
 ---
 
-### GET /api/v3/negotiations/:rid/:id
+### GET /api/v3/cross-bank-protocol/negotiations/:rid/:id
 
 Read a negotiation's current state.
 
@@ -7053,7 +7129,7 @@ Read a negotiation's current state.
 
 ---
 
-### DELETE /api/v3/negotiations/:rid/:id
+### DELETE /api/v3/cross-bank-protocol/negotiations/:rid/:id
 
 Cancel a negotiation. Either side may delete; status flips to `cancelled`.
 
@@ -7062,7 +7138,7 @@ Cancel a negotiation. Either side may delete; status flips to `cancelled`.
 
 ---
 
-### GET /api/v3/negotiations/:rid/:id/accept
+### GET /api/v3/cross-bank-protocol/negotiations/:rid/:id/accept
 
 Accept a negotiation. Composes a 4-posting `Transaction` (premium money debit-buyer/credit-seller + 1× `OptionDescription` debit-seller/credit-buyer) and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. The resulting SI-TX TX runs through the normal `NEW_TX` → `COMMIT_TX` flow.
 
@@ -7077,7 +7153,7 @@ The `transactionId` is the same idempotence-key the OutboundReplayCron uses; cli
 
 ---
 
-### GET /api/v3/user/:rid/:id
+### GET /api/v3/cross-bank-protocol/user/:rid/:id
 
 Returns identity info for a counterparty user. Peers call this when displaying user names alongside OTC negotiations or transfer history.
 
@@ -7652,7 +7728,7 @@ The OTC surface is split into two clearly-separated marketplaces:
 - **`/api/v3/otc/stocks/...`** — public-stock listings, **no negotiation**. Sellers publish shares, buyers fill outright. Includes both sell-direction (publish shares from a holding) and buy-direction (publish a standing offer to buy at a fixed price, backed by a cash reservation).
 - **`/api/v3/otc/options/...`** — option-contract marketplace, **with negotiation**. Any user can post an option listing; many other users can each open their own bid chain on the same listing; first-to-accept wins atomically and sibling chains cascade-cancel inside the same DB transaction.
 
-Both marketplaces support local + cross-bank discovery (peer banks publish their listings via `/api/v3/public-stock` and `/api/v3/public-option-offers`; each bank's stock-service polls every ~5 s and merges into an in-memory cache).
+Both marketplaces support local + cross-bank discovery (peer banks publish their listings via `/api/v3/cross-bank-protocol/public-stock` and `/api/v3/cross-bank-protocol/public-option-offers`; each bank's stock-service polls every ~5 s and merges into an in-memory cache).
 
 > **Migration note:** Phase 8 cleanup deletes the legacy `/api/v3/otc/offers/...` routes. Existing frontends should migrate to the routes below before that lands. See [Section 29](#29-otc-offers-public-stock-listings) and [Section 30](#30-otc-option-contracts-celina-4) for what was there before.
 
@@ -7840,13 +7916,15 @@ Accept the current terms on a chain. Caller must be the party **opposite** to wh
 **Request Body:**
 ```json
 {
-  "acceptor_account_id": 42
+  "acceptor_account_id": 42,
+  "on_behalf_of_fund_id": 0
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `acceptor_account_id` | int | Caller's account — pays the premium if accepter is the buyer (parent direction = `sell_initiated`); receives the premium if accepter is the seller (parent direction = `buy_initiated`). Currency must match the seller's account currency or a cross-currency FX conversion is performed via exchange-service. |
+| `on_behalf_of_fund_id` | int | *Optional.* When non-zero, places this accept on behalf of an investment fund (E2, Plan E). `acceptor_account_id` **must** equal the fund's RSD account. Caller must be the fund's manager (`acting_employee_id` = `fund.manager_employee_id`). The resulting `OptionContract` records `on_behalf_of_fund_id` so that exercise credits `fund_holdings`. |
 
 **Stage 1 — negotiation state TX (first-accept-wins):**
 1. `SELECT FOR UPDATE` on the winning negotiation row.
@@ -7894,7 +7972,15 @@ Accept the current terms on a chain. Caller must be the party **opposite** to wh
 
 `contract` is `null` when the formation saga failed; in that case the negotiation status is `failed`, the parent stays `consumed`, and the front-end can surface a "contract not formed" warning + suggest re-listing.
 
-**Exercise:** the minted `OptionContract` row is consumable by `POST /api/v3/otc/contracts/:id/exercise` (see existing exercise route) — strike money moves buyer→seller, the reserved seller shares are consumed and credited to the buyer's holding.
+**Exercise:** the minted `OptionContract` row is consumable by `POST /api/v3/otc/contracts/:id/exercise` (see existing exercise route) — strike money moves buyer→seller, the reserved seller shares are consumed and credited to the buyer's holding. When the contract has `on_behalf_of_fund_id` set, the `exercise` endpoint also accepts `on_behalf_of_fund_id` in the request body (same fund-manager validation applies) and shares land in `fund_holdings`.
+
+**Fund-on-behalf accept (`on_behalf_of_fund_id`):**
+When this field is non-zero:
+- `acceptor_account_id` **must** equal the fund's `rsd_account_id`.
+- The acting employee must be the fund's manager.
+- The minted contract records `on_behalf_of_fund_id`; on exercise, shares land in `fund_holdings` instead of personal holdings.
+- Returns 403 `fund_not_managed_by_actor` if manager check fails.
+- Returns 400 `acceptor_account_id must equal fund RSD account for fund orders` if account mismatch.
 
 **Response 400:**
 - `acceptor_account_id` missing or zero.
@@ -7903,6 +7989,7 @@ Accept the current terms on a chain. Caller must be the party **opposite** to wh
 **Response 403:**
 - Caller proposed the current terms (`ErrOTCAcceptUnauthorized`) or is not a party to the chain.
 - `acceptor_account_id` does not belong to caller (gateway-side ownership check).
+- `on_behalf_of_fund_id` set but acting employee is not the fund manager.
 
 **Response 412:**
 - Parent listing no longer open OR negotiation is in a terminal state.
@@ -7967,6 +8054,46 @@ List chains where the caller is the bidder.
 | `statuses` | string | Comma-separated filter: `open,countered,accepted,rejected,cancelled,expired` |
 | `page` | int | Default 1 |
 | `page_size` | int | Default 20, max 200 |
+
+**`OTCNegotiationResponse` shape:** includes a `minted_contract_id` field (uint64, 0 when absent) populated on `status=accepted` rows that successfully minted a contract.
+
+---
+
+#### GET /api/v3/me/otc/options/negotiations/:nid/revisions
+
+Retrieve the full revision chain (bid, counter, counter, accept/reject) for a single negotiation. Either the bidder or the parent listing's poster may call this endpoint. A third-party caller receives 403.
+
+**Authentication:** Any JWT + `ResolveIdentity` (AnyAuth — clients and employees accepted)
+
+**Path:** `:nid` — the negotiation chain id.
+
+**Response 200:**
+
+```json
+{
+  "revisions": [
+    {
+      "id":                       1,
+      "negotiation_id":           5,
+      "revision_number":          1,
+      "action":                   "BID",
+      "quantity":                 "10",
+      "strike_price":             "150.00",
+      "premium":                  "7.50",
+      "settlement_date":          "2026-07-01T00:00:00Z",
+      "action_by_principal_type": "client",
+      "action_by_principal_id":   42,
+      "created_at":               "2026-06-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+Revisions are ordered by `revision_number ASC`.
+
+**Response 403:** Caller is neither the bidder nor the listing's poster.
+
+**Response 404:** Negotiation not found.
 
 ---
 
@@ -8137,6 +8264,33 @@ POST /api/v3/me/peer-otc/negotiations/{rid}/{id}/accept   ← cross-bank
 
 The intra-bank equivalent (`POST /me/otc/options/:id/negotiations/:nid/accept`) returns the same `cancelled_siblings` key, populated with `OTCNegotiationResponse` rows (`id`, `parent_offer_id`, `bidder_*`, `quantity`, `strike_price`, `premium`, `settlement_date`, `status`, `last_action_*`). FE keys off `cancelled_siblings[*]` without branching the cascade UI on flow type.
 
+#### GET /api/v3/me/peer-otc/negotiations
+
+List the caller's cross-bank OTC negotiations (both as buyer and as seller, depending on the `role` filter). Returns ALL rows in ANY status including terminal states (`cancelled`, `accepted`).
+
+**Authentication:** Any JWT (AnyAuth)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `role` | string | `buyer`, `seller`, or omit for both |
+
+**Response 200:** `{ "items": [PeerNegotiationListItem...] }`.
+
+**`PeerNegotiationListItem` shape:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `{ routingNumber, id }` | Foreign id on the seller's bank |
+| `buyer_id` | `{ routingNumber, id }` | Buyer's SI-TX participant id |
+| `seller_id` | `{ routingNumber, id }` | Seller's SI-TX participant id |
+| `offer` | `PeerOtcOffer` | Current offer terms |
+| `status` | string | `ongoing`, `accepted`, or `cancelled` |
+| `role` | string | `buyer` or `seller` — the caller's side |
+| `updated_at` | string | ISO-8601 |
+| `local_contract_id` | uint64 | `peer_option_contracts.id` on this bank. Non-zero only on `status=accepted` rows where the option contract was minted on this bank (seller side: DEBIT direction; buyer side: CREDIT direction). 0 when not yet minted or not applicable. |
+
 #### Notification coverage (2026-05-16)
 
 Every OTC option negotiation lifecycle event now produces an in-app notification visible at `GET /api/v3/me/notifications`. Each bank notifies **only its own local users**; cross-bank state changes propagate via the SI-TX protocol and both banks then independently publish their own notifications.
@@ -8154,9 +8308,9 @@ Templates are admin-editable via the 3a notification template management endpoin
 
 ### 47.3 Peer protocol (SI-TX cross-bank)
 
-#### GET /api/v3/public-option-offers
+#### GET /api/v3/cross-bank-protocol/public-option-offers
 
-Peer-facing endpoint for cross-bank option discovery. Same auth as `/api/v3/public-stock`: `PeerAuth` middleware validates `X-Api-Key` against the registered peer-bank's API token. The peer's `X-Bank-Code` is stamped onto the request context and used to filter listings marked `Private=true` to a specific recipient bank.
+Peer-facing endpoint for cross-bank option discovery. `PeerAuth` middleware validates `X-Api-Key` against the registered peer-bank's API token. The peer's `X-Bank-Code` is stamped onto the request context and used to filter listings marked `Private=true` to a specific recipient bank.
 
 **Authentication:** PeerAuth (X-Api-Key alone OR full HMAC bundle)
 
@@ -8235,6 +8389,571 @@ The `code` field is a stable machine-readable string. The `message` field is hum
 | 429 | Rate limited |
 | 500 | Internal server error |
 | 501 | Not implemented |
+
+---
+
+## 48. Unified Portfolio Routes (2026-05-28)
+
+A single consistent route shape for viewing any portfolio — client, bank, or investment fund — with fund positions shown alongside stocks, options, and futures, and full P/L totals computed on read.
+
+### Portfolio identity
+
+Portfolios are identified by a URL-safe `portfolio_id` string:
+
+| `portfolio_id` | Owner type | Notes |
+|---|---|---|
+| `client-<n>` | client with id n | |
+| `bank` | bank | singleton |
+| `fund-<n>` | investment fund with id n | |
+
+### 48.1 My Portfolio (client or bank)
+
+**GET /api/v3/me/portfolio**
+
+- Authentication: `AnyAuthMiddleware` (client or employee JWT)
+- Identity rule: `OwnerIsBankIfEmployee` — clients see their own portfolio, employees see the bank's portfolio
+- No query parameters
+
+**Response 200:**
+```json
+{
+  "portfolio_id": "client-42",
+  "owner_type": "client",
+  "owner_id": 42,
+  "owner_name": "",
+  "total_value_rsd": "11000.0000",
+  "total_profit_rsd": "1000.0000",
+  "total_profit_pct": "9.0909",
+  "securities": {
+    "total_value_rsd": "11000.0000",
+    "total_profit_rsd": "1000.0000",
+    "total_profit_pct": "9.0909",
+    "positions": [
+      {
+        "asset_type": "stock",
+        "symbol": "AAPL",
+        "quantity": 50,
+        "avg_cost_rsd": "200.0000",
+        "current_price_rsd": "220.0000",
+        "current_value_rsd": "11000.0000",
+        "p_l_rsd": "1000.0000",
+        "p_l_pct": "10.0000",
+        "last_updated": "2026-05-28T10:00:00Z"
+      }
+    ]
+  },
+  "funds": {
+    "total_value_rsd": "27000.0000",
+    "total_profit_rsd": "2000.0000",
+    "total_profit_pct": "8.0000",
+    "positions": [
+      {
+        "asset_type": "investment_fund",
+        "fund_id": 7,
+        "fund_name": "Alpha Growth",
+        "amount_invested_rsd": "25000.0000",
+        "current_value_rsd": "27000.0000",
+        "pct_of_fund": "100.0000",
+        "p_l_rsd": "2000.0000",
+        "p_l_pct": "8.0000",
+        "last_updated": "2026-05-28T10:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### 48.2 Portfolio by ID (generic form)
+
+**GET /api/v3/portfolio/:portfolio_id**
+
+- Authentication: `AuthMiddleware` (employee JWT only)
+- Permissions: employees always access bank; `portfolio.view_client` for client portfolios; `portfolio.view_fund` for fund portfolios
+- Path: `portfolio_id` — one of `client-<n>`, `bank`, or `fund-<n>`
+
+| Status | Meaning |
+|---|---|
+| 200 | Success — same shape as 48.1 |
+| 400 | invalid portfolio_id format |
+| 401 | missing or invalid token |
+| 403 | caller lacks permission |
+
+### 48.3 Portfolio by owner type — convenience aliases
+
+**GET /api/v3/portfolio/bank**
+- Returns bank's portfolio. Any authenticated employee.
+
+**GET /api/v3/portfolio/client/:client_id**
+- Returns client's portfolio. Requires `portfolio.view_client`.
+
+**GET /api/v3/portfolio/investment-fund/:fund_id**
+- Returns fund's portfolio. Requires `portfolio.view_fund`.
+
+All aliases use the same response shape as 48.1 and the same access enforcement as 48.2.
+
+### 48.4 Watchlist by portfolio_id
+
+**GET /api/v3/watchlist/:portfolio_id**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permissions: same as 48.2 — `portfolio.view_client` for client watchlists, `portfolio.view_fund` for fund watchlists
+- Returns the same shape as `GET /api/v3/me/watchlist` but for the specified portfolio owner
+
+| Status | Meaning |
+|---|---|
+| 200 | Success — `{ "items": [...] }` |
+| 400 | invalid portfolio_id |
+| 403 | forbidden |
+
+---
+
+## 49. Admin / Cron Management (C10 — 2026-05-28)
+
+All five routes require an **employee JWT** (`AuthMiddleware`). Each sub-route carries its own permission; all three permissions are held by `EmployeeAdmin` via the wildcard grant.
+
+### 49.1 List all crons
+
+**GET /api/v3/admin/crons**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.view`
+- Fans out in parallel to all configured services (stock, credit, account, card, transaction, notification, user).
+- Each service appears in the response regardless of reachability.
+
+**Response 200:**
+```json
+{
+  "services": [
+    {
+      "service": "stock-service",
+      "status": "ok",
+      "crons": [
+        {
+          "name": "tax-collection",
+          "service": "stock-service",
+          "description": "...",
+          "interval": "24h",
+          "cron_expression": "",
+          "last_started_at": "2026-05-28T00:00:00Z",
+          "last_finished_at": "2026-05-28T00:01:05Z",
+          "last_error": "",
+          "next_scheduled_at": "2026-05-29T00:00:00Z",
+          "is_paused": false,
+          "paused_by_employee": 0,
+          "paused_at": "",
+          "run_count": 42,
+          "error_count": 1
+        }
+      ]
+    },
+    {
+      "service": "notification-service",
+      "status": "unreachable",
+      "crons": null,
+      "error": "connection refused"
+    }
+  ]
+}
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | Always returned, even if all services are unreachable |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+
+### 49.2 Get one cron
+
+**GET /api/v3/admin/crons/:service/:name**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.view`
+- `:service` — exact service label (e.g. `stock-service`)
+- `:name` — exact cron name as registered in the cron registry
+
+**Response 200:**
+```json
+{
+  "cron": { ...CronInfoMsg fields... }
+}
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | success |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service label unknown or cron name not found |
+| 500 | service returned an unexpected error |
+
+### 49.3 Trigger a cron
+
+**POST /api/v3/admin/crons/:service/:name/trigger**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.trigger`
+- Body (optional): `{ "force": bool, "reason": string }`
+  - `force`: if true, execute even if the cron is paused
+  - `reason`: free-text for audit log
+- Publishes `AdminCronActionMessage{action:"trigger"}` to `admin.cron-action` Kafka topic after success.
+
+**Response 200:**
+```json
+{ "status": "triggered" }
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | cron triggered |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service or cron not found |
+| 409 | cron is paused and force=false |
+| 500 | service error |
+
+### 49.4 Pause a cron
+
+**POST /api/v3/admin/crons/:service/:name/pause**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.manage`
+- Body (optional): `{ "reason": string }`
+- Publishes `AdminCronActionMessage{action:"pause"}` to `admin.cron-action` after success.
+
+**Response 200:**
+```json
+{ "status": "paused" }
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | cron paused |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service or cron not found |
+| 409 | already paused |
+| 500 | service error |
+
+### 49.5 Resume a cron
+
+**POST /api/v3/admin/crons/:service/:name/resume**
+
+- Authentication: `AuthMiddleware` (employee JWT)
+- Permission: `admin.crons.manage`
+- Body (optional): `{ "reason": string }`
+- Publishes `AdminCronActionMessage{action:"resume"}` to `admin.cron-action` after success.
+
+**Response 200:**
+```json
+{ "status": "resumed" }
+```
+
+| Status | Meaning |
+|---|---|
+| 200 | cron resumed |
+| 401 | missing or invalid JWT |
+| 403 | missing permission |
+| 404 | service or cron not found |
+| 409 | not paused |
+| 500 | service error |
+
+---
+
+## 50. Admin / Audit Logs (D4 — 2026-05-28)
+
+Six global audit-log read endpoints. Each returns the full changelog table for one service (or the cron-action audit table in notification-service), paginated and optionally filtered. All six routes require **EmployeeAdmin** role (permission `admin.audit.view`).
+
+### Common query parameters (all six routes)
+
+| Parameter  | Type   | Default | Description |
+|------------|--------|---------|-------------|
+| `page`     | int    | 1       | 1-based page number |
+| `page_size`| int    | 50      | Entries per page (max 200) |
+| `since`    | string | —       | Filter entries from this date inclusive (`YYYY-MM-DD`) |
+| `until`    | string | —       | Filter entries up to this date inclusive (`YYYY-MM-DD`) |
+| `actor_id` | int    | —       | Filter by employee (actor) ID |
+| `action`   | string | —       | Filter by action string (exact match) |
+
+### Common response shape (changelog routes)
+
+```json
+{
+  "entries": [
+    {
+      "id": 123,
+      "entity_type": "client",
+      "entity_id": 42,
+      "action": "updated",
+      "field_name": "first_name",
+      "old_value": "Marko",
+      "new_value": "Marija",
+      "actor_id": 7,
+      "timestamp": "2026-05-28T10:00:00Z",
+      "reason": ""
+    }
+  ],
+  "total": 1234,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+**GET /api/v3/admin/audit/clients-changelog**
+
+Returns all changelog entries from client-service across all clients.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/accounts-changelog**
+
+Returns all changelog entries from account-service across all accounts.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/cards-changelog**
+
+Returns all changelog entries from card-service across all cards.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/loans-changelog**
+
+Returns all changelog entries from credit-service across all loans and loan requests.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/employees-changelog**
+
+Returns all changelog entries from user-service across all employees.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated changelog entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+**GET /api/v3/admin/audit/cron-actions**
+
+Returns admin cron-action audit log entries (trigger/pause/resume) persisted by notification-service.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+
+Response shape:
+
+```json
+{
+  "entries": [
+    {
+      "id": 1,
+      "action": "trigger",
+      "service": "credit-service",
+      "cron_name": "overdue-marking",
+      "employee_id": 5,
+      "reason": "Manual trigger for testing",
+      "timestamp": "2026-05-28T10:00:00Z"
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Paginated cron-action audit log entries |
+| 400 | Invalid query parameter |
+| 401 | Missing or invalid token |
+| 403 | Insufficient permissions |
+| 500 | Downstream gRPC error |
+
+---
+
+## 51. Dividends (E4 — 2026-05-28)
+
+Dividend infrastructure for securities held directly by clients/bank and indirectly via investment funds.
+
+### POST /api/v3/admin/dividends
+
+**Authentication:** Employee JWT — requires `securities.manage.catalog` permission.
+
+Declares a dividend for a security. Idempotent on `(security_id, payment_date)` — a second call with the same key returns the existing record.
+
+**Request body:**
+```json
+{
+  "security_id": 12,
+  "ticker": "AAPL",
+  "amount_per_share_rsd": "50.00",
+  "payment_date": "2026-06-15"
+}
+```
+
+**Success 201:**
+```json
+{
+  "dividend_payment": {
+    "id": 1,
+    "security_id": 12,
+    "ticker": "AAPL",
+    "amount_per_share_rsd": "50.0000",
+    "payment_date": "2026-06-15",
+    "status": "declared",
+    "declared_by_employee_id": 3,
+    "paid_out_at": "",
+    "created_at": "2026-06-01T10:00:00Z"
+  }
+}
+```
+
+**Error responses:**
+- `400 validation_error` — missing or invalid fields.
+- `403 forbidden` — insufficient permission.
+
+---
+
+### POST /api/v3/admin/dividends/:id/payout
+
+**Authentication:** Employee JWT — requires `securities.manage.catalog` permission.
+
+Triggers the fan-out payout for a declared dividend. Walks every holding of the security:
+- Client direct holdings: 15% tax withheld; net credited to holder's account.
+- Bank direct holdings: no tax; full gross credited to bank's RSD account.
+- Investment fund holdings: no tax at this stage (deferred); full gross credited to fund's RSD account; a per-investor snapshot is recorded.
+
+**Path param:** `:id` — `dividend_payment_id`.
+
+**Request body:** empty.
+
+**Success 200:**
+```json
+{
+  "payouts_created": 12,
+  "fund_payouts": 2,
+  "total_amount_rsd": "150000.00"
+}
+```
+
+**Error responses:**
+- `400 validation_error` — invalid id.
+- `403 forbidden` — insufficient permission.
+- `500 internal_error` — payment already paid_out or cancelled.
+
+---
+
+### GET /api/v3/me/dividends
+
+**Authentication:** Any valid JWT (client or employee).
+
+Returns the caller's paginated dividend payout history, sorted most-recent first.
+
+**Query params:** `page` (default 1), `page_size` (default 20).
+
+**Success 200:**
+```json
+{
+  "payouts": [
+    {
+      "id": 5,
+      "dividend_payment_id": 1,
+      "holding_owner_type": "client",
+      "holding_owner_id": 42,
+      "holding_id": 17,
+      "shares": 100,
+      "gross_amount_rsd": "5000.00",
+      "tax_amount_rsd": "750.00",
+      "net_amount_rsd": "4250.00",
+      "credited_account_id": 1003,
+      "created_at": "2026-06-15T12:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### GET /api/v3/investment-funds/:id/dividends
+
+**Authentication:** Any valid JWT (client or employee).
+
+Returns paginated `fund_dividend_payments` for the fund, most-recent first. Each record includes a `per_investor_snapshot` JSON string with per-investor share breakdowns at payout time.
+
+**Path param:** `:id` — fund ID.
+**Query params:** `page` (default 1), `page_size` (default 20).
+
+**Success 200:**
+```json
+{
+  "payments": [
+    {
+      "id": 3,
+      "dividend_payment_id": 1,
+      "fund_id": 7,
+      "amount_rsd": "30000.00",
+      "per_investor_snapshot": "[{\"investor_owner_type\":\"client\",\"investor_owner_id\":42,\"pct_at_payment\":\"60.0000\",\"gross_share_rsd\":\"18000.0000\"}]",
+      "created_at": "2026-06-15T12:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+**Error responses:**
+- `400 validation_error` — invalid fund id.
+
+---
+
+### Portfolio dividend fields (E3)
+
+The `GET /api/v3/me/portfolio` and `GET /api/v3/portfolio/*` responses include two new fields on each `PortfolioPosition`:
+
+| Field | Description |
+|---|---|
+| `dividends_received_rsd` | For fund positions: sum of the caller's pro-rata share from `fund_dividend_payments` at each payment's `pct_at_payment`. For direct security positions: sum of `dividend_payouts.net_amount_rsd` for this owner. `"0.00"` when no dividends have been paid. |
+| `fund_status` | For `asset_type = "investment_fund"` positions: the fund's lifecycle status (`open`, `fundraising`, `active`, `matured`, `liquidated`). Empty for non-fund positions. |
 
 ---
 

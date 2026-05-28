@@ -27,6 +27,14 @@ func (r *CapitalGainRepository) Create(gain *model.CapitalGain) error {
 	return r.db.Create(gain).Error
 }
 
+// DeleteByIdempotencyKey deletes the capital_gain row with the given
+// idempotency_key. Used by saga Backward closures to undo a capital-gain
+// row that was written in a Forward step that is now being compensated.
+// No-op (nil error) when no matching row exists — safe for retry.
+func (r *CapitalGainRepository) DeleteByIdempotencyKey(key string) error {
+	return r.db.Where("idempotency_key = ?", key).Delete(&model.CapitalGain{}).Error
+}
+
 // ListByOwner returns paginated capital gain records for an owner.
 func (r *CapitalGainRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
 	var total int64

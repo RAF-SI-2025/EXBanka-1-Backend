@@ -67,6 +67,10 @@ type FundService struct {
 	// position-reads deps (optional; wired via WithPositionReads).
 	listingRepo *repository.ListingRepository
 
+	// dividend repo (optional; wired via WithDividendRepo).
+	// When nil, Statistics returns total_dividends_paid_rsd = 0.
+	fundDividendRepo *repository.FundDividendPaymentRepository
+
 	// liquidation dep (optional; wired via WithLiquidation). When nil,
 	// Redeem's insufficient-cash path returns ErrInsufficientFundCash directly.
 	orderPlacer FundOrderPlacer
@@ -135,6 +139,15 @@ func (s *FundService) WithPositionReads(listingRepo *repository.ListingRepositor
 	return &cp
 }
 
+// WithDividendRepo wires the fund_dividend_payments repository so
+// Statistics can report the real total_dividends_paid_rsd.
+// Without this, Statistics returns "0.00" (E4 placeholder).
+func (s *FundService) WithDividendRepo(repo *repository.FundDividendPaymentRepository) *FundService {
+	cp := *s
+	cp.fundDividendRepo = repo
+	return &cp
+}
+
 type CreateFundInput struct {
 	ActorEmployeeID        int64
 	Name                   string
@@ -157,6 +170,9 @@ func (s *FundService) Create(ctx context.Context, in CreateFundInput) (*model.In
 		CurrencyCode: "RSD",
 		AccountKind:  "current",
 		AccountName:  fmt.Sprintf("Fund: %s", in.Name),
+		// Tag the account as an investment-fund RSD account so transaction-service
+		// can reject generic debit attempts without a cross-service lookup (E0).
+		AccountCategory: "investment_fund",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create RSD account: %w", err)

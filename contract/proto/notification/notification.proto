@@ -21,6 +21,11 @@ service NotificationService {
   rpc GetTemplate(GetTemplateRequest) returns (TemplateInfo);
   rpc SetTemplate(SetTemplateRequest) returns (TemplateInfo);
   rpc ResetTemplate(ResetTemplateRequest) returns (TemplateInfo);
+
+  // ListAdminAuditLogs returns admin cron-action audit log entries (global,
+  // admin-only). Supports optional filters: since/until (unix seconds),
+  // actor_id (employee_id), action string, and pagination.
+  rpc ListAdminAuditLogs(ListAdminAuditLogsRequest) returns (ListAdminAuditLogsResponse);
 }
 
 message SendEmailRequest {
@@ -162,4 +167,32 @@ message SetTemplateRequest {
 message ResetTemplateRequest {
   string type = 1;
   string channel = 2;
+}
+
+// ── Admin audit logs (cron actions) ─────────────────────────────────────────
+
+message ListAdminAuditLogsRequest {
+  int32  page      = 1;
+  int32  page_size = 2;
+  int64  since     = 3; // unix seconds, 0 = no lower bound
+  int64  until     = 4; // unix seconds, 0 = no upper bound
+  int64  actor_id  = 5; // employee_id filter, 0 = all
+  string action    = 6; // exact match, "" = all
+}
+
+message AdminAuditLogEntry {
+  uint64 id          = 1;
+  string action      = 2;
+  string service     = 3;
+  string cron_name   = 4;
+  int64  employee_id = 5;
+  string reason      = 6;
+  int64  timestamp   = 7; // unix seconds
+}
+
+message ListAdminAuditLogsResponse {
+  repeated AdminAuditLogEntry entries   = 1;
+  int64                        total     = 2;
+  int32                        page      = 3;
+  int32                        page_size = 4;
 }

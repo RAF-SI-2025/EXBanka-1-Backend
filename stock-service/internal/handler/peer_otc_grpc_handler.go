@@ -70,8 +70,9 @@ type HoldingReserver interface {
 		peerOptionContractID uint64,
 		qty int64,
 	) (*service.PartialSettleHoldingResult, error)
-	CreditBuyerHoldingForPeerOption(
+	ExerciseBuyerCreditForPeerOption(
 		ctx context.Context,
+		peerOptionContractID uint64,
 		ownerType model.OwnerType,
 		ownerID *uint64,
 		ticker string,
@@ -897,20 +898,35 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 	if req.GetDirection() == contractsitx.DirectionDebit && h.holdingReserver != nil {
 		ownerType, ownerID, parseErr := parseSellerOwner(row.SellerID)
 		if parseErr != nil {
-			// Don't fail the whole RecordOptionContract — the contract
-			// row is the durable record; the share-lock is best-effort
-			// at this stage. Log via gRPC error metadata is overkill;
-			// silently degrade and let ops surface "no reservation"
-			// from settlement-time checks if it matters.
-			log.Printf("WARN: peer-option contract %d created but seller_id %q not parseable for holding lock: %v",
+			// A DEBIT-side contract means this bank holds the seller, so we
+			// MUST be able to lock the seller's shares. An unparseable
+			// seller_id means we cannot — fail loudly instead of leaving an
+			// "active" contract with no holding reservation behind it (the
+			// seller's shares would otherwise stay tradeable until exercise).
+			// The NEW_TX-time CheckSellerCanDeliver pre-check already rejects
+			// unparseable sellers, so reaching here implies data corruption.
+			return nil, status.Errorf(codes.Internal,
+				"peer-option contract %d: seller_id %q not parseable, cannot lock shares: %v",
 				row.ID, row.SellerID, parseErr)
-		} else {
-			if _, err := h.holdingReserver.ReserveForPeerOptionContract(
-				ctx, ownerType, ownerID, "stock", row.Ticker, row.ID, row.Quantity,
-			); err != nil {
-				log.Printf("WARN: peer-option contract %d created but holding-lock failed for seller %s ticker %s qty %d: %v",
-					row.ID, row.SellerID, row.Ticker, row.Quantity, err)
+		}
+		if _, err := h.holdingReserver.ReserveForPeerOptionContract(
+			ctx, ownerType, ownerID, "stock", row.Ticker, row.ID, row.Quantity,
+		); err != nil {
+			// Reservation failed — e.g. the seller traded the shares away in
+			// the window between the NEW_TX vote and this COMMIT-time lock.
+			// Returning success here would leave an "active" contract with no
+			// share reservation: a silent over-promise that only surfaces at
+			// exercise/settlement (Bug 2). Surface the failure so the SI-TX
+			// COMMIT does not ack. Both the contract row (idempotent on
+			// crossbank_tx_id, posting_index) and the reservation (idempotent
+			// on peer_option_contract_id) are replay-safe, so a COMMIT retry
+			// re-attempts the lock and heals once shares are available.
+			if st, ok := status.FromError(err); ok {
+				return nil, st.Err()
 			}
+			return nil, status.Errorf(codes.Internal,
+				"peer-option contract %d: lock seller %s ticker %s qty %d: %v",
+				row.ID, row.SellerID, row.Ticker, row.Quantity, err)
 		}
 	}
 
@@ -1032,7 +1048,11 @@ func (h *PeerOTCGRPCHandler) recordOptionExercise(ctx context.Context, req *stoc
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "consume seller reservation: %v", err)
 		}
-		if h.capitalGainRepo != nil {
+		// Skip the capital-gain write on a replayed consume — the
+		// settlement already existed, so no shares moved this time and a
+		// second CapitalGain row would double-count the realised P/L
+		// (CapitalGain.Create is not idempotent).
+		if !settle.AlreadySettled && h.capitalGainRepo != nil {
 			sellerType, sellerID, parseErr := parseSellerOwner(contract.SellerID)
 			if parseErr != nil {
 				log.Printf("WARN: peer-option contract %d exercise: seller_id %q not parseable; capital gain not recorded: %v", contract.ID, contract.SellerID, parseErr)
@@ -1067,12 +1087,26 @@ func (h *PeerOTCGRPCHandler) recordOptionExercise(ctx context.Context, req *stoc
 		// market buy at the strike would.
 		ownerType, ownerID, parseErr := parseSellerOwner(contract.BuyerID)
 		if parseErr != nil {
-			log.Printf("WARN: peer-option contract %d exercise: buyer_id %q not parseable; holding not credited: %v", contract.ID, contract.BuyerID, parseErr)
-		} else {
-			if err := h.holdingReserver.CreditBuyerHoldingForPeerOption(ctx, ownerType, ownerID, contract.Ticker, contract.Quantity, contract.StrikePrice); err != nil {
-				log.Printf("WARN: peer-option contract %d exercise: credit buyer holding failed: %v", contract.ID, err)
-			}
+			// The buyer paid the strike (money moved cross-bank at exercise),
+			// so failing to credit their shares is delivery failure, not a
+			// cosmetic gap. Surface it so the contract is NOT marked exercised
+			// and the SI-TX exercise commit retries — silently degrading would
+			// leave the buyer paid-but-undelivered with no recovery (Bug 2's
+			// exercise-time analog).
+			return nil, status.Errorf(codes.Internal,
+				"peer-option contract %d exercise: buyer_id %q not parseable, cannot credit shares: %v",
+				contract.ID, contract.BuyerID, parseErr)
 		}
+		// Credit the buyer AND flip the contract to "exercised" atomically.
+		// The status transition lives inside this call (guarded by a row
+		// lock on the contract), so a replayed exercise is a no-op and the
+		// buyer's shares are never double-credited. Returns early — the
+		// shared SetStatus below is only for the DEBIT path.
+		if err := h.holdingReserver.ExerciseBuyerCreditForPeerOption(ctx, contract.ID, ownerType, ownerID, contract.Ticker, contract.Quantity, contract.StrikePrice); err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"peer-option contract %d exercise: credit buyer holding: %v", contract.ID, err)
+		}
+		return &stockpb.RecordOptionContractResponse{ContractId: contract.ID}, nil
 	}
 
 	if err := h.peerOptionRepo.SetStatus(contract.ID, "exercised"); err != nil {
@@ -1233,14 +1267,37 @@ func (h *PeerOTCGRPCHandler) ListMyPeerNegotiations(ctx context.Context, req *st
 		if row.SellerRoutingNumber == req.GetOwnRoutingNumber() && row.SellerID == principal {
 			role = "seller"
 		}
+
+		// For accepted negotiations, resolve the local peer_option_contracts
+		// row so the caller can navigate from negotiation → contract. We look
+		// up the direction that matches the caller's role: buyer side is
+		// CREDIT, seller side is DEBIT. Best-effort — lookup failure leaves
+		// local_contract_id as 0 (not a fatal error for the list call).
+		var localContractID uint64
+		if row.Status == "accepted" && h.peerOptionRepo != nil {
+			direction := "CREDIT"
+			if role == "seller" {
+				direction = "DEBIT"
+			}
+			// The negotiation id from our perspective is the foreign_id
+			// stored on the row; the routing is the seller's bank routing
+			// (which owns the id namespace).
+			if c, cerr := h.peerOptionRepo.GetByNegotiationAndDirection(
+				negotiationOwningRouting(row), row.ForeignID, direction,
+			); cerr == nil && c != nil {
+				localContractID = c.ID
+			}
+		}
+
 		out.Items = append(out.Items, &stockpb.PeerNegotiationListItem{
-			Id:        &stockpb.PeerForeignBankId{RoutingNumber: negotiationOwningRouting(row), Id: row.ForeignID},
-			BuyerId:   &stockpb.PeerForeignBankId{RoutingNumber: row.BuyerRoutingNumber, Id: row.BuyerID},
-			SellerId:  &stockpb.PeerForeignBankId{RoutingNumber: row.SellerRoutingNumber, Id: row.SellerID},
-			Offer:     offerToProto(offer),
-			Status:    row.Status,
-			Role:      role,
-			UpdatedAt: row.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			Id:              &stockpb.PeerForeignBankId{RoutingNumber: negotiationOwningRouting(row), Id: row.ForeignID},
+			BuyerId:         &stockpb.PeerForeignBankId{RoutingNumber: row.BuyerRoutingNumber, Id: row.BuyerID},
+			SellerId:        &stockpb.PeerForeignBankId{RoutingNumber: row.SellerRoutingNumber, Id: row.SellerID},
+			Offer:           offerToProto(offer),
+			Status:          row.Status,
+			Role:            role,
+			UpdatedAt:       row.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			LocalContractId: localContractID,
 		})
 	}
 	return out, nil

@@ -3,6 +3,7 @@ package repository
 import (
 	"github.com/exbanka/notification-service/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type GeneralNotificationRepository struct {
@@ -15,6 +16,26 @@ func NewGeneralNotificationRepository(db *gorm.DB) *GeneralNotificationRepositor
 
 func (r *GeneralNotificationRepository) Create(n *model.GeneralNotification) error {
 	return r.db.Create(n).Error
+}
+
+// CreateWithIdempotency inserts n only if no row with idempotencyKey already
+// exists for n.UserID. Uses ON CONFLICT DO NOTHING on idempotency_key so the
+// call is safe to retry. Returns (created, error): created=false when the
+// row already existed (not an error). When idempotencyKey is empty the
+// behaviour falls back to a plain Create.
+func (r *GeneralNotificationRepository) CreateWithIdempotency(n *model.GeneralNotification, idempotencyKey string) (bool, error) {
+	if idempotencyKey == "" {
+		return true, r.db.Create(n).Error
+	}
+	n.IdempotencyKey = idempotencyKey
+	result := r.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "idempotency_key"}},
+		DoNothing: true,
+	}).Create(n)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // ListByUser returns paginated notifications for a user.

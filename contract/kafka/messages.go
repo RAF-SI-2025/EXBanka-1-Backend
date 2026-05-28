@@ -1,6 +1,8 @@
 // contract/kafka/messages.go
 package kafka
 
+import "time"
+
 const (
 	TopicSendEmail = "notification.send-email"
 	TopicEmailSent = "notification.email-sent"
@@ -52,6 +54,8 @@ const (
 	TopicTransferCompleted    = "transaction.transfer-completed"
 	TopicTransferFailed       = "transaction.transfer-failed"
 	TopicSagaDeadLetter       = "transaction.saga-dead-letter"
+	TopicCreditSagaDeadLetter = "credit.saga-dead-letter"
+	TopicStockSagaDeadLetter  = "stock.saga-dead-letter"
 	TopicLoanRequested        = "credit.loan-requested"
 	TopicLoanApproved         = "credit.loan-approved"
 	TopicLoanRejected         = "credit.loan-rejected"
@@ -773,6 +777,44 @@ type OTCContractExpiredMessage struct {
 	Buyer      OTCParty `json:"buyer"`
 	Seller     OTCParty `json:"seller"`
 	ExpiredAt  string   `json:"expired_at"`
+}
+
+// ==================== Admin Cron Viewer (C6 — 2026-05-28) ====================
+
+// TopicAdminCronAction is published by the api-gateway on every
+// Trigger/Pause/Resume admin action. Notification-service consumes this to
+// write an audit log row.
+const TopicAdminCronAction = "admin.cron-action"
+
+// AdminCronActionMessage carries the audit event for an admin cron control action.
+type AdminCronActionMessage struct {
+	Action     string    `json:"action"`              // "trigger" | "pause" | "resume"
+	Service    string    `json:"service"`             // e.g. "stock-service"
+	CronName   string    `json:"cron_name"`           // e.g. "tax-collection"
+	EmployeeID int64     `json:"employee_id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Reason     string    `json:"reason,omitempty"`
+}
+
+// ==================== Watchlist Notifications (2026-05-29) ====================
+
+// TopicWatchlistAlert is published by stock-service's daily watchlist
+// notification cron when a ticker on a user's watchlist moves more than ±5%
+// in a single day. notification-service consumes this to write a persistent
+// general notification for the user.
+const TopicWatchlistAlert = "notification.watchlist-alert"
+
+// WatchlistPriceMoveMessage is published once per (user_id, ticker) pair per
+// calendar day when the daily price change exceeds ±5%. The IdempotencyKey
+// field carries a canonical "watchlist-alert-<user_id>-<ticker>-<YYYYMMDD>"
+// key so consumers can detect and discard duplicate deliveries.
+type WatchlistPriceMoveMessage struct {
+	UserID         uint64    `json:"user_id"`
+	Ticker         string    `json:"ticker"`
+	PercentMove    string    `json:"percent_move"`    // signed decimal string, e.g. "-6.4200"
+	CurrentPrice   string    `json:"current_price"`   // decimal string
+	Timestamp      time.Time `json:"timestamp"`
+	IdempotencyKey string    `json:"idempotency_key"` // "watchlist-alert-<uid>-<ticker>-<YYYYMMDD>"
 }
 
 type OTCContractFailedMessage struct {

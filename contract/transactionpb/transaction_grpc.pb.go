@@ -912,6 +912,7 @@ const (
 	PeerTxService_HandleRollbackTx_FullMethodName               = "/transaction.PeerTxService/HandleRollbackTx"
 	PeerTxService_InitiateOutboundTx_FullMethodName             = "/transaction.PeerTxService/InitiateOutboundTx"
 	PeerTxService_InitiateOutboundTxWithPostings_FullMethodName = "/transaction.PeerTxService/InitiateOutboundTxWithPostings"
+	PeerTxService_GetTxStatus_FullMethodName                    = "/transaction.PeerTxService/GetTxStatus"
 )
 
 // PeerTxServiceClient is the client API for PeerTxService service.
@@ -927,6 +928,11 @@ type PeerTxServiceClient interface {
 	HandleRollbackTx(ctx context.Context, in *SiTxRollbackRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error)
 	InitiateOutboundTx(ctx context.Context, in *SiTxInitiateRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
 	InitiateOutboundTxWithPostings(ctx context.Context, in *SiTxInitiateWithPostingsRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
+	// GetTxStatus allows a peer bank to query the status of a cross-bank
+	// transaction by its transactionId (= our idempotenceKey). Used by the
+	// Celina-5 CHECK_STATUS mechanism so both sides can resolve stuck sagas
+	// when communication breaks mid-flight.
+	GetTxStatus(ctx context.Context, in *GetTxStatusRequest, opts ...grpc.CallOption) (*GetTxStatusResponse, error)
 }
 
 type peerTxServiceClient struct {
@@ -987,6 +993,16 @@ func (c *peerTxServiceClient) InitiateOutboundTxWithPostings(ctx context.Context
 	return out, nil
 }
 
+func (c *peerTxServiceClient) GetTxStatus(ctx context.Context, in *GetTxStatusRequest, opts ...grpc.CallOption) (*GetTxStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTxStatusResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_GetTxStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerTxServiceServer is the server API for PeerTxService service.
 // All implementations must embed UnimplementedPeerTxServiceServer
 // for forward compatibility.
@@ -1000,6 +1016,11 @@ type PeerTxServiceServer interface {
 	HandleRollbackTx(context.Context, *SiTxRollbackRequest) (*SiTxAckResponse, error)
 	InitiateOutboundTx(context.Context, *SiTxInitiateRequest) (*SiTxInitiateResponse, error)
 	InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error)
+	// GetTxStatus allows a peer bank to query the status of a cross-bank
+	// transaction by its transactionId (= our idempotenceKey). Used by the
+	// Celina-5 CHECK_STATUS mechanism so both sides can resolve stuck sagas
+	// when communication breaks mid-flight.
+	GetTxStatus(context.Context, *GetTxStatusRequest) (*GetTxStatusResponse, error)
 	mustEmbedUnimplementedPeerTxServiceServer()
 }
 
@@ -1024,6 +1045,9 @@ func (UnimplementedPeerTxServiceServer) InitiateOutboundTx(context.Context, *SiT
 }
 func (UnimplementedPeerTxServiceServer) InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitiateOutboundTxWithPostings not implemented")
+}
+func (UnimplementedPeerTxServiceServer) GetTxStatus(context.Context, *GetTxStatusRequest) (*GetTxStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTxStatus not implemented")
 }
 func (UnimplementedPeerTxServiceServer) mustEmbedUnimplementedPeerTxServiceServer() {}
 func (UnimplementedPeerTxServiceServer) testEmbeddedByValue()                       {}
@@ -1136,6 +1160,24 @@ func _PeerTxService_InitiateOutboundTxWithPostings_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerTxService_GetTxStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTxStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).GetTxStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_GetTxStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).GetTxStatus(ctx, req.(*GetTxStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerTxService_ServiceDesc is the grpc.ServiceDesc for PeerTxService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1162,6 +1204,10 @@ var PeerTxService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitiateOutboundTxWithPostings",
 			Handler:    _PeerTxService_InitiateOutboundTxWithPostings_Handler,
+		},
+		{
+			MethodName: "GetTxStatus",
+			Handler:    _PeerTxService_GetTxStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

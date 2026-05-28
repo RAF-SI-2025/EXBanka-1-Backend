@@ -11,6 +11,7 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/credit-service/internal/kafka"
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
@@ -38,6 +39,7 @@ type CronService struct {
 	notifier          cronNotifier
 	bankRSDAccount    string
 	db                *gorm.DB
+	entry             *cronreg.Entry
 }
 
 func NewCronService(
@@ -49,6 +51,7 @@ func NewCronService(
 	producer *kafka.Producer,
 	bankRSDAccount string,
 	db *gorm.DB,
+	registry *cronreg.Registry,
 ) *CronService {
 	s := &CronService{
 		installService:    installService,
@@ -63,6 +66,7 @@ func NewCronService(
 	if producer != nil {
 		s.notifier = producer
 	}
+	s.entry = registry.Register("credit-installment-collection", "Collect due loan installments daily", 24*time.Hour)
 	return s
 }
 
@@ -88,19 +92,38 @@ func (c *CronService) notifyInstallment(ctx context.Context, loan *model.Loan, i
 	})
 }
 
-// Start runs the daily installment collection job using the shared
-// scheduled runner. Returns immediately; the loop runs until ctx is
-// cancelled. RunOnStart fires the first collection without waiting a day.
+// Start runs the daily installment collection job. Returns immediately;
+// the loop runs in a goroutine until ctx is cancelled. Fires an
+// immediate pass on startup (catch-up on missed installs after downtime)
+// then once every 24 h. Each tick is gated by the cronreg Entry so the
+// job can be paused / manually triggered via the AdminCron gRPC API.
 func (c *CronService) Start(ctx context.Context) {
-	shared.RunScheduled(ctx, shared.ScheduledJob{
-		Name:       "credit-installment-collection",
-		Interval:   24 * time.Hour,
-		RunOnStart: true,
-		OnTick: func(ctx context.Context) error {
+	go func() {
+		if c.entry.BeginRun() {
 			c.collectDueInstallments(ctx)
-			return nil
-		},
-	})
+			c.entry.EndRun(nil)
+		}
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !c.entry.BeginRun() {
+					continue
+				}
+				c.collectDueInstallments(ctx)
+				c.entry.EndRun(nil)
+			case <-c.entry.TriggerChan():
+				if !c.entry.BeginRun() {
+					continue
+				}
+				c.collectDueInstallments(ctx)
+				c.entry.EndRun(nil)
+			}
+		}
+	}()
 }
 
 func (c *CronService) collectDueInstallments(ctx context.Context) {

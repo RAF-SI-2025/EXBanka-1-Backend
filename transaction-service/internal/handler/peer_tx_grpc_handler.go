@@ -3,12 +3,15 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	contractsitx "github.com/exbanka/contract/sitx"
@@ -365,16 +368,21 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 			reason = "peer voted NO: " + vote.NoVotes[0].Reason
 		}
 		// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): credit the
-		// sender back on a NO vote, since we already debited them above.
+		// sender back on a NO vote, since we already debited them above. If
+		// the credit-back fails, keep the row pending (MarkAttempt) so
+		// OutboundReplayCron retries the reversal — marking it rolled_back
+		// here would strand the debited money in a terminal row nothing
+		// revisits. The credit-back key is idempotent, so the retry nets out.
 		if _, cbErr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 			AccountNumber:   req.GetFromAccountNumber(),
 			Amount:          req.GetAmount(),
 			UpdateAvailable: true,
 			IdempotencyKey:  "peer-out-creditback-" + idem,
 		}); cbErr != nil {
-			reason = reason + " (creditback failed: " + cbErr.Error() + ")"
+			_ = h.outRepo.MarkAttempt(idem, reason+" (creditback failed, will retry: "+cbErr.Error()+")")
+		} else {
+			_ = h.outRepo.MarkRolledBack(idem, reason)
 		}
-		_ = h.outRepo.MarkRolledBack(idem, reason)
 	}
 
 	return &transactionpb.SiTxInitiateResponse{
@@ -499,12 +507,17 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 			reason = "peer voted NO: " + vote.NoVotes[0].Reason
 		}
 		// Peer voted NO → release our local reservation + credit-back
-		// any DEBIT legs we already finalised locally.
+		// any DEBIT legs we already finalised locally. If any reversal step
+		// fails, keep the row pending (MarkAttempt) so OutboundReplayCron
+		// retries the reversal rather than stranding the locally-applied
+		// money in a terminal row. All reversal keys are idempotent.
+		reversalFailed := false
 		if _, rerr := h.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{
 			ReservationKey: localKey,
 			IdempotencyKey: "sitx-localrelease-" + localKey,
 		}); rerr != nil && status.Code(rerr) != codes.NotFound {
 			reason = reason + " (local release failed: " + rerr.Error() + ")"
+			reversalFailed = true
 		}
 		for _, d := range localResult.DebitedItems {
 			if _, cerr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
@@ -514,9 +527,14 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 				IdempotencyKey:  "sitx-localcreditback-" + d.IdempotencyTag,
 			}); cerr != nil {
 				reason = reason + " (local creditback " + d.IdempotencyTag + " failed: " + cerr.Error() + ")"
+				reversalFailed = true
 			}
 		}
-		_ = h.outRepo.MarkRolledBack(idem, reason)
+		if reversalFailed {
+			_ = h.outRepo.MarkAttempt(idem, reason+" (will retry reversal)")
+		} else {
+			_ = h.outRepo.MarkRolledBack(idem, reason)
+		}
 	}
 
 	return &transactionpb.SiTxInitiateResponse{
@@ -524,6 +542,152 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		PollUrl:       "/api/v3/me/transfers/" + idem,
 		Status:        "pending",
 	}, nil
+}
+
+// ReverseOutboundLocal undoes the local balance effects applied at
+// initiation for an outbound row that terminally fails without committing
+// (peer NO vote or max retries exceeded in OutboundReplayCron). It is wired
+// into the cron as its LocalReversalFunc so the cron — which has no account
+// client of its own — can credit the sender back.
+//
+// Dispatch mirrors the two initiation paths so the credit-back idempotency
+// keys match, making the reversal idempotent and safe to interleave with the
+// inline NO-vote rollback:
+//   - "transfer" (InitiateOutboundTx): a single sender debit was applied with
+//     key "peer-out-debit-<idem>"; credit the local DEBIT leg back with
+//     "peer-out-creditback-<idem>".
+//   - otherwise (InitiateOutboundTxWithPostings OTC legs): reservations +
+//     debits were applied via the posting executor with peerCode = our own
+//     routing; reverse them via the executor's matching keys.
+func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
+	var postings []contractsitx.Posting
+	if err := json.Unmarshal([]byte(row.PostingsJSON), &postings); err != nil {
+		return err
+	}
+	idem := row.IdempotenceKey
+	switch row.TxKind {
+	case "", "transfer":
+		for i := range postings {
+			p := postings[i]
+			if p.RoutingNumber != h.ownRouting || p.Direction != contractsitx.DirectionDebit {
+				continue
+			}
+			if _, err := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   p.AccountID,
+				Amount:          p.Amount.String(),
+				UpdateAvailable: true,
+				IdempotencyKey:  "peer-out-creditback-" + idem,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		ownPeerCode := strconv.FormatInt(h.ownRouting, 10)
+		return h.executor.ReverseLocal(ctx, postings, ownPeerCode, idem)
+	}
+}
+
+// CommitOutboundLocal finalises the local CREDIT-leg reservations applied at
+// initiation time. Wired into OutboundReplayCron as its LocalCommitFunc so the
+// cron — which has no account client of its own — can complete the local
+// side of an OTC cross-bank commit after a crash between the inline Reserve()
+// and the inline CommitIncoming() call.
+//
+// Skipped for "transfer" rows: those have no local CREDIT leg (the sender's
+// account was debited directly in InitiateOutboundTx, not reserved).
+//
+// Idempotency: uses key "sitx-localcommit-<localKey>" where localKey =
+// "<ownRouting>:<idem>", identical to the inline path's key. NotFound at
+// account-service is benign — means no CREDIT legs landed on this bank.
+// Safe to call multiple times.
+func (h *PeerTxGRPCHandler) CommitOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
+	if row.TxKind == "" || row.TxKind == "transfer" {
+		return nil
+	}
+	ownPeerCode := strconv.FormatInt(h.ownRouting, 10)
+	localKey := ownPeerCode + ":" + row.IdempotenceKey
+	if _, err := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{
+		ReservationKey: localKey,
+		IdempotencyKey: "sitx-localcommit-" + localKey,
+	}); err != nil && status.Code(err) != codes.NotFound {
+		return err
+	}
+	return nil
+}
+
+// GetTxStatus implements the Celina-5 CHECK_STATUS mechanism. A peer bank
+// can query the state of a cross-bank transaction by its transactionId
+// (which equals our IdempotenceKey / UUID). We check both sender-side
+// (outbound_peer_txs) and receiver-side (peer_idempotence_records) tables
+// and return a unified status so both parties can resume from where they
+// stopped.
+func (h *PeerTxGRPCHandler) GetTxStatus(ctx context.Context, req *transactionpb.GetTxStatusRequest) (*transactionpb.GetTxStatusResponse, error) {
+	txID := req.GetTransactionId()
+	callerCode := req.GetCallerPeerBankCode()
+	if txID == "" {
+		return nil, status.Error(codes.InvalidArgument, "transaction_id required")
+	}
+
+	// 1. Check sender-side: did WE initiate this outbound TX?
+	if h.outRepo != nil {
+		row, err := h.outRepo.GetByIdempotenceKey(txID)
+		if err == nil && row != nil {
+			lastActionAt := row.UpdatedAt.UTC().Format(time.RFC3339)
+			return &transactionpb.GetTxStatusResponse{
+				State:        senderState(row.Status),
+				OurRole:      "sender",
+				LastActionAt: lastActionAt,
+				LastError:    row.LastError,
+			}, nil
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(codes.Internal, "outbound lookup: %v", err)
+		}
+	}
+
+	// 2. Check receiver-side: did WE receive a NEW_TX from this peer for
+	// this transaction? The idempotence record is keyed by (peer_bank_code,
+	// locally_generated_key). The locally_generated_key is the sender's UUID
+	// which we store as TransactionID in the idempotence record.
+	if callerCode != "" {
+		rec, found, err := h.idemRepo.LookupByTransactionID(callerCode, txID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "idem lookup: %v", err)
+		}
+		if found {
+			lastActionAt := rec.CreatedAt.UTC().Format(time.RFC3339)
+			return &transactionpb.GetTxStatusResponse{
+				State:        "committed",
+				OurRole:      "receiver",
+				LastActionAt: lastActionAt,
+				LastError:    "",
+			}, nil
+		}
+	}
+
+	// 3. Unknown — we have no record of this transaction.
+	return &transactionpb.GetTxStatusResponse{
+		State:        "unknown",
+		OurRole:      "",
+		LastActionAt: "",
+		LastError:    "",
+	}, nil
+}
+
+// senderState maps the internal outbound_peer_tx status to the public
+// CHECK_STATUS vocabulary.
+func senderState(s string) string {
+	switch s {
+	case "committed":
+		return "committed"
+	case "rolled_back":
+		return "rolled_back"
+	case "failed":
+		return "dead_letter"
+	default:
+		// "pending" | "committing" | anything unexpected → "prepared"
+		return "prepared"
+	}
 }
 
 func protoToPostings(in []*transactionpb.SiTxPosting) []contractsitx.Posting {

@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+
 // emailSenderFacade is the narrow interface of *sender.EmailSender used by GRPCHandler.
 type emailSenderFacade interface {
 	Send(to, subject, body string) error
@@ -35,6 +36,11 @@ type notifRepoFacade interface {
 	MarkAllRead(userID uint64) (int64, error)
 }
 
+// adminAuditRepoFacade is the narrow interface of *repository.AdminAuditLogRepository used by GRPCHandler.
+type adminAuditRepoFacade interface {
+	ListAll(filters repository.AdminAuditLogFilters, page, pageSize int) ([]model.AdminAuditLog, int64, error)
+}
+
 // templateServiceFacade is the narrow interface of *service.TemplateService used by GRPCHandler.
 type templateServiceFacade interface {
 	Render(typ, channel string, data map[string]string) (subject, body string, err error)
@@ -46,14 +52,15 @@ type templateServiceFacade interface {
 
 type GRPCHandler struct {
 	notifpb.UnimplementedNotificationServiceServer
-	emailSender emailSenderFacade
-	inboxRepo   inboxRepoFacade
-	notifRepo   notifRepoFacade
-	templateSvc templateServiceFacade
+	emailSender   emailSenderFacade
+	inboxRepo     inboxRepoFacade
+	notifRepo     notifRepoFacade
+	templateSvc   templateServiceFacade
+	adminAuditRepo adminAuditRepoFacade
 }
 
-func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService) *GRPCHandler {
-	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo, templateSvc: templateSvc}
+func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService, adminAuditRepo *repository.AdminAuditLogRepository) *GRPCHandler {
+	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo, templateSvc: templateSvc, adminAuditRepo: adminAuditRepo}
 }
 
 // newGRPCHandlerForTest constructs a GRPCHandler with interface-typed
@@ -245,4 +252,57 @@ func (h *GRPCHandler) ResetTemplate(ctx context.Context, req *notifpb.ResetTempl
 		return nil, templateErr(err)
 	}
 	return templateViewToProto(v), nil
+}
+
+// ── Admin audit logs ─────────────────────────────────────────────────────────
+
+// ListAdminAuditLogs returns paginated admin cron-action audit log entries
+// (global view, admin-only).
+func (h *GRPCHandler) ListAdminAuditLogs(ctx context.Context, req *notifpb.ListAdminAuditLogsRequest) (*notifpb.ListAdminAuditLogsResponse, error) {
+	if h.adminAuditRepo == nil {
+		return nil, status.Error(codes.Unimplemented, "admin audit log repository not wired")
+	}
+
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	filters := repository.AdminAuditLogFilters{
+		Since:   req.GetSince(),
+		Until:   req.GetUntil(),
+		ActorID: req.GetActorId(),
+		Action:  req.GetAction(),
+	}
+
+	entries, total, err := h.adminAuditRepo.ListAll(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+
+	protoEntries := make([]*notifpb.AdminAuditLogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &notifpb.AdminAuditLogEntry{
+			Id:         e.ID,
+			Action:     e.Action,
+			Service:    e.Service,
+			CronName:   e.CronName,
+			EmployeeId: e.EmployeeID,
+			Reason:     e.Reason,
+			Timestamp:  e.Timestamp.Unix(),
+		}
+	}
+	return &notifpb.ListAdminAuditLogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
 }

@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/cronreg"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/repository"
 )
@@ -17,24 +17,41 @@ type OutboxRelay struct {
 	repo     *repository.OutboxRepository
 	producer *kafkaprod.Producer
 	tick     time.Duration
+	entry    *cronreg.Entry
 }
 
-func NewOutboxRelay(repo *repository.OutboxRepository, producer *kafkaprod.Producer, tick time.Duration) *OutboxRelay {
+func NewOutboxRelay(repo *repository.OutboxRepository, producer *kafkaprod.Producer, tick time.Duration, registry *cronreg.Registry) *OutboxRelay {
 	if tick == 0 {
 		tick = 2 * time.Second
 	}
-	return &OutboxRelay{repo: repo, producer: producer, tick: tick}
+	r := &OutboxRelay{repo: repo, producer: producer, tick: tick}
+	r.entry = registry.Register("outbox-relay", "Drain user-service outbox events to Kafka (every 2s)", tick)
+	return r
 }
 
 func (r *OutboxRelay) Start(ctx context.Context) {
-	shared.RunScheduled(ctx, shared.ScheduledJob{
-		Name:     "outbox-relay",
-		Interval: r.tick,
-		OnTick: func(ctx context.Context) error {
-			r.processBatch(ctx)
-			return nil
-		},
-	})
+	go func() {
+		ticker := time.NewTicker(r.tick)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !r.entry.BeginRun() {
+					continue
+				}
+				r.processBatch(ctx)
+				r.entry.EndRun(nil)
+			case <-r.entry.TriggerChan():
+				if !r.entry.BeginRun() {
+					continue
+				}
+				r.processBatch(ctx)
+				r.entry.EndRun(nil)
+			}
+		}
+	}()
 }
 
 func (r *OutboxRelay) processBatch(ctx context.Context) {

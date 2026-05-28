@@ -9,8 +9,11 @@ import (
 	"time"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/cronreg"
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
+	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -42,11 +45,12 @@ func recoveryKeyFor(stepName string, txnID uint64) string {
 }
 
 // maxSagaRecoveryRetries is the per-step retry ceiling. Beyond this the
-// reconciler leaves the row untouched with a loud ERROR log so operations
-// can investigate. Chosen high enough to absorb transient downstream
-// flakiness (gRPC hiccups, short account-service outages) but low enough
-// that a genuinely broken step doesn't silently retry forever.
-const maxSagaRecoveryRetries = 5
+// reconciler marks the row dead_letter and publishes to the Kafka
+// dead-letter topic so operators can investigate. Chosen high enough to
+// absorb transient downstream flakiness (gRPC hiccups, short account-service
+// outages) but low enough that a genuinely broken step doesn't silently
+// retry forever.
+const maxSagaRecoveryRetries = 10
 
 // SagaRecovery reconciles stuck saga steps (pending or compensating for
 // longer than the scan threshold) after a crash. It walks the saga_logs
@@ -69,6 +73,11 @@ const maxSagaRecoveryRetries = 5
 //     auto-retried. These are much more disruptive to the user when replayed
 //     and must be reviewed before any action.
 //
+// When a step's RetryCount reaches maxSagaRecoveryRetries (10), the row is
+// transitioned to "dead_letter" status and a SagaDeadLetterMessage is
+// published to stock.saga-dead-letter for operator alerting. This mirrors
+// the pattern used by transaction-service's saga recovery.
+//
 // Started once at service boot via Run; runs periodically thereafter until
 // the provided context is cancelled.
 type SagaRecovery struct {
@@ -76,6 +85,11 @@ type SagaRecovery struct {
 	accountClient  FillAccountClient
 	orderRepo      RecoveryOrderRepo
 	stateAccountNo string
+	// deadLetterProducer publishes dead-letter events when a step exhausts
+	// all recovery retries. Optional: when nil, the step is just logged as
+	// ERROR (same as the pre-A2.3 behaviour).
+	deadLetterProducer *kafkaprod.Producer
+	entry              *cronreg.Entry
 }
 
 // SagaRecoveryLogRepo is the minimum interface the reconciler needs.
@@ -84,6 +98,7 @@ type SagaRecoveryLogRepo interface {
 	ListStuckSagas(olderThan time.Duration) ([]model.SagaLog, error)
 	UpdateStatus(id uint64, version int64, newStatus, errMsg string) error
 	IncrementRetryCount(id uint64) error
+	MarkDeadLetter(id uint64) error
 }
 
 // RecoveryOrderRepo is the narrow slice of OrderRepo the reconciler needs to
@@ -100,18 +115,27 @@ type RecoveryOrderRepo interface {
 // the retry path is active. stateAccountNo is the bank's commission account
 // number; empty falls back to the order.AccountID for commission retries
 // (primarily a test-wiring convenience).
+//
+// producer is the Kafka producer used to publish dead-letter events when a
+// step exhausts all recovery retries. Pass nil to disable dead-letter
+// publishing (legacy behaviour — only a loud ERROR log is emitted).
 func NewSagaRecovery(
 	sagaRepo SagaRecoveryLogRepo,
 	accountClient FillAccountClient,
 	orderRepo RecoveryOrderRepo,
 	stateAccountNo string,
+	producer *kafkaprod.Producer,
+	registry *cronreg.Registry,
 ) *SagaRecovery {
-	return &SagaRecovery{
-		sagaRepo:       sagaRepo,
-		accountClient:  accountClient,
-		orderRepo:      orderRepo,
-		stateAccountNo: stateAccountNo,
+	s := &SagaRecovery{
+		sagaRepo:           sagaRepo,
+		accountClient:      accountClient,
+		orderRepo:          orderRepo,
+		stateAccountNo:     stateAccountNo,
+		deadLetterProducer: producer,
 	}
+	s.entry = registry.Register("saga-recovery", "Reconcile stuck saga steps after crashes", 60*time.Second)
+	return s
 }
 
 // Reconcile walks stuck saga steps and tries to drive each to completion.
@@ -126,8 +150,35 @@ func (r *SagaRecovery) Reconcile(ctx context.Context) error {
 	}
 	for _, step := range stuck {
 		if step.RetryCount >= maxSagaRecoveryRetries {
-			log.Printf("ERROR: saga step %d (order=%d, step=%s) stuck after %d retries — needs human review",
+			// Exhausted all recovery retries. Transition to dead_letter and
+			// notify operators via Kafka so alerting systems can page on-call.
+			if dlErr := r.sagaRepo.MarkDeadLetter(step.ID); dlErr != nil {
+				log.Printf("ERROR: saga step %d (order=%d, step=%s) stuck after %d retries; MarkDeadLetter failed: %v — needs human review",
+					step.ID, step.OrderID, step.StepName, step.RetryCount, dlErr)
+				continue
+			}
+			log.Printf("ERROR: saga step %d (order=%d, step=%s) moved to dead_letter after %d retries — needs human review",
 				step.ID, step.OrderID, step.StepName, step.RetryCount)
+			if r.deadLetterProducer != nil {
+				amountStr := ""
+				if step.Amount != nil {
+					amountStr = step.Amount.String()
+				}
+				dlMsg := kafkamsg.SagaDeadLetterMessage{
+					SagaLogID:       step.ID,
+					SagaID:          step.SagaID,
+					TransactionID:   step.OrderID,
+					TransactionType: "stock-saga",
+					StepName:        step.StepName,
+					AccountNumber:   "",
+					Amount:          amountStr,
+					RetryCount:      step.RetryCount,
+					LastError:       step.ErrorMessage,
+				}
+				if pubErr := r.deadLetterProducer.PublishSagaDeadLetter(ctx, dlMsg); pubErr != nil {
+					log.Printf("WARN: saga dead-letter publish failed for step %d: %v", step.ID, pubErr)
+				}
+			}
 			continue
 		}
 		if err := r.reconcileStep(ctx, step); err != nil {
@@ -228,6 +279,51 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 		log.Printf("WARN: stuck OTC/Fund saga step %d (order=%d, step=%s) — needs human review",
 			step.ID, step.OrderID, step.StepName)
 		return nil
+
+	// --- OTC accept post-saga steps (moved inside saga by A2.1). These are
+	// idempotent at the storage layer (offer.Save with status=accepted is a
+	// no-op if already accepted; capital-gain Create has no unique key so
+	// retrying could double-write — leave for review). Publish steps are
+	// safe to auto-complete (outbox guarantees delivery; duplicate publish
+	// is idempotent at the consumer).
+	case saga.StepMarkOfferAccepted:
+		log.Printf("WARN: stuck OTC accept mark_offer_accepted step %d (order=%d) — needs human review",
+			step.ID, step.OrderID)
+		return nil
+
+	case saga.StepRecordSellerPremiumGain, saga.StepRecordBuyerPremiumCost:
+		log.Printf("WARN: stuck OTC accept capital-gain step %d (order=%d, step=%s) — needs human review (risk of duplicate CG row on retry)",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+
+	case saga.StepPublishOTCAccepted:
+		// The outbox guarantees delivery; if the outbox enqueue committed,
+		// the event will be published. Mark completed so recovery doesn't
+		// spin on this indefinitely.
+		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
+			"auto-completed by recovery (publish is outbox-backed, idempotent)")
+
+	// --- OTC exercise post-saga steps (moved inside saga by A2.2). Same
+	// rationale as accept steps above.
+	case saga.StepUpsertBuyerHolding:
+		// Upsert is idempotent (weighted-average merge). Safe to auto-complete.
+		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
+			"auto-completed by recovery (holding upsert is idempotent)")
+
+	case saga.StepRecordSellerStrikeGain, saga.StepRecordBuyerExerciseCost:
+		log.Printf("WARN: stuck OTC exercise capital-gain step %d (order=%d, step=%s) — needs human review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+
+	case saga.StepMarkContractExercised:
+		log.Printf("WARN: stuck OTC exercise mark_contract_exercised step %d (order=%d) — needs human review",
+			step.ID, step.OrderID)
+		return nil
+
+	case saga.StepPublishOTCExercise:
+		// Same as publish_otc_accepted_event: outbox-backed, idempotent.
+		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
+			"auto-completed by recovery (publish is outbox-backed, idempotent)")
 
 	// --- Crossbank steps. These ride on InterBankSagaLog (a different table)
 	// in production and have a separate reconciliation cron. They should NOT
@@ -426,8 +522,13 @@ func (r *SagaRecovery) lookupAccountNumber(ctx context.Context, accountID uint64
 // process lifetime and honors graceful shutdown.
 func (r *SagaRecovery) Run(ctx context.Context, tickInterval time.Duration) {
 	go func() {
-		if err := r.Reconcile(ctx); err != nil {
-			log.Printf("WARN: initial saga recovery: %v", err)
+		// Run immediately at startup.
+		if r.entry.BeginRun() {
+			err := r.Reconcile(ctx)
+			r.entry.EndRun(err)
+			if err != nil {
+				log.Printf("WARN: initial saga recovery: %v", err)
+			}
 		}
 		ticker := time.NewTicker(tickInterval)
 		defer ticker.Stop()
@@ -436,8 +537,22 @@ func (r *SagaRecovery) Run(ctx context.Context, tickInterval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := r.Reconcile(ctx); err != nil {
+				if !r.entry.BeginRun() {
+					continue
+				}
+				err := r.Reconcile(ctx)
+				r.entry.EndRun(err)
+				if err != nil {
 					log.Printf("WARN: periodic saga recovery: %v", err)
+				}
+			case <-r.entry.TriggerChan():
+				if !r.entry.BeginRun() {
+					continue
+				}
+				err := r.Reconcile(ctx)
+				r.entry.EndRun(err)
+				if err != nil {
+					log.Printf("WARN: triggered saga recovery: %v", err)
 				}
 			}
 		}

@@ -120,6 +120,20 @@ permissions:
   # notifications
   - notifications.templates.manage
 
+  # portfolio cross-owner views (B8 — 2026-05-28)
+  - portfolio.view.client
+  - portfolio.view.fund
+
+  # admin cron viewer (C5 — 2026-05-28)
+  - admin.crons.view
+  - admin.crons.trigger
+  - admin.crons.manage
+
+  # admin audit log reader (D1 — 2026-05-28)
+  - admin.audit.view
+
+
+
 default_roles:
   EmployeeBasic:
     grants:
@@ -182,6 +196,8 @@ default_roles:
       - funds.manage.catalog
       - verification.skip.any
       - verification.manage.any
+      - portfolio.view.client
+      - portfolio.view.fund
 
   EmployeeAdmin:
     inherits: [EmployeeSupervisor]

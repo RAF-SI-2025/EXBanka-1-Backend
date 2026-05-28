@@ -139,6 +139,10 @@ func (r *Refresher) Run(ctx context.Context) {
 	}
 }
 
+// Refresh is the exported single-cycle version of the internal refresh loop.
+// Called by the cronreg-gated loop in main.go.
+func (r *Refresher) Refresh(ctx context.Context) { r.refresh(ctx) }
+
 func (r *Refresher) refresh(ctx context.Context) {
 	cycleCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()

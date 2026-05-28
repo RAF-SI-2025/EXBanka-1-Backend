@@ -75,6 +75,12 @@ type PartialSettleHoldingResult struct {
 	RemainingReserved  int64
 	QuantityAfter      int64
 	AveragePriceBefore decimal.Decimal
+	// AlreadySettled is true when this call was a replay: the settlement
+	// for this synthetic txn id already existed, so no shares moved this
+	// time. Callers that perform non-idempotent follow-up writes (e.g. a
+	// realised CapitalGain row) MUST skip them when this is true, or a
+	// retried exercise would duplicate those rows.
+	AlreadySettled bool
 }
 
 // Reserve locks `qty` shares of the given holding for `orderID`. Idempotent on
@@ -686,6 +692,7 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 				RemainingReserved:  holding.ReservedQuantity,
 				QuantityAfter:      holding.Quantity,
 				AveragePriceBefore: holding.AveragePrice,
+				AlreadySettled:     true,
 			}
 			return nil
 		}
@@ -783,9 +790,12 @@ func (s *HoldingReservationService) ReleaseForPeerOptionContract(ctx context.Con
 // cross-bank exercise lands on the buyer's bank. Finds an existing
 // holding by (owner, ticker) and increments quantity, or creates a
 // new holding row when the buyer didn't previously hold the stock.
-// Idempotency relies on the caller — peer_option_contracts row
-// status="exercised" + the COMMIT_TX idempotency record together
-// prevent double-credits across replays.
+//
+// NOTE: this is the raw, NON-idempotent credit (each call adds qty). The
+// exercise flow must go through ExerciseBuyerCreditForPeerOption, which
+// guards it with the peer_option_contracts status under a row lock so a
+// replayed exercise can't double-credit. This bare method is retained as a
+// building block and for unit tests of the crediting math.
 //
 // strikePrice is the per-share price the buyer paid on exercise and
 // becomes the new holding's AveragePrice (when this is the buyer's
@@ -805,51 +815,108 @@ func (s *HoldingReservationService) CreditBuyerHoldingForPeerOption(
 		return status.Error(codes.InvalidArgument, "qty must be > 0")
 	}
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		var holding model.Holding
-		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("security_type = ? AND ticker = ?", "stock", ticker)
-		if ownerID == nil {
-			q = q.Where("owner_type = ? AND owner_id IS NULL", ownerType)
-		} else {
-			q = q.Where("owner_type = ? AND owner_id = ?", ownerType, *ownerID)
-		}
-		err := q.First(&holding).Error
-		if err == nil {
-			// Existing position: weighted-average cost basis across the
-			// pre-existing shares and the strike-priced shares we're
-			// crediting now. Mirrors HoldingRepository.Upsert math so
-			// the cross-bank exercise produces the same cost basis a
-			// matching market buy at the strike would have.
-			oldTotal := holding.AveragePrice.Mul(decimal.NewFromInt(holding.Quantity))
-			newTotal := strikePrice.Mul(decimal.NewFromInt(qty))
-			totalQty := holding.Quantity + qty
-			holding.AveragePrice = oldTotal.Add(newTotal).Div(decimal.NewFromInt(totalQty))
-			holding.Quantity = totalQty
-			return shared.CheckRowsAffected(tx.Save(&holding))
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return creditBuyerHoldingTx(tx, ownerType, ownerID, ticker, qty, strikePrice)
+	})
+}
+
+// ExerciseBuyerCreditForPeerOption credits the buyer's gained shares AND
+// transitions the peer_option_contracts row to "exercised" in a single
+// transaction, using the contract status (read under a row lock) as the
+// idempotency guard. A replayed cross-bank exercise (duplicate COMMIT_TX)
+// finds status="exercised" and is a no-op, so the buyer's shares are never
+// credited twice. This closes the gap where the bare credit and a separate
+// status flip could be interrupted between the two, double-crediting on retry.
+func (s *HoldingReservationService) ExerciseBuyerCreditForPeerOption(
+	ctx context.Context,
+	peerOptionContractID uint64,
+	ownerType model.OwnerType,
+	ownerID *uint64,
+	ticker string,
+	qty int64,
+	strikePrice decimal.Decimal,
+) error {
+	if qty <= 0 {
+		return status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var contract model.PeerOptionContract
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&contract, peerOptionContractID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "peer option contract not found")
+			}
 			return err
 		}
-		// New holding row — populate the required scaffolding so the
-		// row passes existing not-null + unique constraints. Listing
-		// id and security id default to 0 here; subsequent reads will
-		// resolve them when the user interacts with the holding via
-		// portfolio endpoints. AveragePrice = strike: the user paid
-		// the strike per share to acquire these, so later sells use
-		// the strike as cost basis (premium tracked separately via
-		// the option CG row written at acceptance).
-		newHolding := model.Holding{
-			OwnerType:        ownerType,
-			OwnerID:          ownerID,
-			SecurityType:     "stock",
-			SecurityID:       0,
-			ListingID:        0,
-			Ticker:           ticker,
-			Name:             ticker,
-			Quantity:         qty,
-			ReservedQuantity: 0,
-			AveragePrice:     strikePrice,
+		if contract.Status == "exercised" {
+			return nil // already credited + exercised by a prior committed attempt
 		}
-		return tx.Create(&newHolding).Error
+		if contract.Status != "active" {
+			return status.Errorf(codes.FailedPrecondition, "cannot exercise contract in status %q", contract.Status)
+		}
+		if err := creditBuyerHoldingTx(tx, ownerType, ownerID, ticker, qty, strikePrice); err != nil {
+			return err
+		}
+		return tx.Model(&model.PeerOptionContract{}).
+			Where("id = ?", contract.ID).
+			Update("status", "exercised").Error
 	})
+}
+
+// creditBuyerHoldingTx performs the buyer holding credit (weighted-average
+// cost basis, or a new holding row) inside the caller's transaction.
+// Extracted so the bare CreditBuyerHoldingForPeerOption and the idempotent
+// ExerciseBuyerCreditForPeerOption share identical crediting math.
+func creditBuyerHoldingTx(
+	tx *gorm.DB,
+	ownerType model.OwnerType,
+	ownerID *uint64,
+	ticker string,
+	qty int64,
+	strikePrice decimal.Decimal,
+) error {
+	var holding model.Holding
+	q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("security_type = ? AND ticker = ?", "stock", ticker)
+	if ownerID == nil {
+		q = q.Where("owner_type = ? AND owner_id IS NULL", ownerType)
+	} else {
+		q = q.Where("owner_type = ? AND owner_id = ?", ownerType, *ownerID)
+	}
+	err := q.First(&holding).Error
+	if err == nil {
+		// Existing position: weighted-average cost basis across the
+		// pre-existing shares and the strike-priced shares we're
+		// crediting now. Mirrors HoldingRepository.Upsert math so
+		// the cross-bank exercise produces the same cost basis a
+		// matching market buy at the strike would have.
+		oldTotal := holding.AveragePrice.Mul(decimal.NewFromInt(holding.Quantity))
+		newTotal := strikePrice.Mul(decimal.NewFromInt(qty))
+		totalQty := holding.Quantity + qty
+		holding.AveragePrice = oldTotal.Add(newTotal).Div(decimal.NewFromInt(totalQty))
+		holding.Quantity = totalQty
+		return shared.CheckRowsAffected(tx.Save(&holding))
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	// New holding row — populate the required scaffolding so the
+	// row passes existing not-null + unique constraints. Listing
+	// id and security id default to 0 here; subsequent reads will
+	// resolve them when the user interacts with the holding via
+	// portfolio endpoints. AveragePrice = strike: the user paid
+	// the strike per share to acquire these, so later sells use
+	// the strike as cost basis (premium tracked separately via
+	// the option CG row written at acceptance).
+	newHolding := model.Holding{
+		OwnerType:        ownerType,
+		OwnerID:          ownerID,
+		SecurityType:     "stock",
+		SecurityID:       0,
+		ListingID:        0,
+		Ticker:           ticker,
+		Name:             ticker,
+		Quantity:         qty,
+		ReservedQuantity: 0,
+		AveragePrice:     strikePrice,
+	}
+	return tx.Create(&newHolding).Error
 }

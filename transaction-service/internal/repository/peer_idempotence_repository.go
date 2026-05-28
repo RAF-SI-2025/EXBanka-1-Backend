@@ -41,3 +41,20 @@ func (r *PeerIdempotenceRepository) Lookup(peerBankCode, locallyGeneratedKey str
 	}
 	return &rec, true, nil
 }
+
+// LookupByTransactionID finds a receiver-side record by the sender's
+// transaction_id (the UUID the sender assigned to this TX, which we
+// store in the transaction_id column). Used by GetTxStatus so a peer
+// can verify we received and committed their TX.
+func (r *PeerIdempotenceRepository) LookupByTransactionID(peerBankCode, transactionID string) (*model.PeerIdempotenceRecord, bool, error) {
+	var rec model.PeerIdempotenceRecord
+	err := r.db.Where("peer_bank_code = ? AND transaction_id = ?", peerBankCode, transactionID).
+		First(&rec).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return &rec, true, nil
+}

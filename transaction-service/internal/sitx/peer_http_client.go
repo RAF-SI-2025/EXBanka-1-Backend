@@ -93,6 +93,55 @@ func (c *PeerHTTPClient) PostRollbackTx(ctx context.Context, target *PeerHTTPTar
 	return nil
 }
 
+// CheckStatusResponse is the decoded body of GET /api/v3/interbank/:txID/status.
+type CheckStatusResponse struct {
+	TransactionID string `json:"transaction_id"`
+	State         string `json:"state"`           // "prepared"|"committed"|"rolled_back"|"dead_letter"|"unknown"
+	OurRole       string `json:"our_role"`        // "sender"|"receiver"|""
+	LastActionAt  string `json:"last_action_at"`  // RFC3339
+	LastError     string `json:"last_error"`
+}
+
+// CheckStatus performs a Celina-5 CHECK_STATUS GET request to the peer's
+// /interbank/:txID/status endpoint. Returns the parsed response or an
+// error when the peer is unreachable or returns a non-200 status.
+func (c *PeerHTTPClient) CheckStatus(ctx context.Context, target *PeerHTTPTarget, txID string) (*CheckStatusResponse, error) {
+	url := strings.TrimRight(target.BaseURL, "/") + "/interbank/" + txID + "/status"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("X-Api-Key", target.APIToken)
+
+	if target.HMACOutboundKey != "" {
+		nonce, _ := generateNonce()
+		ts := time.Now().UTC().Format(time.RFC3339)
+		// Sign empty body for GET requests.
+		mac := hmac.New(sha256.New, []byte(target.HMACOutboundKey))
+		mac.Write([]byte{})
+		sig := hex.EncodeToString(mac.Sum(nil))
+		req.Header.Set("X-Bank-Code", target.OwnBankCode)
+		req.Header.Set("X-Bank-Signature", sig)
+		req.Header.Set("X-Timestamp", ts)
+		req.Header.Set("X-Nonce", nonce)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("peer CHECK_STATUS HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var result CheckStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &result, nil
+}
+
 func (c *PeerHTTPClient) postEnvelope(ctx context.Context, target *PeerHTTPTarget, envelope interface{}) (*http.Response, error) {
 	body, err := json.Marshal(envelope)
 	if err != nil {

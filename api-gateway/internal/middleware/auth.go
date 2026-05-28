@@ -283,3 +283,19 @@ func HasPermission(c *gin.Context, code string) bool {
 	}
 	return false
 }
+
+// GetCallerPermissions returns the caller's JWT permission list from the gin
+// context. Returns nil (empty) when the context has no permissions (unauthenticated
+// or client token). Useful in handlers that need the full permission set rather
+// than a single HasPermission check.
+func GetCallerPermissions(c *gin.Context) []string {
+	raw, exists := c.Get("permissions")
+	if !exists {
+		return nil
+	}
+	list, ok := raw.([]string)
+	if !ok {
+		return nil
+	}
+	return list
+}

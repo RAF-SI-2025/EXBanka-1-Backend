@@ -20,6 +20,7 @@ import (
 // bankAccountSvcFacade is the subset of *service.AccountService used by BankAccountGRPCHandler.
 type bankAccountSvcFacade interface {
 	CreateBankAccount(currencyCode, accountKind, accountName string, initialBalance decimal.Decimal) (*model.Account, error)
+	SetAccountCategory(accountID uint64, category string) error
 	ListBankAccounts() ([]model.Account, error)
 	DeleteBankAccount(id uint64) error
 	GetBankRSDAccount() (*model.Account, error)
@@ -52,6 +53,16 @@ func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.
 	account, err := h.accountSvc.CreateBankAccount(req.CurrencyCode, req.AccountKind, req.AccountName, decimal.Zero)
 	if err != nil {
 		return nil, err
+	}
+	// Stamp the optional account_category (e.g. "investment_fund") so
+	// downstream services can inspect it without a cross-service lookup.
+	if req.AccountCategory != "" {
+		account.AccountCategory = req.AccountCategory
+		if saveErr := h.accountSvc.SetAccountCategory(account.ID, req.AccountCategory); saveErr != nil {
+			// Non-fatal: log and continue. The account was created; a missing
+			// category tag is better than rolling back the whole create.
+			_ = saveErr
+		}
 	}
 	_ = h.producer.PublishAccountCreated(ctx, kafkamsg.AccountCreatedMessage{
 		AccountNumber: account.AccountNumber,

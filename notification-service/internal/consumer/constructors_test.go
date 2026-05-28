@@ -73,3 +73,13 @@ func TestVerificationConsumer_Start_CtxCancel(t *testing.T) {
 	cancel()
 	time.Sleep(40 * time.Millisecond)
 }
+
+func TestNewWatchlistAlertConsumer_AndClose(t *testing.T) {
+	c := NewWatchlistAlertConsumer("127.0.0.1:1", nil, nil)
+	if c == nil || c.reader == nil {
+		t.Fatal("nil consumer or reader")
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}

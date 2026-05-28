@@ -49,6 +49,7 @@ type SecuritySyncService struct {
 	lastErr    string
 	startedAt  time.Time
 	refreshCtx context.CancelFunc // non-nil while the simulator refresh loop is running
+	backfill   *ListingHistoryBackfill
 }
 
 func NewSecuritySyncService(
@@ -84,6 +85,13 @@ func NewSecuritySyncService(
 	}
 }
 
+// WithHistoryBackfill attaches the backfill service. Called from main.go after
+// listing/daily repos are built. Optional — when nil, SeedAll skips backfill.
+func (s *SecuritySyncService) WithHistoryBackfill(b *ListingHistoryBackfill) *SecuritySyncService {
+	s.backfill = b
+	return s
+}
+
 // Source returns the currently active data source (concurrency-safe).
 func (s *SecuritySyncService) Source() source.Source {
 	s.srcMu.RLock()
@@ -108,6 +116,11 @@ func (s *SecuritySyncService) SeedAll(ctx context.Context, futuresSeedPath strin
 	// Sync listings from the securities we just seeded
 	if s.listingSvc != nil {
 		s.listingSvc.SyncListingsFromSecurities()
+	}
+	if s.backfill != nil {
+		if err := s.backfill.Run(); err != nil {
+			log.Printf("WARN: listing history backfill: %v", err)
+		}
 	}
 }
 
@@ -168,6 +181,11 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 
 	if s.listingSvc != nil {
 		s.listingSvc.SyncListingsFromSecurities()
+		// Append an intraday history point per listing so the
+		// /securities/stocks/:id/history endpoint surfaces oscillation /
+		// minute-by-minute movement to the frontend chart, not just the
+		// end-of-day snapshot.
+		s.listingSvc.SnapshotIntradayPrices()
 	}
 
 	// Invalidate all cached securities after price refresh
@@ -184,7 +202,7 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 // StartPeriodicRefresh launches a background goroutine that refreshes prices.
 func (s *SecuritySyncService) StartPeriodicRefresh(ctx context.Context, intervalMins int) {
 	if intervalMins <= 0 {
-		intervalMins = 15
+		intervalMins = 1
 	}
 	shared.RunScheduled(ctx, shared.ScheduledJob{
 		Name:     "security-price-refresh",

@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/notification-service/internal/repository"
 )
 
@@ -18,17 +18,22 @@ type expiredItemDeleter interface {
 
 type InboxCleanupService struct {
 	inboxRepo expiredItemDeleter
+	entry     *cronreg.Entry
 }
 
-func NewInboxCleanupService(inboxRepo *repository.MobileInboxRepository) *InboxCleanupService {
-	return &InboxCleanupService{inboxRepo: inboxRepo}
+func NewInboxCleanupService(inboxRepo *repository.MobileInboxRepository, registry *cronreg.Registry) *InboxCleanupService {
+	s := &InboxCleanupService{inboxRepo: inboxRepo}
+	s.entry = registry.Register("inbox-cleanup", "Delete expired mobile inbox items (every 1 min)", time.Minute)
+	return s
 }
 
 // newInboxCleanupServiceWithDeleter is a test-only constructor accepting any
 // implementation of expiredItemDeleter. Kept package-private so the public
 // API stays unchanged.
-func newInboxCleanupServiceWithDeleter(d expiredItemDeleter) *InboxCleanupService {
-	return &InboxCleanupService{inboxRepo: d}
+func newInboxCleanupServiceWithDeleter(d expiredItemDeleter, registry *cronreg.Registry) *InboxCleanupService {
+	s := &InboxCleanupService{inboxRepo: d}
+	s.entry = registry.Register("inbox-cleanup", "Delete expired mobile inbox items (every 1 min)", time.Minute)
+	return s
 }
 
 // runOnce performs a single cleanup pass and returns the count + error.
@@ -46,14 +51,30 @@ func (s *InboxCleanupService) runOnce() (int64, error) {
 }
 
 // StartCleanupCron runs every minute and deletes expired mobile inbox items.
+// Each tick is gated by the cronreg Entry so the job can be paused / manually
+// triggered via the AdminCron gRPC API.
 func (s *InboxCleanupService) StartCleanupCron(ctx context.Context) {
-	shared.RunScheduled(ctx, shared.ScheduledJob{
-		Name:     "inbox-cleanup",
-		Interval: 1 * time.Minute,
-		OnTick: func(ctx context.Context) error {
-			_, err := s.runOnce()
-			return err
-		},
-	})
-	log.Println("inbox cleanup: started (every 1 minute)")
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		log.Println("inbox cleanup: started (every 1 minute)")
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !s.entry.BeginRun() {
+					continue
+				}
+				_, err := s.runOnce()
+				s.entry.EndRun(err)
+			case <-s.entry.TriggerChan():
+				if !s.entry.BeginRun() {
+					continue
+				}
+				_, err := s.runOnce()
+				s.entry.EndRun(err)
+			}
+		}
+	}()
 }

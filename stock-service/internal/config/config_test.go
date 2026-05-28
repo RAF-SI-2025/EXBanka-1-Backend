@@ -15,8 +15,8 @@ func TestConfig_Load_Defaults(t *testing.T) {
 	if cfg.DBPort != "5440" {
 		t.Errorf("default DBPort = %q", cfg.DBPort)
 	}
-	if cfg.SecuritySyncIntervalMins != 15 {
-		t.Errorf("sync interval = %d (default 15)", cfg.SecuritySyncIntervalMins)
+	if cfg.SecuritySyncIntervalMins != 1 {
+		t.Errorf("sync interval = %d (default 1)", cfg.SecuritySyncIntervalMins)
 	}
 	if cfg.OwnBankCode == "" {
 		t.Errorf("expected OwnBankCode default")
@@ -51,8 +51,8 @@ func TestConfig_Load_BadIntFallsBack(t *testing.T) {
 	t.Setenv("SECURITY_SYNC_INTERVAL_MINUTES", "not-a-number")
 	t.Setenv("OTC_EXPIRY_BATCH_SIZE", "negative") // invalid → fallback
 	cfg := Load()
-	if cfg.SecuritySyncIntervalMins != 15 {
-		t.Errorf("expected fallback 15, got %d", cfg.SecuritySyncIntervalMins)
+	if cfg.SecuritySyncIntervalMins != 1 {
+		t.Errorf("expected fallback 1, got %d", cfg.SecuritySyncIntervalMins)
 	}
 	if cfg.OTCExpiryBatchSize != 500 {
 		t.Errorf("expected fallback 500, got %d", cfg.OTCExpiryBatchSize)
@@ -62,8 +62,8 @@ func TestConfig_Load_BadIntFallsBack(t *testing.T) {
 func TestConfig_Load_NegativeInt_FallsBack(t *testing.T) {
 	t.Setenv("SECURITY_SYNC_INTERVAL_MINUTES", "-5")
 	cfg := Load()
-	if cfg.SecuritySyncIntervalMins != 15 {
-		t.Errorf("expected fallback 15 for negative, got %d", cfg.SecuritySyncIntervalMins)
+	if cfg.SecuritySyncIntervalMins != 1 {
+		t.Errorf("expected fallback 1 for negative, got %d", cfg.SecuritySyncIntervalMins)
 	}
 }
 

@@ -579,7 +579,7 @@ func toPriceHistoryResponse(history []model.ListingDailyPriceInfo, total int64) 
 	entries := make([]*pb.PriceHistoryEntry, len(history))
 	for i, h := range history {
 		entries[i] = &pb.PriceHistoryEntry{
-			Date:   h.Date.Format("2006-01-02"),
+			Date:   h.Date.UTC().Format(time.RFC3339),
 			Price:  h.Price.StringFixed(4),
 			High:   h.High.StringFixed(4),
 			Low:    h.Low.StringFixed(4),
