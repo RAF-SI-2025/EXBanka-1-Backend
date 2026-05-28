@@ -164,6 +164,9 @@ func (m *mockAccountClientForTransfer) ReleaseIncoming(_ context.Context, _ *acc
 func (m *mockAccountClientForTransfer) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForTransfer) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 // ---- mockBankAccountClient --------------------------------------------------
 

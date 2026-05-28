@@ -118,6 +118,9 @@ func (s *stubUserClient) RevokePermissionFromRole(ctx context.Context, in *userp
 func (s *stubUserClient) ListChangelog(ctx context.Context, in *userpb.ListChangelogRequest, opts ...grpc.CallOption) (*userpb.ListChangelogResponse, error) {
 	return &userpb.ListChangelogResponse{}, nil
 }
+func (s *stubUserClient) ListAllChangelogs(ctx context.Context, in *userpb.ListAllChangelogsRequest, opts ...grpc.CallOption) (*userpb.ListAllChangelogsResponse, error) {
+	return &userpb.ListAllChangelogsResponse{}, nil
+}
 
 // ----------------------------------------------------------------------------
 // Test fixtures

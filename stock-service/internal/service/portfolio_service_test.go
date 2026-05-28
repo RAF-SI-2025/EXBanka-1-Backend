@@ -477,6 +477,9 @@ func (m *mockAccountClient) ReleaseIncoming(context.Context, *accountpb.ReleaseI
 func (m *mockAccountClient) ListChangelog(context.Context, *accountpb.ListChangelogRequest, ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClient) ListAllChangelogs(context.Context, *accountpb.ListAllChangelogsRequest, ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build a PortfolioService with all mock dependencies
