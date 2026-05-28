@@ -1,6 +1,8 @@
 // contract/kafka/messages.go
 package kafka
 
+import "time"
+
 const (
 	TopicSendEmail = "notification.send-email"
 	TopicEmailSent = "notification.email-sent"
@@ -775,6 +777,23 @@ type OTCContractExpiredMessage struct {
 	Buyer      OTCParty `json:"buyer"`
 	Seller     OTCParty `json:"seller"`
 	ExpiredAt  string   `json:"expired_at"`
+}
+
+// ==================== Admin Cron Viewer (C6 — 2026-05-28) ====================
+
+// TopicAdminCronAction is published by the api-gateway on every
+// Trigger/Pause/Resume admin action. Notification-service consumes this to
+// write an audit log row.
+const TopicAdminCronAction = "admin.cron-action"
+
+// AdminCronActionMessage carries the audit event for an admin cron control action.
+type AdminCronActionMessage struct {
+	Action     string    `json:"action"`              // "trigger" | "pause" | "resume"
+	Service    string    `json:"service"`             // e.g. "stock-service"
+	CronName   string    `json:"cron_name"`           // e.g. "tax-collection"
+	EmployeeID int64     `json:"employee_id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Reason     string    `json:"reason,omitempty"`
 }
 
 type OTCContractFailedMessage struct {
