@@ -58,6 +58,16 @@ func (r *FundHoldingRepository) ListByFundFIFO(fundID uint64) ([]model.FundHoldi
 	return out, err
 }
 
+// ListBySecurityID returns all fund holdings with quantity > 0 for a security.
+// Used by DividendService.Payout to identify fund-owned holdings.
+func (r *FundHoldingRepository) ListBySecurityID(securityID uint64) ([]model.FundHolding, error) {
+	var out []model.FundHolding
+	if err := r.db.Where("security_id = ? AND quantity > 0", securityID).Find(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *FundHoldingRepository) GetByFundAndSecurity(fundID uint64, securityType string, securityID uint64) (*model.FundHolding, error) {
 	var h model.FundHolding
 	err := r.db.Where("fund_id = ? AND security_type = ? AND security_id = ?", fundID, securityType, securityID).First(&h).Error
