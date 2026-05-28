@@ -796,6 +796,27 @@ type AdminCronActionMessage struct {
 	Reason     string    `json:"reason,omitempty"`
 }
 
+// ==================== Watchlist Notifications (2026-05-29) ====================
+
+// TopicWatchlistAlert is published by stock-service's daily watchlist
+// notification cron when a ticker on a user's watchlist moves more than ±5%
+// in a single day. notification-service consumes this to write a persistent
+// general notification for the user.
+const TopicWatchlistAlert = "notification.watchlist-alert"
+
+// WatchlistPriceMoveMessage is published once per (user_id, ticker) pair per
+// calendar day when the daily price change exceeds ±5%. The IdempotencyKey
+// field carries a canonical "watchlist-alert-<user_id>-<ticker>-<YYYYMMDD>"
+// key so consumers can detect and discard duplicate deliveries.
+type WatchlistPriceMoveMessage struct {
+	UserID         uint64    `json:"user_id"`
+	Ticker         string    `json:"ticker"`
+	PercentMove    string    `json:"percent_move"`    // signed decimal string, e.g. "-6.4200"
+	CurrentPrice   string    `json:"current_price"`   // decimal string
+	Timestamp      time.Time `json:"timestamp"`
+	IdempotencyKey string    `json:"idempotency_key"` // "watchlist-alert-<uid>-<ticker>-<YYYYMMDD>"
+}
+
 type OTCContractFailedMessage struct {
 	MessageID          string `json:"message_id"`
 	OccurredAt         string `json:"occurred_at"`

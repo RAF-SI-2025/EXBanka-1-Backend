@@ -271,6 +271,7 @@ func main() {
 		"otc.contract-expired",
 		"otc.contract-failed",
 		"notification.general",
+		"notification.watchlist-alert",
 		"stock.saga-dead-letter",
 		"admin.cron-action",
 		"stock.dividend-declared",
@@ -966,6 +967,14 @@ func main() {
 			// Cron: re-evaluate active alerts on a 30 s tick. Best-effort —
 			// failures log and the loop continues.
 			go service.NewPriceAlertCron(priceAlertSvc, listingRepo, priceAlertRepo, 30*time.Second, cronRegistry).Run(ctx)
+
+			// Cron: daily watchlist price-move notifications (±5% threshold).
+			// Runs every WATCHLIST_NOTIFICATION_CRON_HOURS (default 24 h).
+			watchlistNotifInterval := time.Duration(cfg.WatchlistNotificationCronHours) * time.Hour
+			go service.NewWatchlistNotificationCron(
+				watchlistRepo, stockRepo, optionRepo, futuresRepo, forexRepo,
+				producer, watchlistNotifInterval, cronRegistry,
+			).Run(ctx)
 
 			recurringOrderRepo := repository.NewRecurringOrderRepository(db)
 			// The placer reshapes each recurring template tick into a Market

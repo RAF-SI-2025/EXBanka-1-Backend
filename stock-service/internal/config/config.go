@@ -50,6 +50,9 @@ type Config struct {
 	// the local 3-digit bank code used for cross-bank routing decisions.
 	TransactionGRPCAddr string // default "localhost:50057"
 	OwnBankCode         string // default "111"
+	// WatchlistNotificationCronHours is how often (in hours) the daily watchlist
+	// notification cron runs. Default 24 h.
+	WatchlistNotificationCronHours int
 }
 
 func Load() *Config {
@@ -90,8 +93,9 @@ func Load() *Config {
 		InfluxBucket:             getEnv("INFLUX_BUCKET", "stock_prices"),
 		OTCExpiryCronUTC:         getEnv("OTC_EXPIRY_CRON_UTC", "02:00"),
 		OTCExpiryBatchSize:       getEnvInt("OTC_EXPIRY_BATCH_SIZE", 500),
-		TransactionGRPCAddr:      getEnv("TRANSACTION_GRPC_ADDR", "localhost:50057"),
-		OwnBankCode:              getEnv("OWN_BANK_CODE", "111"),
+		TransactionGRPCAddr:            getEnv("TRANSACTION_GRPC_ADDR", "localhost:50057"),
+		OwnBankCode:                    getEnv("OWN_BANK_CODE", "111"),
+		WatchlistNotificationCronHours: getEnvInt("WATCHLIST_NOTIFICATION_CRON_HOURS", 24),
 	}
 }
 

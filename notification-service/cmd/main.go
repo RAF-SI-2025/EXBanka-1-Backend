@@ -39,6 +39,17 @@ func main() {
 	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}, &cronreg.CronPauseState{}, &model.AdminAuditLog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	// Partial unique index for watchlist-alert (and any future) idempotency keys.
+	// PostgreSQL partial unique indexes are not expressible via GORM struct tags,
+	// so we create them explicitly. Safe: CREATE UNIQUE INDEX IF NOT EXISTS is a
+	// no-op when the index already exists.
+	if err := db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_general_notif_idem_key
+		 ON general_notifications (idempotency_key)
+		 WHERE idempotency_key <> ''`,
+	).Error; err != nil {
+		log.Printf("WARN: create idempotency_key partial index: %v", err)
+	}
 	cronRegistry := cronreg.NewRegistry("notification-service", cronreg.NewGormPauseStore(db))
 
 	// Repositories
@@ -68,6 +79,7 @@ func main() {
 		"verification.challenge-created",
 		"notification.mobile-push",
 		"notification.general",
+		"notification.watchlist-alert",
 		"admin.cron-action",
 	)
 
@@ -89,6 +101,11 @@ func main() {
 	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo, templateSvc)
 	generalConsumer.Start(ctx)
 	defer generalConsumer.Close()
+
+	// Watchlist alert consumer (persists daily price-move alerts to general_notifications)
+	watchlistAlertConsumer := consumer.NewWatchlistAlertConsumer(cfg.KafkaBrokers, notifRepo, templateSvc)
+	watchlistAlertConsumer.Start(ctx)
+	defer func() { _ = watchlistAlertConsumer.Close() }()
 
 	// Admin cron audit consumer (persists admin.cron-action events to admin_audit_logs)
 	adminAuditConsumer := consumer.NewAdminAuditConsumer(cfg.KafkaBrokers, db)
