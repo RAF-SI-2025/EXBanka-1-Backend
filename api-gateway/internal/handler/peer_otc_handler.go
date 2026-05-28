@@ -31,12 +31,13 @@ func NewPeerOTCHandler(c stockpb.PeerOTCServiceClient) *PeerOTCHandler {
 
 // GetPublicStocks godoc
 // @Summary      Peer-to-peer: list public stock holdings
-// @Description  Inbound from a peer bank. Returns this bank's holdings flagged public_quantity > 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2.
+// @Description  Inbound from a peer bank. Returns this bank's holdings flagged public_quantity > 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2. Legacy path: /api/v3/public-stock (deprecated — use /api/v3/cross-bank-protocol/public-stock for new registrations).
 // @Tags         PeerOTC
 // @Produce      json
 // @Success      200 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Router       /api/v3/public-stock [get]
+// @Router       /api/v3/cross-bank-protocol/public-stock [get]
 func (h *PeerOTCHandler) GetPublicStocks(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	resp, err := h.client.GetPublicStocks(c.Request.Context(), &stockpb.GetPublicStocksRequest{
@@ -61,27 +62,14 @@ func (h *PeerOTCHandler) GetPublicStocks(c *gin.Context) {
 
 // GetPublicOptionOffers godoc
 // @Summary      Peer-facing list of OPEN OTC option listings on this bank
-// @Description  Phase 6 cross-bank discovery. Returns this bank's
-//
-//	OPEN, undirected option listings as PeerPublicOptionOffer
-//	rows in SI-TX shape. Auth via X-Api-Key (PeerAuth);
-//	X-Bank-Code is stamped into peer_bank_code so privately-
-//	targeted listings are filtered per-caller.
-//
+// @Description  Phase 6 cross-bank discovery. Returns this bank's OPEN, undirected option listings as PeerPublicOptionOffer rows in SI-TX shape. Auth via X-Api-Key (PeerAuth); X-Bank-Code is stamped into peer_bank_code so privately-targeted listings are filtered per-caller. Legacy path: /api/v3/public-option-offers (deprecated — use /api/v3/cross-bank-protocol/public-option-offers for new registrations).
 // @Tags         PeerOTC
 // @Produce      json
 // @Success      200 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      501 {object} map[string]interface{} "OTCOfferReader not wired"
 // @Router       /api/v3/public-option-offers [get]
-// GetPublicOptionOffers godoc
-// @Summary      Peer-to-peer: list public OPEN OTC option listings (Phase 6 discovery)
-// @Description  Inbound from a peer bank. Returns this bank's open option listings (kind=local). Includes best_bid / best_ask / active_chains_count when available so the peer's cache can surface a richer marketplace view.
-// @Tags         PeerOTC
-// @Produce      json
-// @Success      200 {object} map[string]interface{}
-// @Failure      401 {object} map[string]interface{}
-// @Router       /api/v3/public-option-offers [get]
+// @Router       /api/v3/cross-bank-protocol/public-option-offers [get]
 func (h *PeerOTCHandler) GetPublicOptionOffers(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	resp, err := h.client.GetPublicOptionOffers(c.Request.Context(), &stockpb.GetPublicOptionOffersRequest{
@@ -212,7 +200,7 @@ func knownCurrency(c string) bool {
 
 // CreateNegotiation godoc
 // @Summary      Peer-to-peer: create OTC option negotiation
-// @Description  Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9).
+// @Description  Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9). Legacy path: /api/v3/negotiations (deprecated — use /api/v3/cross-bank-protocol/negotiations for new registrations).
 // @Tags         PeerOTC
 // @Accept       json
 // @Produce      json
@@ -222,6 +210,7 @@ func knownCurrency(c string) bool {
 // @Failure      401 {object} map[string]interface{}
 // @Failure      403 {object} map[string]interface{}
 // @Router       /api/v3/negotiations [post]
+// @Router       /api/v3/cross-bank-protocol/negotiations [post]
 func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	var off peerOtcOfferReq
@@ -251,7 +240,7 @@ func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
 
 // UpdateNegotiation godoc
 // @Summary      Peer-to-peer: counter-offer on an existing OTC negotiation
-// @Description  Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.
+// @Description  Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).
 // @Tags         PeerOTC
 // @Accept       json
 // @Produce      json
@@ -262,6 +251,7 @@ func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
 // @Failure      400 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Router       /api/v3/negotiations/{rid}/{id} [put]
+// @Router       /api/v3/cross-bank-protocol/negotiations/{rid}/{id} [put]
 func (h *PeerOTCHandler) UpdateNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)
@@ -290,7 +280,7 @@ func (h *PeerOTCHandler) UpdateNegotiation(c *gin.Context) {
 
 // GetNegotiation godoc
 // @Summary      Peer-to-peer: read an OTC negotiation
-// @Description  Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair.
+// @Description  Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).
 // @Tags         PeerOTC
 // @Produce      json
 // @Param        rid path int true "routing number"
@@ -299,6 +289,7 @@ func (h *PeerOTCHandler) UpdateNegotiation(c *gin.Context) {
 // @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Router       /api/v3/negotiations/{rid}/{id} [get]
+// @Router       /api/v3/cross-bank-protocol/negotiations/{rid}/{id} [get]
 func (h *PeerOTCHandler) GetNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)
@@ -326,7 +317,7 @@ func (h *PeerOTCHandler) GetNegotiation(c *gin.Context) {
 
 // DeleteNegotiation godoc
 // @Summary      Peer-to-peer: cancel an OTC negotiation
-// @Description  Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5.
+// @Description  Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).
 // @Tags         PeerOTC
 // @Produce      json
 // @Param        rid path int true "routing number"
@@ -334,6 +325,7 @@ func (h *PeerOTCHandler) GetNegotiation(c *gin.Context) {
 // @Success      204
 // @Failure      401 {object} map[string]interface{}
 // @Router       /api/v3/negotiations/{rid}/{id} [delete]
+// @Router       /api/v3/cross-bank-protocol/negotiations/{rid}/{id} [delete]
 func (h *PeerOTCHandler) DeleteNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)
@@ -352,7 +344,7 @@ func (h *PeerOTCHandler) DeleteNegotiation(c *gin.Context) {
 
 // AcceptNegotiation godoc
 // @Summary      Peer-to-peer: accept an OTC negotiation (triggers option-formation SI-TX)
-// @Description  Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics.
+// @Description  Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics. Legacy path: /api/v3/negotiations/:rid/:id/accept (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id/accept for new registrations).
 // @Tags         PeerOTC
 // @Produce      json
 // @Param        rid path int true "routing number"
@@ -361,6 +353,7 @@ func (h *PeerOTCHandler) DeleteNegotiation(c *gin.Context) {
 // @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Router       /api/v3/negotiations/{rid}/{id}/accept [get]
+// @Router       /api/v3/cross-bank-protocol/negotiations/{rid}/{id}/accept [get]
 func (h *PeerOTCHandler) AcceptNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)

@@ -28,13 +28,14 @@ func NewPeerTxHandler(c transactionpb.PeerTxServiceClient) *PeerTxHandler {
 
 // PostInterbank godoc
 // @Summary      Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX / VOTE)
-// @Description  Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on `type` and dispatches.
+// @Description  Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on `type` and dispatches. Legacy path: /api/v3/interbank (deprecated — use /api/v3/cross-bank-protocol/interbank for new registrations).
 // @Tags         PeerOTC
 // @Accept       json
 // @Produce      json
 // @Success      200 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Router       /api/v3/interbank [post]
+// @Router       /api/v3/cross-bank-protocol/interbank [post]
 func (h *PeerTxHandler) PostInterbank(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
