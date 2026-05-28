@@ -536,6 +536,7 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 | peer_banks | `peer_banks.manage.any` (Phase 2 SI-TX — admin CRUD on the `peer_banks` registry; `EmployeeAdmin` only via the wildcard `*` grant) |
 | notifications | `notifications.templates.manage` — allows `EmployeeAdmin` to customize notification template subject/body text |
 | portfolio | `portfolio.view.client` — allows an employee to read any client's portfolio via the unified portfolio routes; `portfolio.view.fund` — allows reading any investment-fund's portfolio. Both granted to `EmployeeSupervisor` (and via inheritance to `EmployeeAdmin`). |
+| admin | `admin.crons.view` — list/read all cron jobs across services; `admin.crons.trigger` — manually trigger a cron execution; `admin.crons.manage` — pause and resume crons. All three granted to `EmployeeAdmin` via the wildcard `*` grant. (C5 — 2026-05-28) |
 
 ### Role Definitions
 
@@ -918,6 +919,20 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 - `ListUnifiedOffers(ListUnifiedOTCOffersRequest) returns (ListUnifiedOTCOffersResponse)` — unified local + cross-bank view, backed by an in-process ~5 s cache that fans out to every active peer bank's `GET /api/v3/public-stock`. Request fields: `security_type`, `ticker`, `kind` (`""` | `local` | `remote`), `bank_code`, `page`, `page_size`. The cache (and the peer fan-out goroutine) live entirely in stock-service; the api-gateway's `GET /api/v3/otc/offers` is a thin pass-through over this RPC.
 
 **Key pattern:** When a proto file has multiple services (e.g., `CardService` + `VirtualCardService` + `CardRequestService`), they all run in the same microservice process on the same port but are registered as separate gRPC services. The API Gateway creates separate client instances that share the same connection address.
+
+**`admin.AdminCron` — Cron registry gRPC interface (C5 — 2026-05-28):**
+
+Every service that runs background cron jobs registers those jobs in a `cronreg.Registry` and exposes the `admin.AdminCron` gRPC service on its existing service port. The proto is defined in `contract/proto/admin/admin_cron.proto` and generated to `contract/adminpb/`. The api-gateway fan-outs to all services via a pool of `AdminCronClient` instances (one per service).
+
+| RPC | Request | Response | Description |
+|---|---|---|---|
+| `ListCrons` | `ListCronsRequest` (empty) | `ListCronsResponse{crons: [CronInfoMsg]}` | Returns all registered crons |
+| `GetCron` | `GetCronRequest{name}` | `CronInfoMsg` | Returns one named cron |
+| `TriggerCron` | `TriggerRequest{name, force, triggered_by}` | `CronCtrlResponse{status}` | Fires cron immediately |
+| `PauseCron` | `PauseRequest{name, paused_by}` | `CronCtrlResponse{status}` | Pauses scheduling |
+| `ResumeCron` | `ResumeRequest{name, resumed_by}` | `CronCtrlResponse{status}` | Resumes paused cron |
+
+Services that currently expose `AdminCron`: `stock-service`, `credit-service`, `account-service`, `card-service`, `transaction-service`, `notification-service`, `user-service`.
 
 ---
 
@@ -1566,6 +1581,20 @@ All routes call `GetUnifiedPortfolio` on `PortfolioGRPCService` and return a gro
 - An employee principal may always fetch the bank portfolio; fetching a client or fund portfolio requires `portfolio.view.client` or `portfolio.view.fund` respectively.
 - `EmployeeSupervisor` and `EmployeeAdmin` hold both permissions by default.
 
+**`/api/v3/admin/crons/*` — Admin Cron Viewer (C10 — 2026-05-28)**
+
+Protected by `AuthMiddleware` (employee JWT). Each sub-group has a distinct permission:
+
+| Method | Path | Permission | Handler | Description |
+|---|---|---|---|---|
+| GET | `/api/v3/admin/crons` | `admin.crons.view` | AdminCronHandler.List | Fan-out list of all crons across every service |
+| GET | `/api/v3/admin/crons/:service/:name` | `admin.crons.view` | AdminCronHandler.Get | One cron's detail from the named service |
+| POST | `/api/v3/admin/crons/:service/:name/trigger` | `admin.crons.trigger` | AdminCronHandler.Trigger | Manually fire a cron; optional body `{"force": bool, "reason": string}` |
+| POST | `/api/v3/admin/crons/:service/:name/pause` | `admin.crons.manage` | AdminCronHandler.Pause | Pause a cron; optional body `{"reason": string}` |
+| POST | `/api/v3/admin/crons/:service/:name/resume` | `admin.crons.manage` | AdminCronHandler.Resume | Resume a paused cron; optional body `{"reason": string}` |
+
+`GET /api/v3/admin/crons` fans out in parallel (`errgroup`) to all configured services. Each service appears as a result entry with `status: "ok"` or `status: "unreachable"`. An unreachable service does NOT fail the whole response. After a successful Trigger/Pause/Resume the gateway publishes an `AdminCronActionMessage` to `admin.cron-action` (see §19). `:service` must match an exact label (e.g. `stock-service`, `credit-service`).
+
 ---
 
 ## 18. Complete Entity Reference
@@ -2064,6 +2093,26 @@ Composite-unique: (peer_bank_code, foreign_id)
 ```
 Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance triggers a 4-posting `Transaction` dispatched through `PeerTxService.InitiateOutboundTxWithPostings`.
 
+**CronPauseState** (C5 — 2026-05-28) — Persists pause/resume admin decisions for each cron, shared by every service's cron registry.
+```
+Name(string,PK,size:128), IsPaused(bool,not null), PausedBy(int64), PausedAt(time.Time,nullable)
+TableName: cron_pause_states
+```
+One row per named cron per service. Queried by the cron runner on every tick to decide whether to skip execution. Written by `AdminCron.PauseCron` / `AdminCron.ResumeCron` gRPC calls. The model lives in `contract/cronreg/model.go` and is auto-migrated in every service that uses `cronreg.NewRegistry`.
+
+**AdminAuditLog** (C11 — 2026-05-28) — Audit trail for admin cron control actions, stored in `notification-service`'s `notification_db`.
+```
+ID(uint64,PK,autoIncrement),
+Action(string,size:32,not null,indexed),      -- "trigger"|"pause"|"resume"
+Service(string,size:64,not null,indexed),     -- e.g. "stock-service"
+CronName(string,size:100,not null,indexed),
+EmployeeID(int64,not null,indexed),
+Reason(string,size:512),
+Timestamp(time.Time,not null,indexed)
+TableName: admin_audit_logs
+```
+Written by the notification-service `admin_audit_consumer` consuming `admin.cron-action` Kafka events published by the api-gateway after each Trigger/Pause/Resume action.
+
 ---
 
 ## 19. Complete Kafka Topic Reference
@@ -2133,6 +2182,7 @@ Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance t
 | `transaction.saga-dead-letter` | transaction-service | (monitoring/alerting) | Failed saga events that exceeded all retries (cross-bank transfers, compensation failures). |
 | `credit.saga-dead-letter` | credit-service | (monitoring/alerting) | Failed loan saga events that exceeded all retries (disbursement, installment failures). |
 | `stock.saga-dead-letter` | stock-service | (monitoring/alerting) | Failed stock/OTC saga events that exceeded all retries (OTC exercises, recurring-order failures). |
+| `admin.cron-action` | api-gateway | notification-service | `AdminCronActionMessage` — published after each Trigger/Pause/Resume admin cron action; consumed by notification-service to persist audit log rows (C6/C10/C11 — 2026-05-28) |
 
 ### General Notification Types
 
