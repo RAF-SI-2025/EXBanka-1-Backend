@@ -122,6 +122,10 @@ func main() {
 		// Kafka publish can no longer silently drop events.
 		&outbox.Event{},
 		&cronreg.CronPauseState{},
+		// E4 dividend tables
+		&model.DividendPayment{},
+		&model.DividendPayout{},
+		&model.FundDividendPayment{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
@@ -165,6 +169,10 @@ func main() {
 	} else if res.RowsAffected > 0 {
 		log.Printf("backfilled tax_collection_id on %d capital_gains rows", res.RowsAffected)
 	}
+
+	// E4 dividend unique indexes
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_dividend_payment_sec_date ON dividend_payments(security_id, payment_date)")
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_fund_dividend_payment_uniq ON fund_dividend_payments(dividend_payment_id, fund_id)")
 
 	// Composite unique indexes
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_security_unique ON listings(security_id, security_type)")
@@ -265,6 +273,8 @@ func main() {
 		"notification.general",
 		"stock.saga-dead-letter",
 		"admin.cron-action",
+		"stock.dividend-declared",
+		"stock.dividend-paid-out",
 	)
 
 	// --- InfluxDB ---
@@ -369,6 +379,11 @@ func main() {
 	fundContribRepo := repository.NewFundContributionRepository(db)
 	fundPositionRepo := repository.NewClientFundPositionRepository(db)
 	fundHoldingRepo := repository.NewFundHoldingRepository(db)
+
+	// --- E4 dividend repositories ---
+	dividendPaymentRepo := repository.NewDividendPaymentRepository(db)
+	dividendPayoutRepo := repository.NewDividendPayoutRepository(db)
+	fundDividendPaymentRepo := repository.NewFundDividendPaymentRepository(db)
 
 	// --- Name Resolver ---
 	nameResolver := service.UserNameResolver(func(ownerType model.OwnerType, ownerID *uint64) (string, string, error) {
@@ -731,10 +746,21 @@ func main() {
 			}
 			return resp.AccountNumber, resp.Id, nil
 		},
-	).WithPositionReads(listingRepo).WithLiquidation(orderSvc).WithOutbox(ob, db)
+	).WithPositionReads(listingRepo).WithLiquidation(orderSvc).WithOutbox(ob, db).
+		WithDividendRepo(fundDividendPaymentRepo)
+
+	// E4: dividend service
+	dividendSvc := service.NewDividendService(
+		db,
+		dividendPaymentRepo, dividendPayoutRepo, fundDividendPaymentRepo,
+		holdingRepo, fundHoldingRepo, fundRepo, fundPositionRepo,
+		fundAccountAdapter,
+	)
+
 	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo).
 		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient).
-		WithFundDetailDeps(fundHoldingRepo, listingRepo, stockRepo)
+		WithFundDetailDeps(fundHoldingRepo, listingRepo, stockRepo).
+		WithDividendService(dividendSvc)
 
 	// Supervisor-demoted consumer: reassigns the demoted supervisor's funds
 	// to the admin who demoted them.
@@ -922,7 +948,8 @@ func main() {
 			pb.RegisterStockExchangeGRPCServiceServer(s, handler.NewExchangeGRPCHandler(exchangeSvc))
 			pb.RegisterSecurityGRPCServiceServer(s, handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo))
 			pb.RegisterOrderGRPCServiceServer(s, handler.NewOrderHandler(orderSvc, execEngine))
-			unifiedPortfolioSvc := service.NewUnifiedPortfolioService(holdingRepo, fundPositionRepo, fundRepo, fundHoldingRepo, listingRepo, fundAccountAdapter)
+			unifiedPortfolioSvc := service.NewUnifiedPortfolioService(holdingRepo, fundPositionRepo, fundRepo, fundHoldingRepo, listingRepo, fundAccountAdapter).
+				WithDividendService(dividendSvc)
 			pb.RegisterPortfolioGRPCServiceServer(s, handler.NewPortfolioHandler(portfolioSvc, taxSvc).WithUnifiedPortfolioService(unifiedPortfolioSvc))
 			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandlerWithCache(otcSvc, otcOfferCache).WithOptionCache(optionOfferCache))
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
