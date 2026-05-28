@@ -28,6 +28,8 @@ type UnifiedPortfolioService struct {
 	fundHoldingRepo *repository.FundHoldingRepository
 	listingRepo     *repository.ListingRepository
 	accounts        FundAccountClient
+	// E3: optional dividend service for dividends_received_rsd.
+	dividendSvc *DividendService
 }
 
 // NewUnifiedPortfolioService constructs the service with all required repos.
@@ -48,6 +50,14 @@ func NewUnifiedPortfolioService(
 		listingRepo:     listingRepo,
 		accounts:        accounts,
 	}
+}
+
+// WithDividendService wires the DividendService so portfolio positions
+// include real dividends_received_rsd values (E3).
+func (s *UnifiedPortfolioService) WithDividendService(ds *DividendService) *UnifiedPortfolioService {
+	cp := *s
+	cp.dividendSvc = ds
+	return &cp
 }
 
 // UnifiedPortfolio is the composed portfolio result returned by Get.
@@ -77,6 +87,7 @@ type PortfolioPosition struct {
 	Symbol            string
 	FundID            uint64
 	FundName          string
+	FundStatus        string // for investment_fund positions — passthrough from FundStatus
 	ContractID        uint64
 	Quantity          int64
 	AvgCostRSD        decimal.Decimal
@@ -91,6 +102,10 @@ type PortfolioPosition struct {
 	IntrinsicValueRSD decimal.Decimal
 	SettlementDate    *time.Time
 	LastUpdated       time.Time
+	// E3 (Plan E 2026-05-28): caller's pro-rata share of dividends.
+	// For fund positions: sum of per-investor share from fund_dividend_payments.
+	// For security positions: sum of net_amount_rsd from dividend_payouts.
+	DividendsReceivedRSD decimal.Decimal
 }
 
 // Get returns the unified portfolio for the given owner. ownerID may be nil
@@ -117,6 +132,12 @@ func (s *UnifiedPortfolioService) Get(ctx context.Context, ownerType string, own
 
 	for _, h := range holdings {
 		pos := composeHoldingPosition(h, priceCache)
+		// E3: sum net dividends received by this owner for this holding.
+		if s.dividendSvc != nil {
+			if d, err := s.dividendSvc.SumDividendsReceivedByOwner(string(h.OwnerType), h.OwnerID); err == nil {
+				pos.DividendsReceivedRSD = d
+			}
+		}
 		out.Securities.Positions = append(out.Securities.Positions, pos)
 		out.Securities.TotalValueRSD = out.Securities.TotalValueRSD.Add(pos.CurrentValueRSD)
 		out.Securities.TotalProfitRSD = out.Securities.TotalProfitRSD.Add(pos.PLRSD)
@@ -284,16 +305,26 @@ func (s *UnifiedPortfolioService) composeFundPosition(ctx context.Context, fp mo
 
 	pl := currentValue.Sub(fp.TotalContributedRSD)
 
+	// E3: compute dividends_received_rsd for this investor in this fund.
+	var dividendsReceived decimal.Decimal
+	if s.dividendSvc != nil {
+		if d, err := s.dividendSvc.DividendsReceivedByFundInvestor(fp.FundID, string(fp.OwnerType), fp.OwnerID); err == nil {
+			dividendsReceived = d
+		}
+	}
+
 	return PortfolioPosition{
-		AssetType:         "investment_fund",
-		FundID:            fp.FundID,
-		FundName:          fund.Name,
-		AmountInvestedRSD: fp.TotalContributedRSD,
-		CurrentValueRSD:   currentValue,
-		PctOfFund:         pctOfFund,
-		PLRSD:             pl,
-		PLPct:             pctCalc(pl, fp.TotalContributedRSD),
-		LastUpdated:       fp.UpdatedAt,
+		AssetType:            "investment_fund",
+		FundID:               fp.FundID,
+		FundName:             fund.Name,
+		FundStatus:           string(fund.FundStatus),
+		AmountInvestedRSD:    fp.TotalContributedRSD,
+		CurrentValueRSD:      currentValue,
+		PctOfFund:            pctOfFund,
+		PLRSD:                pl,
+		PLPct:                pctCalc(pl, fp.TotalContributedRSD),
+		LastUpdated:          fp.UpdatedAt,
+		DividendsReceivedRSD: dividendsReceived,
 	}, nil
 }
 

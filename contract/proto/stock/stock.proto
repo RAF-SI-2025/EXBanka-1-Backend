@@ -554,6 +554,15 @@ message PortfolioPosition {
   string intrinsic_value_rsd = 16;
   string settlement_date     = 17;
   string last_updated        = 18;
+  // E3 fields (Plan E 2026-05-28):
+  // dividends_received_rsd — caller's pro-rata share of dividends paid to
+  // this fund (investment_fund positions) or directly to the holder
+  // (stock positions). Real value from fund_dividend_payments /
+  // dividend_payouts (E4). "0" until E4 is payed out.
+  string dividends_received_rsd = 19;
+  // fund_status — lifecycle status of the fund (investment_fund positions only).
+  // active|fundraising|matured|liquidated|open (passthrough from InvestmentFund.FundStatus).
+  string fund_status            = 20;
 }
 
 message PortfolioGroup {
@@ -1024,6 +1033,12 @@ service InvestmentFundService {
   rpc ListMyPositions(ListMyPositionsRequest) returns (ListPositionsResponse);
   rpc ListBankPositions(ListBankPositionsRequest) returns (ListPositionsResponse);
   rpc GetActuaryPerformance(GetActuaryPerformanceRequest) returns (GetActuaryPerformanceResponse);
+
+  // E4 dividend RPCs
+  rpc DeclareDividend(DeclareDividendRequest) returns (DividendPaymentResponse);
+  rpc PayoutDividend(PayoutDividendRequest) returns (PayoutDividendResponse);
+  rpc ListMyDividends(ListMyDividendsRequest) returns (ListDividendPayoutsResponse);
+  rpc ListFundDividends(ListFundDividendsRequest) returns (ListFundDividendPaymentsResponse);
 }
 
 message OnBehalfOf {
@@ -2306,4 +2321,82 @@ message WatchlistItemResponse {
 
 message ListMyWatchlistResponse {
   repeated WatchlistItemResponse items = 1;
+}
+
+// ==================== Dividends (E4, Plan E 2026-05-28) ====================
+
+message DeclareDividendRequest {
+  int64  declared_by_employee_id = 1;
+  uint64 security_id             = 2;
+  string ticker                  = 3;
+  string amount_per_share_rsd    = 4; // decimal as string
+  string payment_date            = 5; // ISO date "2026-06-15"
+}
+
+message DividendPaymentResponse {
+  uint64 id                       = 1;
+  uint64 security_id              = 2;
+  string ticker                   = 3;
+  string amount_per_share_rsd     = 4;
+  string payment_date             = 5;
+  string status                   = 6; // declared|paid_out|cancelled
+  int64  declared_by_employee_id  = 7;
+  string paid_out_at              = 8; // RFC3339 or empty
+  string created_at               = 9;
+}
+
+message PayoutDividendRequest {
+  uint64 dividend_payment_id = 1;
+}
+
+message PayoutDividendResponse {
+  int32  payouts_created    = 1;
+  int32  fund_payouts       = 2;
+  string total_amount_rsd   = 3; // decimal as string
+}
+
+message ListMyDividendsRequest {
+  string owner_type = 1;  // "client" | "bank"
+  uint64 owner_id   = 2;  // omitted/0 when bank
+  int32  page       = 3;
+  int32  page_size  = 4;
+}
+
+message DividendPayoutItem {
+  uint64 id                   = 1;
+  uint64 dividend_payment_id  = 2;
+  string holding_owner_type   = 3;
+  uint64 holding_owner_id     = 4;
+  uint64 holding_id           = 5;
+  int64  shares               = 6;
+  string gross_amount_rsd     = 7;
+  string tax_amount_rsd       = 8;
+  string net_amount_rsd       = 9;
+  uint64 credited_account_id  = 10;
+  string created_at           = 11;
+}
+
+message ListDividendPayoutsResponse {
+  repeated DividendPayoutItem payouts = 1;
+  int64 total                         = 2;
+}
+
+message ListFundDividendsRequest {
+  uint64 fund_id   = 1;
+  int32  page      = 2;
+  int32  page_size = 3;
+}
+
+message FundDividendPaymentItem {
+  uint64 id                    = 1;
+  uint64 dividend_payment_id   = 2;
+  uint64 fund_id               = 3;
+  string amount_rsd            = 4;
+  string per_investor_snapshot = 5; // JSON string
+  string created_at            = 6;
+}
+
+message ListFundDividendPaymentsResponse {
+  repeated FundDividendPaymentItem payments = 1;
+  int64 total                               = 2;
 }

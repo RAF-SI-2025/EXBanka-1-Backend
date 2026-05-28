@@ -2083,6 +2083,10 @@ const (
 	InvestmentFundService_ListMyPositions_FullMethodName       = "/stock.InvestmentFundService/ListMyPositions"
 	InvestmentFundService_ListBankPositions_FullMethodName     = "/stock.InvestmentFundService/ListBankPositions"
 	InvestmentFundService_GetActuaryPerformance_FullMethodName = "/stock.InvestmentFundService/GetActuaryPerformance"
+	InvestmentFundService_DeclareDividend_FullMethodName       = "/stock.InvestmentFundService/DeclareDividend"
+	InvestmentFundService_PayoutDividend_FullMethodName        = "/stock.InvestmentFundService/PayoutDividend"
+	InvestmentFundService_ListMyDividends_FullMethodName       = "/stock.InvestmentFundService/ListMyDividends"
+	InvestmentFundService_ListFundDividends_FullMethodName     = "/stock.InvestmentFundService/ListFundDividends"
 )
 
 // InvestmentFundServiceClient is the client API for InvestmentFundService service.
@@ -2098,6 +2102,11 @@ type InvestmentFundServiceClient interface {
 	ListMyPositions(ctx context.Context, in *ListMyPositionsRequest, opts ...grpc.CallOption) (*ListPositionsResponse, error)
 	ListBankPositions(ctx context.Context, in *ListBankPositionsRequest, opts ...grpc.CallOption) (*ListPositionsResponse, error)
 	GetActuaryPerformance(ctx context.Context, in *GetActuaryPerformanceRequest, opts ...grpc.CallOption) (*GetActuaryPerformanceResponse, error)
+	// E4 dividend RPCs
+	DeclareDividend(ctx context.Context, in *DeclareDividendRequest, opts ...grpc.CallOption) (*DividendPaymentResponse, error)
+	PayoutDividend(ctx context.Context, in *PayoutDividendRequest, opts ...grpc.CallOption) (*PayoutDividendResponse, error)
+	ListMyDividends(ctx context.Context, in *ListMyDividendsRequest, opts ...grpc.CallOption) (*ListDividendPayoutsResponse, error)
+	ListFundDividends(ctx context.Context, in *ListFundDividendsRequest, opts ...grpc.CallOption) (*ListFundDividendPaymentsResponse, error)
 }
 
 type investmentFundServiceClient struct {
@@ -2198,6 +2207,46 @@ func (c *investmentFundServiceClient) GetActuaryPerformance(ctx context.Context,
 	return out, nil
 }
 
+func (c *investmentFundServiceClient) DeclareDividend(ctx context.Context, in *DeclareDividendRequest, opts ...grpc.CallOption) (*DividendPaymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DividendPaymentResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_DeclareDividend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) PayoutDividend(ctx context.Context, in *PayoutDividendRequest, opts ...grpc.CallOption) (*PayoutDividendResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PayoutDividendResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_PayoutDividend_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) ListMyDividends(ctx context.Context, in *ListMyDividendsRequest, opts ...grpc.CallOption) (*ListDividendPayoutsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDividendPayoutsResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_ListMyDividends_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) ListFundDividends(ctx context.Context, in *ListFundDividendsRequest, opts ...grpc.CallOption) (*ListFundDividendPaymentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFundDividendPaymentsResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_ListFundDividends_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InvestmentFundServiceServer is the server API for InvestmentFundService service.
 // All implementations must embed UnimplementedInvestmentFundServiceServer
 // for forward compatibility.
@@ -2211,6 +2260,11 @@ type InvestmentFundServiceServer interface {
 	ListMyPositions(context.Context, *ListMyPositionsRequest) (*ListPositionsResponse, error)
 	ListBankPositions(context.Context, *ListBankPositionsRequest) (*ListPositionsResponse, error)
 	GetActuaryPerformance(context.Context, *GetActuaryPerformanceRequest) (*GetActuaryPerformanceResponse, error)
+	// E4 dividend RPCs
+	DeclareDividend(context.Context, *DeclareDividendRequest) (*DividendPaymentResponse, error)
+	PayoutDividend(context.Context, *PayoutDividendRequest) (*PayoutDividendResponse, error)
+	ListMyDividends(context.Context, *ListMyDividendsRequest) (*ListDividendPayoutsResponse, error)
+	ListFundDividends(context.Context, *ListFundDividendsRequest) (*ListFundDividendPaymentsResponse, error)
 	mustEmbedUnimplementedInvestmentFundServiceServer()
 }
 
@@ -2247,6 +2301,18 @@ func (UnimplementedInvestmentFundServiceServer) ListBankPositions(context.Contex
 }
 func (UnimplementedInvestmentFundServiceServer) GetActuaryPerformance(context.Context, *GetActuaryPerformanceRequest) (*GetActuaryPerformanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetActuaryPerformance not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) DeclareDividend(context.Context, *DeclareDividendRequest) (*DividendPaymentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeclareDividend not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) PayoutDividend(context.Context, *PayoutDividendRequest) (*PayoutDividendResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PayoutDividend not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) ListMyDividends(context.Context, *ListMyDividendsRequest) (*ListDividendPayoutsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyDividends not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) ListFundDividends(context.Context, *ListFundDividendsRequest) (*ListFundDividendPaymentsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFundDividends not implemented")
 }
 func (UnimplementedInvestmentFundServiceServer) mustEmbedUnimplementedInvestmentFundServiceServer() {}
 func (UnimplementedInvestmentFundServiceServer) testEmbeddedByValue()                               {}
@@ -2431,6 +2497,78 @@ func _InvestmentFundService_GetActuaryPerformance_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InvestmentFundService_DeclareDividend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeclareDividendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).DeclareDividend(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_DeclareDividend_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).DeclareDividend(ctx, req.(*DeclareDividendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_PayoutDividend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PayoutDividendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).PayoutDividend(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_PayoutDividend_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).PayoutDividend(ctx, req.(*PayoutDividendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_ListMyDividends_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyDividendsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).ListMyDividends(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_ListMyDividends_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).ListMyDividends(ctx, req.(*ListMyDividendsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_ListFundDividends_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFundDividendsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).ListFundDividends(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_ListFundDividends_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).ListFundDividends(ctx, req.(*ListFundDividendsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InvestmentFundService_ServiceDesc is the grpc.ServiceDesc for InvestmentFundService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2473,6 +2611,22 @@ var InvestmentFundService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetActuaryPerformance",
 			Handler:    _InvestmentFundService_GetActuaryPerformance_Handler,
+		},
+		{
+			MethodName: "DeclareDividend",
+			Handler:    _InvestmentFundService_DeclareDividend_Handler,
+		},
+		{
+			MethodName: "PayoutDividend",
+			Handler:    _InvestmentFundService_PayoutDividend_Handler,
+		},
+		{
+			MethodName: "ListMyDividends",
+			Handler:    _InvestmentFundService_ListMyDividends_Handler,
+		},
+		{
+			MethodName: "ListFundDividends",
+			Handler:    _InvestmentFundService_ListFundDividends_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
