@@ -175,6 +175,33 @@ var pushDefs = []Definition{
 		DefaultSubject: "OTC contract failed",
 		DefaultBody:    "An OTC contract could not be completed: {{failure_reason}}.",
 	},
+	// ── Watchlist ─────────────────────────────────────────────────────────────
+	{
+		Type: "WATCHLIST_PRICE_MOVE", Channel: "push",
+		Description: "Daily alert: a ticker on the user's watchlist moved more than ±5% in one day.",
+		Variables: []Variable{
+			{"ticker", "Security ticker", "AAPL"},
+			{"percent_move", "Daily percent change (signed)", "-6.42"},
+			{"current_price", "Current price", "148.50"},
+		},
+		DefaultSubject: "Watchlist alert: {{ticker}} moved {{percent_move}}%",
+		DefaultBody:    "{{ticker}} is on your watchlist and moved {{percent_move}}% today. Current price: {{current_price}}.",
+	},
+	// ── Price alerts ─────────────────────────────────────────────────────────
+	{
+		Type: "PRICE_ALERT_TRIGGERED", Channel: "push",
+		Description: "Fired when a user's price alert condition is met.",
+		Variables: []Variable{
+			{"ticker", "Security ticker", "AAPL"},
+			{"security_type", "Security type", "stock"},
+			{"condition", "Alert condition", "daily_change_pct_lte"},
+			{"threshold", "Alert threshold", "-5.0000"},
+			{"price", "Current price", "148.5000"},
+			{"daily_change_percent", "Daily change percent", "-6.2000"},
+		},
+		DefaultSubject: "Price alert triggered",
+		DefaultBody:    "Your price alert for {{ticker}} was triggered — current price {{price}} (daily change {{daily_change_percent}}%, threshold {{threshold}}).",
+	},
 	// ── Money movement ───────────────────────────────────────────────────────
 	{
 		Type: "PAYMENT_SENT", Channel: "push",
