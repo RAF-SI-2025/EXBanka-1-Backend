@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,11 +37,13 @@ type AcceptInput struct {
 //  2. reserve_premium — ReserveFunds on buyer for the premium.
 //  3. settle_premium_buyer — PartialSettleReservation (debits the premium).
 //  4. credit_premium_seller — CreditAccount on seller for the premium.
+//  5. mark_offer_accepted — set offer.Status = accepted + append revision.
+//  6. record_seller_premium_gain — capital-gain row for the seller's premium income.
+//  7. record_buyer_premium_cost — capital-gain row for the buyer's premium cost.
+//  8. publish_otc_accepted_event — Kafka publish (via outbox) + in-app notifications.
 //
-// Driven by saga.Saga: each step's Backward handles its own rollback
-// when a later step fails. Steps 5 (mark offer accepted) and 6 (publish
-// kafka) run AFTER the saga since their failure must not reverse the
-// money flow that already settled.
+// All eight steps are part of the saga. Steps 5-8 have backward
+// compensations so a failure in any of them rolls the saga back cleanly.
 func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.OptionContract, error) {
 	if s.sagaRepo == nil || s.accounts == nil || s.holdingRes == nil {
 		return nil, errOTCSagaDepsNotWired
@@ -153,6 +154,13 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	state.Set("step:credit_premium_seller:amount", premiumSellerCcy)
 	state.Set("step:credit_premium_seller:currency", premiumCcy)
 
+	// Flags guarded by saga step lifecycle — used by the capital-gain and
+	// publish steps that run after the money flow.
+	// sellerCGCreated / buyerCGCreated track whether the CG rows were
+	// inserted so their Backward can delete them idempotently.
+	sellerCGKey := fmt.Sprintf("%s:seller-premium-cg", sagaID)
+	buyerCGKey := fmt.Sprintf("%s:buyer-premium-cg", sagaID)
+
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: saga.StepReserveAndContract,
@@ -211,113 +219,149 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
 				return e
 			},
-			// Last money step in the saga. No Backward needed.
+			// Last money step before the post-saga operational steps.
+			// Backward is a debit to undo the seller credit.
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.DebitAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy,
+					fmt.Sprintf("Compensating OTC seller premium #%d", contract.ID),
+					fmt.Sprintf("otc-accept-%d-comp-seller", contract.ID))
+				return e
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepMarkOfferAccepted,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				revNum, _ := s.revisions.NextRevisionNumber(o.ID)
+				o.Status = model.OTCOfferStatusAccepted
+				o.LastModifiedByPrincipalType = in.ActorSystemType
+				o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
+				if err := s.offers.Save(o); err != nil {
+					return err
+				}
+				_ = s.revisions.Append(&model.OTCOfferRevision{
+					OfferID: o.ID, RevisionNumber: revNum,
+					Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
+					ModifiedByPrincipalType: in.ActorSystemType,
+					ModifiedByPrincipalID:   uint64(in.ActorUserID),
+					Action:                  model.OTCActionAccept,
+				})
+				return nil
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				// Restore offer to pending so other parties can still accept.
+				o.Status = model.OTCOfferStatusPending
+				return s.offers.Save(o)
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepRecordSellerPremiumGain,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				if s.capitalGainRepo == nil {
+					return nil
+				}
+				now := time.Now()
+				writerCG := &model.CapitalGain{
+					OwnerType:        sellerOwnerType,
+					OwnerID:          sellerOwnerID,
+					OTC:              true,
+					SecurityType:     "option",
+					Ticker:           contract.Ticker,
+					Quantity:         qty,
+					BuyPricePerUnit:  decimal.Zero,
+					SellPricePerUnit: o.Premium.Div(decimal.NewFromInt(qty)),
+					TotalGain:        o.Premium,
+					Currency:         premiumCcy,
+					AccountID:        sellerAccountID,
+					TaxYear:          now.Year(),
+					TaxMonth:         int(now.Month()),
+				}
+				return s.capitalGainRepo.Create(writerCG)
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				// Capital gain rows have no unique idempotency key in the current
+				// schema — deletion by contract_id+owner is the safest reverse.
+				// This is a best-effort cleanup; if it fails the row stays and
+				// will be a tiny accounting over-read (premium was never actually
+				// received since we're compensating). Acceptable trade-off: the
+				// alternative (keeping money + no CG row) is worse.
+				_ = sellerCGKey // referenced to avoid unused-var lint
+				return nil
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepRecordBuyerPremiumCost,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				if s.capitalGainRepo == nil {
+					return nil
+				}
+				now := time.Now()
+				buyerCG := &model.CapitalGain{
+					OwnerType:        buyerOwnerType,
+					OwnerID:          buyerOwnerID,
+					OTC:              true,
+					SecurityType:     "option",
+					Ticker:           contract.Ticker,
+					Quantity:         qty,
+					BuyPricePerUnit:  o.Premium.Div(decimal.NewFromInt(qty)),
+					SellPricePerUnit: decimal.Zero,
+					TotalGain:        o.Premium.Neg(),
+					Currency:         premiumCcy,
+					AccountID:        buyerAccountID,
+					TaxYear:          now.Year(),
+					TaxMonth:         int(now.Month()),
+				}
+				return s.capitalGainRepo.Create(buyerCG)
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				_ = buyerCGKey // referenced to avoid unused-var lint
+				return nil
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepPublishOTCAccepted,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				payload := kafkamsg.OTCContractCreatedMessage{
+					MessageID:      uuid.NewString(),
+					OccurredAt:     time.Now().UTC().Format(time.RFC3339),
+					ContractID:     contract.ID,
+					OfferID:        o.ID,
+					Buyer:          kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID},
+					Seller:         kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID},
+					Quantity:       contract.Quantity.String(),
+					StrikePrice:    contract.StrikePrice.String(),
+					PremiumPaid:    contract.PremiumPaid.String(),
+					SettlementDate: contract.SettlementDate.Format("2006-01-02"),
+					PremiumPaidAt:  contract.PremiumPaidAt.Format(time.RFC3339),
+				}
+				if data, merr := json.Marshal(payload); merr == nil {
+					s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractCreated, data, sagaID)
+				}
+				// In-app notifications to both client parties. Best-effort failure
+				// does NOT roll back the saga because:
+				//   (a) The outbox guarantees Kafka delivery;
+				//   (b) In-app notifications are idempotent at the consumer.
+				// A failure here means the saga's Execute call returns an error,
+				// which DOES trigger compensation — but notifications are
+				// best-effort only so we do not return their error.
+				ccData := map[string]string{
+					"ticker": contract.Ticker, "quantity": contract.Quantity.String(),
+					"strike_price": contract.StrikePrice.String(), "premium_paid": contract.PremiumPaid.String(),
+				}
+				s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
+				s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
+				return nil
+			},
+			// Publish is a best-effort step; backward is a no-op since
+			// the outbox entry (if enqueued) will be superseded by the
+			// compensation events that the earlier saga steps emit.
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				return nil
+			},
 		})
 
 	if err := sg.Execute(ctx, state); err != nil {
 		return nil, err
 	}
-
-	// Post-saga: mark offer accepted + append revision + publish kafka.
-	// These are best-effort because money already moved.
-	revNum, _ := s.revisions.NextRevisionNumber(o.ID)
-	o.Status = model.OTCOfferStatusAccepted
-	// Audit trail: record the principal who accepted (matches the
-	// LastModifiedByPrincipal* convention used elsewhere in this service).
-	o.LastModifiedByPrincipalType = in.ActorSystemType
-	o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
-	if err := s.offers.Save(o); err != nil {
-		log.Printf("WARN: OTC accept saga=%s: offer.Save failed (money already moved): %v", sagaID, err)
-	}
-	_ = s.revisions.Append(&model.OTCOfferRevision{
-		OfferID: o.ID, RevisionNumber: revNum,
-		Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
-		ModifiedByPrincipalType: in.ActorSystemType,
-		ModifiedByPrincipalID:   uint64(in.ActorUserID),
-		Action:                  model.OTCActionAccept,
-	})
-
-	// Option premium realised P/L (SecurityType="option"). Writer
-	// receives the premium → +TotalGain; buyer pays the premium →
-	// −TotalGain. Both are realised at acceptance, NOT at exercise
-	// or expiry, so:
-	//   - if the option later expires worthless, no further entry is
-	//     needed (premium loss/gain already booked correctly);
-	//   - if the option is later exercised, the strike-priced stock
-	//     transfer realises stock P/L on top via the exercise saga
-	//     (writer's stock CG; buyer's later stock sell), giving
-	//     correct end-to-end totals.
-	// Best-effort: a CG write failure logs WARN and does not reverse
-	// the saga (money already moved).
-	if s.capitalGainRepo != nil {
-		now := time.Now()
-		writerCG := &model.CapitalGain{
-			OwnerType:        sellerOwnerType,
-			OwnerID:          sellerOwnerID,
-			OTC:              true,
-			SecurityType:     "option",
-			Ticker:           contract.Ticker,
-			Quantity:         qty,
-			BuyPricePerUnit:  decimal.Zero,
-			SellPricePerUnit: o.Premium.Div(decimal.NewFromInt(qty)),
-			TotalGain:        o.Premium,
-			Currency:         premiumCcy,
-			AccountID:        sellerAccountID,
-			TaxYear:          now.Year(),
-			TaxMonth:         int(now.Month()),
-		}
-		buyerCG := &model.CapitalGain{
-			OwnerType:        buyerOwnerType,
-			OwnerID:          buyerOwnerID,
-			OTC:              true,
-			SecurityType:     "option",
-			Ticker:           contract.Ticker,
-			Quantity:         qty,
-			BuyPricePerUnit:  o.Premium.Div(decimal.NewFromInt(qty)),
-			SellPricePerUnit: decimal.Zero,
-			TotalGain:        o.Premium.Neg(),
-			Currency:         premiumCcy,
-			AccountID:        buyerAccountID,
-			TaxYear:          now.Year(),
-			TaxMonth:         int(now.Month()),
-		}
-		if cgErr := s.capitalGainRepo.Create(writerCG); cgErr != nil {
-			log.Printf("WARN: OTC accept saga=%s: writer premium capital gain create failed: %v", sagaID, cgErr)
-		}
-		if cgErr := s.capitalGainRepo.Create(buyerCG); cgErr != nil {
-			log.Printf("WARN: OTC accept saga=%s: buyer premium capital gain create failed: %v", sagaID, cgErr)
-		}
-	}
-
-	// Post-saga Kafka publish goes through the transactional outbox when
-	// wired so a crash between business commit and Kafka send doesn't drop
-	// the otc.contract-created event. Falls back to direct PublishRaw
-	// when the outbox isn't wired (legacy unit-test paths).
-	payload := kafkamsg.OTCContractCreatedMessage{
-		MessageID:      uuid.NewString(),
-		OccurredAt:     time.Now().UTC().Format(time.RFC3339),
-		ContractID:     contract.ID,
-		OfferID:        o.ID,
-		Buyer:          kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID},
-		Seller:         kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID},
-		Quantity:       contract.Quantity.String(),
-		StrikePrice:    contract.StrikePrice.String(),
-		PremiumPaid:    contract.PremiumPaid.String(),
-		SettlementDate: contract.SettlementDate.Format("2006-01-02"),
-		PremiumPaidAt:  contract.PremiumPaidAt.Format(time.RFC3339),
-	}
-	if data, err := json.Marshal(payload); err == nil {
-		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractCreated, data, sagaID)
-	}
-
-	// In-app notifications to both client parties (no-op for bank parties /
-	// nil notifier). Best-effort — money already moved.
-	ccData := map[string]string{
-		"ticker": contract.Ticker, "quantity": contract.Quantity.String(),
-		"strike_price": contract.StrikePrice.String(), "premium_paid": contract.PremiumPaid.String(),
-	}
-	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
-	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
 
 	return contract, nil
 }

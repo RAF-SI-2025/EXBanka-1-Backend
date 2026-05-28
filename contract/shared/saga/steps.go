@@ -86,6 +86,19 @@ const (
 	StepDebitBank       StepKind = "debit_bank"
 	StepCreditBorrower  StepKind = "credit_borrower"
 	StepMarkLoanActive  StepKind = "mark_loan_active"
+
+	// OTC accept post-saga steps (stock-service, now inside saga).
+	StepMarkOfferAccepted      StepKind = "mark_offer_accepted"
+	StepRecordSellerPremiumGain StepKind = "record_seller_premium_gain"
+	StepRecordBuyerPremiumCost  StepKind = "record_buyer_premium_cost"
+	StepPublishOTCAccepted     StepKind = "publish_otc_accepted_event"
+
+	// OTC exercise post-saga steps (stock-service, now inside saga).
+	StepUpsertBuyerHolding      StepKind = "upsert_buyer_holding"
+	StepRecordSellerStrikeGain  StepKind = "record_seller_strike_gain"
+	StepRecordBuyerExerciseCost StepKind = "record_buyer_exercise_cost"
+	StepMarkContractExercised   StepKind = "mark_contract_exercised"
+	StepPublishOTCExercise      StepKind = "publish_otc_exercise_event"
 )
 
 var allSteps = map[StepKind]struct{}{
@@ -107,6 +120,12 @@ var allSteps = map[StepKind]struct{}{
 	StepDebitUserFrom: {}, StepCreditBankFrom: {}, StepDebitBankTo: {},
 	StepCreditUserTo: {},
 	StepDebitBank: {}, StepCreditBorrower: {}, StepMarkLoanActive: {},
+	// OTC accept.
+	StepMarkOfferAccepted: {}, StepRecordSellerPremiumGain: {}, StepRecordBuyerPremiumCost: {},
+	StepPublishOTCAccepted: {},
+	// OTC exercise.
+	StepUpsertBuyerHolding: {}, StepRecordSellerStrikeGain: {}, StepRecordBuyerExerciseCost: {},
+	StepMarkContractExercised: {}, StepPublishOTCExercise: {},
 }
 
 // MustStep returns k if k is a registered StepKind. Otherwise it panics.
