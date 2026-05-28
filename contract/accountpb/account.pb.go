@@ -2015,12 +2015,17 @@ func (x *GetLedgerEntriesResponse) GetTotalCount() int64 {
 }
 
 type CreateBankAccountRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CurrencyCode  string                 `protobuf:"bytes,1,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
-	AccountKind   string                 `protobuf:"bytes,2,opt,name=account_kind,json=accountKind,proto3" json:"account_kind,omitempty"`
-	AccountName   string                 `protobuf:"bytes,3,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	CurrencyCode string                 `protobuf:"bytes,1,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
+	AccountKind  string                 `protobuf:"bytes,2,opt,name=account_kind,json=accountKind,proto3" json:"account_kind,omitempty"`
+	AccountName  string                 `protobuf:"bytes,3,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`
+	// account_category is an optional tag for the created account (e.g.
+	// "investment_fund"). When set it is stored verbatim on the account row so
+	// downstream services (transaction-service) can inspect it without a
+	// cross-service lookup.
+	AccountCategory string `protobuf:"bytes,4,opt,name=account_category,json=accountCategory,proto3" json:"account_category,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateBankAccountRequest) Reset() {
@@ -2070,6 +2075,13 @@ func (x *CreateBankAccountRequest) GetAccountKind() string {
 func (x *CreateBankAccountRequest) GetAccountName() string {
 	if x != nil {
 		return x.AccountName
+	}
+	return ""
+}
+
+func (x *CreateBankAccountRequest) GetAccountCategory() string {
+	if x != nil {
+		return x.AccountCategory
 	}
 	return ""
 }
@@ -3476,11 +3488,12 @@ const file_account_account_proto_rawDesc = "" +
 	"\x18GetLedgerEntriesResponse\x126\n" +
 	"\aentries\x18\x01 \x03(\v2\x1c.account.LedgerEntryResponseR\aentries\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\"\x85\x01\n" +
+	"totalCount\"\xb0\x01\n" +
 	"\x18CreateBankAccountRequest\x12#\n" +
 	"\rcurrency_code\x18\x01 \x01(\tR\fcurrencyCode\x12!\n" +
 	"\faccount_kind\x18\x02 \x01(\tR\vaccountKind\x12!\n" +
-	"\faccount_name\x18\x03 \x01(\tR\vaccountName\"\x19\n" +
+	"\faccount_name\x18\x03 \x01(\tR\vaccountName\x12)\n" +
+	"\x10account_category\x18\x04 \x01(\tR\x0faccountCategory\"\x19\n" +
 	"\x17ListBankAccountsRequest\"P\n" +
 	"\x18ListBankAccountsResponse\x124\n" +
 	"\baccounts\x18\x01 \x03(\v2\x18.account.AccountResponseR\baccounts\"*\n" +

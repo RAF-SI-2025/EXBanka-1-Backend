@@ -157,6 +157,9 @@ func (s *FundService) Create(ctx context.Context, in CreateFundInput) (*model.In
 		CurrencyCode: "RSD",
 		AccountKind:  "current",
 		AccountName:  fmt.Sprintf("Fund: %s", in.Name),
+		// Tag the account as an investment-fund RSD account so transaction-service
+		// can reject generic debit attempts without a cross-service lookup (E0).
+		AccountCategory: "investment_fund",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create RSD account: %w", err)

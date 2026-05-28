@@ -157,6 +157,14 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 			return fmt.Errorf("transfers must be between accounts of the same client; use payments for different-client transactions")
 		}
 
+		// E0 — Fund RSD account outflow restriction.
+		// Money in a fund's RSD account may only leave via fund operations
+		// (buy-on-behalf-of-fund, dividend payout, investor redemption).
+		// Generic transfers are forbidden regardless of who initiates them.
+		if fromAccount.GetAccountCategory() == "investment_fund" {
+			return fmt.Errorf("fund accounts cannot be used as a transfer source; use fund operations only: %w", ErrFundAccountRestricted)
+		}
+
 		// Spending limit pre-check
 		totalDebit := transfer.InitialAmount.Add(transfer.Commission)
 		dailyLimit, _ := decimal.NewFromString(fromAccount.GetDailyLimit())

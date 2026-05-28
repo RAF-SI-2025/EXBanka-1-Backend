@@ -65,4 +65,10 @@ var (
 
 	// ErrInvalidFee — fee rule payload fails validation.
 	ErrInvalidFee = svcerr.New(codes.InvalidArgument, "invalid fee rule")
+
+	// ErrFundAccountRestricted — the source account belongs to an investment
+	// fund. Fund RSD accounts may only be debited via fund operations (buy on
+	// behalf of fund, dividend payout, investor redemption). Generic
+	// transfer/payment routes must reject them (E0 invariant, Plan E).
+	ErrFundAccountRestricted = svcerr.New(codes.PermissionDenied, "fund accounts cannot be used as a transfer source; use fund operations only")
 )

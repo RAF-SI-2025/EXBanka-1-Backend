@@ -270,6 +270,11 @@ message CreateBankAccountRequest {
   string currency_code = 1;
   string account_kind = 2;
   string account_name = 3;
+  // account_category is an optional tag for the created account (e.g.
+  // "investment_fund"). When set it is stored verbatim on the account row so
+  // downstream services (transaction-service) can inspect it without a
+  // cross-service lookup.
+  string account_category = 4;
 }
 
 message ListBankAccountsRequest {}
