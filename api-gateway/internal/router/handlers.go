@@ -159,6 +159,10 @@ type Handlers struct {
 
 	// AdminAudit serves the /api/v3/admin/audit/* routes (D4 — 2026-05-28).
 	AdminAudit *handler.AdminAuditHandler
+
+	// Dividend serves the /api/v3/admin/dividends/* and /api/v3/me/dividends
+	// routes (E4 — 2026-05-28).
+	Dividend *handler.DividendHandler
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.
@@ -213,5 +217,6 @@ func NewHandlers(d Deps) *Handlers {
 		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, d.PeerOTCClient, d.AccountClient, ownRouting, d.OwnBankCode),
 		AdminCron:        handler.NewAdminCronHandler(d.AdminCronClients, d.AuditProducer),
 		AdminAudit:       handler.NewAdminAuditHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient, d.NotificationClient),
+		Dividend:         handler.NewDividendHandler(d.FundClient),
 	}
 }

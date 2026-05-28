@@ -185,6 +185,10 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 
 		// Investment funds (Celina-4): caller's positions.
 		me.GET("/investment-funds", bankIfEmp, h.Fund.ListMyPositions)
+		// E4: caller's dividend payout history.
+		me.GET("/dividends",
+			middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
+			h.Dividend.ListMyDividends)
 
 		// OTC option trading (Spec 2): caller's offers/contracts.
 		// (Phase 8) /me/otc/offers renamed to /me/otc/options.
@@ -1047,6 +1051,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		fundsAny.POST("/:id/redeem",
 			middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
 			h.Fund.Redeem)
+		// E4: fund dividend history (AnyAuth — fund manager + portfolio.view_fund)
+		fundsAny.GET("/:id/dividends", h.Dividend.ListFundDividends)
+	}
+
+	// ── Dividend admin routes (E4 — 2026-05-28) ───────────────────
+	dividendAdmin := protected.Group("/admin/dividends")
+	dividendAdmin.Use(middleware.RequirePermission(perms.Securities.Manage.Catalog))
+	{
+		dividendAdmin.POST("", h.Dividend.DeclareDividend)
+		dividendAdmin.POST("/:id/payout", h.Dividend.PayoutDividend)
 	}
 
 	// Catch-all 404 for any path not served by v3 or the swagger UI.

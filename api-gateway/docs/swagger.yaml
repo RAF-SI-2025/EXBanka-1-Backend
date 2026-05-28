@@ -601,6 +601,18 @@ definitions:
     - expiry_months
     - usage_type
     type: object
+  handler.declareDividendRequest:
+    properties:
+      amount_per_share_rsd:
+        type: string
+      payment_date:
+        description: '"2026-06-15"'
+        type: string
+      security_id:
+        type: integer
+      ticker:
+        type: string
+    type: object
   handler.executePaymentRequest:
     properties:
       challenge_id:
@@ -7365,6 +7377,74 @@ paths:
       summary: Trigger a cron manually
       tags:
       - Admin
+  /api/v3/admin/dividends:
+    post:
+      consumes:
+      - application/json
+      description: Admin creates a declared DividendPayment row. Idempotent on (security_id,
+        payment_date).
+      parameters:
+      - description: dividend declaration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.declareDividendRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Declare a dividend for a security
+      tags:
+      - Dividends
+  /api/v3/admin/dividends/{id}/payout:
+    post:
+      description: Fans out dividend credits to all holders of the security. Idempotent.
+      parameters:
+      - description: dividend_payment_id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Trigger dividend payout
+      tags:
+      - Dividends
   /api/v3/bank-accounts/{id}/activity:
     get:
       description: Returns paginated ledger entries (debits/credits) for a bank-owned
@@ -8280,6 +8360,42 @@ paths:
       summary: Get investment fund detail (enriched — E1)
       tags:
       - InvestmentFunds
+  /api/v3/investment-funds/{id}/dividends:
+    get:
+      description: Returns paginated fund_dividend_payments for the fund, most-recent
+        first.
+      parameters:
+      - description: fund id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List an investment fund's dividend history
+      tags:
+      - Dividends
   /api/v3/loan-requests:
     get:
       description: Returns all loan requests with optional filters. Requires credits.read
@@ -8570,6 +8686,37 @@ paths:
       summary: List my card requests
       tags:
       - card-requests
+  /api/v3/me/dividends:
+    get:
+      description: Returns paginated dividend_payouts for the caller's holdings, most-recent
+        first.
+      parameters:
+      - description: page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's dividend history
+      tags:
+      - Dividends
   /api/v3/me/loan-requests:
     post:
       consumes:

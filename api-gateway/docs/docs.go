@@ -9457,6 +9457,109 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/admin/dividends": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin creates a declared DividendPayment row. Idempotent on (security_id, payment_date).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "Declare a dividend for a security",
+                "parameters": [
+                    {
+                        "description": "dividend declaration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.declareDividendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/dividends/{id}/payout": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fans out dividend credits to all holders of the security. Idempotent.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "Trigger dividend payout",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "dividend_payment_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/bank-accounts/{id}/activity": {
             "get": {
                 "security": [
@@ -10747,6 +10850,60 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/investment-funds/{id}/dividends": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated fund_dividend_payments for the fund, most-recent first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "List an investment fund's dividend history",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "fund id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/loan-requests": {
             "get": {
                 "security": [
@@ -11186,6 +11343,53 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/dividends": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated dividend_payouts for the caller's holdings, most-recent first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "List the caller's dividend history",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -15673,6 +15877,24 @@ const docTemplate = `{
                 "usage_type": {
                     "type": "string",
                     "example": "single_use"
+                }
+            }
+        },
+        "handler.declareDividendRequest": {
+            "type": "object",
+            "properties": {
+                "amount_per_share_rsd": {
+                    "type": "string"
+                },
+                "payment_date": {
+                    "description": "\"2026-06-15\"",
+                    "type": "string"
+                },
+                "security_id": {
+                    "type": "integer"
+                },
+                "ticker": {
+                    "type": "string"
                 }
             }
         },
