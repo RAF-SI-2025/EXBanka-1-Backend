@@ -1461,24 +1461,7 @@ api-gateway:
 
 These routes are reached by other banks in the SI-TX cohort, not by employees or clients. Authentication is via `middleware.PeerAuth` (hybrid `X-Api-Key` or HMAC headers — see [§25](#25-inter-bank-cross-bank-communication-celina-5--si-tx)).
 
-> **Dual-mount (Plan F, 2026-05-28):** Every wire-protocol route is served at BOTH the legacy path (e.g. `POST /api/v3/interbank`) AND the new canonical path under the `/cross-bank-protocol` prefix (e.g. `POST /api/v3/cross-bank-protocol/interbank`). Same handlers, same PeerAuth middleware. Legacy paths remain live for existing cohort-bank registrations. New cohort registrations should set `base_url` to `.../api/v3/cross-bank-protocol`. See §21 for the migration business rule.
-
-**Legacy paths (deprecated — existing cohort compat):**
-
-| Method | Path | Middleware | Handler | Description |
-|---|---|---|---|---|
-| POST | `/api/v3/interbank` | PeerAuth | PeerTxHandler.PostInterbank | SI-TX `Message<Type>` envelope. Phase 3. **Deprecated — use `/api/v3/cross-bank-protocol/interbank`.** |
-| GET | `/api/v3/interbank/:transaction_id/status` | PeerAuth | PeerTxStatusHandler.GetTxStatus | Celina-5 CHECK_STATUS. **Deprecated — use canonical prefix.** |
-| GET | `/api/v3/public-stock` | PeerAuth | PeerOTCHandler.GetPublicStocks | Lists own bank's OTC-public holdings. Phase 4. **Deprecated.** |
-| GET | `/api/v3/public-option-offers` | PeerAuth | PeerOTCHandler.GetPublicOptionOffers | Phase 6 cross-bank discovery of OPEN option listings. **Deprecated.** |
-| POST | `/api/v3/negotiations` | PeerAuth | PeerOTCHandler.CreateNegotiation | Peer-initiated cross-bank OTC offer. Phase 4. **Deprecated.** |
-| PUT | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.UpdateNegotiation | Counter-offer. Phase 4. **Deprecated.** |
-| GET | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.GetNegotiation | Read negotiation state. Phase 4. **Deprecated.** |
-| DELETE | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.DeleteNegotiation | Cancel. Phase 4. **Deprecated.** |
-| GET | `/api/v3/negotiations/:rid/:id/accept` | PeerAuth | PeerOTCHandler.AcceptNegotiation | Triggers 4-posting TX via PeerTxService. Phase 4. **Deprecated.** |
-| GET | `/api/v3/user/:rid/:id` | PeerAuth | PeerUserHandler.GetUser | Counterparty user info lookup. Phase 4. **Deprecated.** |
-
-**Canonical paths (preferred — new cohort registrations should use these):**
+**Cross-bank protocol routes are served exclusively at `/api/v3/cross-bank-protocol/...`. Cohort banks MUST register this bank's `base_url` ending in `/api/v3/cross-bank-protocol` to interoperate. Legacy paths (`/api/v3/interbank`, `/api/v3/public-stock`, `/api/v3/negotiations/*`, `/api/v3/user/*`) were removed on 2026-05-29.**
 
 | Method | Path | Middleware | Handler | Description |
 |---|---|---|---|---|
@@ -2419,12 +2402,11 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 
 ### Key Business Rules
 
-**Cross-bank protocol path duality (Plan F, 2026-05-28):**
-- Cross-bank wire-protocol routes are served at BOTH the legacy prefix (`/api/v3/<route>`) AND the canonical prefix (`/api/v3/cross-bank-protocol/<route>`). Cohort banks may use either prefix; new registrations should prefer the canonical one.
-- Both prefixes use the same `PeerAuth` middleware (hybrid `X-Api-Key` or HMAC bundle), the same handlers, and the same response shapes. The protocol semantics are identical — same SI-TX envelopes, same idempotence keys, same status codes.
-- Legacy paths (`/api/v3/interbank`, `/api/v3/public-stock`, `/api/v3/negotiations/*`, `/api/v3/user/*`) must remain live until every cohort bank has confirmed re-registration at the canonical prefix. Do NOT remove them without a cohort-wide coordination step.
-- To migrate inbound calls from a peer bank to the new prefix: have the peer update this bank's `base_url` in their `peer_banks` table to point at `/api/v3/cross-bank-protocol`.
-- To migrate our outbound calls to a peer's new prefix: update the peer's row in our `peer_banks` table via `PUT /api/v3/peer-banks/:id` with the new `base_url`.
+**Cross-bank protocol canonical prefix (2026-05-29):**
+- Cross-bank wire-protocol routes are served EXCLUSIVELY at the canonical prefix `/api/v3/cross-bank-protocol/<route>`. Legacy paths (`/api/v3/interbank`, `/api/v3/public-stock`, `/api/v3/negotiations/*`, `/api/v3/user/*`) were removed on 2026-05-29 and return 404.
+- Cohort banks MUST register this bank's `base_url` ending in `/api/v3/cross-bank-protocol` in their `peer_banks` table to interoperate. Any bank still registered with the old prefix will receive 404 and must update immediately.
+- All routes use `PeerAuth` middleware (hybrid `X-Api-Key` or HMAC bundle). Protocol semantics are unchanged — same SI-TX envelopes, same idempotence keys, same status codes.
+- To migrate our outbound calls to a peer's canonical prefix: update the peer's row in our `peer_banks` table via `PUT /api/v3/peer-banks/:id` with the new `base_url`.
 
 **Stock & futures price oscillation (generated source — dev/demo default):**
 - The `generated` source (`stock-service/internal/source/generated_source.go`) drives stock and futures prices on a deterministic 4-minute cycle keyed to wallclock UTC minutes. Each phase lasts exactly one minute.
@@ -2513,7 +2495,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 
 **Stock-service synthetic history backfill.** During `SeedAll` (initial seed and `SwitchSource`), `stock-service` writes 5 years (1825 days) of deterministic synthetic OHLC rows per listing to `listing_daily_price_infos`. Random walk is seeded by `listing.ID`, anchors the newest row at the listing's current price, and is idempotent on reseed via `INSERT … ON CONFLICT (listing_id, date) DO UPDATE`. Implemented in `stock-service/internal/service/listing_history_backfill.go`.
 
-**No saga can leave the system stuck.** Every cross-bank (SI-TX), OTC, loan disbursement, and recurring-order operation has automatic compensation. Compensations are retried up to 10 times by per-service recovery workers, then escalated to a service-scoped dead-letter Kafka topic (`transaction.saga-dead-letter`, `credit.saga-dead-letter`, `stock.saga-dead-letter`). No path requires admin manual reconciliation under normal failure modes. Cross-bank TX stuck-state is additionally resolved by the Celina-5 CHECK_STATUS mechanism: `PeerTxReconciler` (sender side) polls peers every 10 minutes via `GET /api/v3/interbank/:txID/status`; peers that have committed locally will report `committed` so the sender can close its row without a re-send loop.
+**No saga can leave the system stuck.** Every cross-bank (SI-TX), OTC, loan disbursement, and recurring-order operation has automatic compensation. Compensations are retried up to 10 times by per-service recovery workers, then escalated to a service-scoped dead-letter Kafka topic (`transaction.saga-dead-letter`, `credit.saga-dead-letter`, `stock.saga-dead-letter`). No path requires admin manual reconciliation under normal failure modes. Cross-bank TX stuck-state is additionally resolved by the Celina-5 CHECK_STATUS mechanism: `PeerTxReconciler` (sender side) polls peers every 10 minutes via `GET /api/v3/cross-bank-protocol/interbank/:txID/status`; peers that have committed locally will report `committed` so the sender can close its row without a re-send loop.
 
 **Securities & Trading (Phase 2 bank-safe settlement):**
 - Buy orders for securities reserve funds at placement (converted to the account currency via exchange-service for cross-currency listings). Reservations are released on cancellation; released partially when an order completes under the reserved amount due to market slippage.
