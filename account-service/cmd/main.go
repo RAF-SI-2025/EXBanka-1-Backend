@@ -19,7 +19,9 @@ import (
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
+	adminpb "github.com/exbanka/contract/adminpb"
 	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
@@ -37,9 +39,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}, &model.IdempotencyRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}, &model.IdempotencyRecord{}, &cronreg.CronPauseState{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("account-service", cronreg.NewGormPauseStore(db))
 	// Order-kind namespace migration (2026-05-16): older deployments had a
 	// single-column UNIQUE on account_reservations.order_id, which caused
 	// caller-namespace collisions (e.g. stock Order.ID == OTC
@@ -71,6 +74,7 @@ func main() {
 		"account.changelog",
 		"notification.send-email",
 		"notification.general",
+		"admin.cron-action",
 	)
 
 	var redisCache *cache.RedisCache
@@ -118,10 +122,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	spendingCron := service.NewSpendingCronService(accountRepo)
+	spendingCron := service.NewSpendingCronService(accountRepo, cronRegistry)
 	spendingCron.Start(ctx)
 
-	maintenanceCron := service.NewMaintenanceCronService(accountRepo, ledgerService, producer)
+	maintenanceCron := service.NewMaintenanceCronService(accountRepo, ledgerService, producer, cronRegistry)
 	maintenanceCron.Start(ctx)
 
 	// Seed bank accounts for all supported currencies (idempotent)
@@ -220,6 +224,7 @@ func main() {
 		Register: func(s *grpc.Server) {
 			pb.RegisterAccountServiceServer(s, grpcHandler)
 			pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "account-service")
 			metrics.InitializeGRPCMetrics(s)
 		},
