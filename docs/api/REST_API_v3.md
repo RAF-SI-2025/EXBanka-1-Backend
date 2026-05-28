@@ -77,9 +77,22 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 37. [Notifications](#37-notifications)
 38. [Stock Data Source](#38-stock-data-source)
 39. [Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)](#39-peer-banks-admin--si-tx-cross-bank-registry-celina-5)
-40. [Error Response Format](#error-response-format)
-41. [Password Requirements](#password-requirements)
-42. [Notes for Frontend Developers](#notes-for-frontend-developers)
+40. [Watchlist (Celina 3)](#40-watchlist-celina-3)
+41. [OTC Negotiation History (Celina 3)](#41-otc-negotiation-history-celina-3)
+42. [OTC Trader Ratings (Celina 3)](#42-otc-trader-ratings-celina-3)
+43. [Price Alerts (Celina 3)](#43-price-alerts-celina-3)
+44. [Transfer Status (Celina 4 / SI-TX)](#44-transfer-status-celina-4--si-tx)
+45. [Recurring Securities Orders (Celina 3)](#45-recurring-securities-orders-celina-3)
+46. [Recurring Fund Investments (Celina 4)](#46-recurring-fund-investments-celina-4)
+47. [OTC Marketplace Refactor (Phases 2-6)](#47-otc-marketplace-refactor-phases-2-6)
+48. [Unified Portfolio Routes (2026-05-28)](#48-unified-portfolio-routes-2026-05-28)
+49. [Admin / Cron Management (C10 — 2026-05-28)](#49-admin--cron-management-c10--2026-05-28)
+50. [Admin / Audit Logs (D4 — 2026-05-28)](#50-admin--audit-logs-d4--2026-05-28)
+51. [Dividends (E4 — 2026-05-28)](#51-dividends-e4--2026-05-28)
+52. [Cross-Bank Protocol](#cross-bank-protocol-cross-bank-protocol)
+53. [Error Response Format](#error-response-format)
+54. [Password Requirements](#password-requirements)
+55. [Notes for Frontend Developers](#notes-for-frontend-developers)
 
 ---
 
@@ -1604,6 +1617,8 @@ Initiate a new payment from a client account.
 
 > **Note:** Payment is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/v3/verifications` and then poll `GET /api/v3/verifications/:id/status` until verified. Once verified, call `POST /api/v3/me/payments/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
+> **Fund account restriction (E0, Plan E 2026-05-28):** The source account (`from_account_number`) must NOT belong to an investment fund's RSD account (`account_category = "investment_fund"`). Fund cash may only exit via dedicated fund operations (buy on behalf of fund, dividend payout, investor redemption). Using a fund account as the source returns `403 forbidden` with code `fund_account_outflow_restricted`.
+
 ---
 
 ### GET /api/v3/payments/:id
@@ -1803,6 +1818,8 @@ Initiate a currency transfer between accounts.
 > **Note:** Transfer is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/v3/verifications` and then poll `GET /api/v3/verifications/:id/status` until verified. Once verified, call `POST /api/v3/me/transfers/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
 > **Inter-bank dispatch (Phase 3):** When `to_account_number`'s 3-digit prefix differs from this bank's `OWN_BANK_CODE`, the request is dispatched to `PeerTxService.InitiateOutboundTx` via gRPC and returns `202 Accepted` with `{transaction_id, poll_url, status}`. Poll the returned URL for SI-TX completion status. Intra-bank receivers (own prefix) keep the legacy `201 Created` shape above.
+
+> **Fund account restriction (E0, Plan E 2026-05-28):** The source account (`from_account_number`) must NOT belong to an investment fund's RSD account (`account_category = "investment_fund"`). Fund cash may only exit via dedicated fund operations (buy on behalf of fund, dividend payout, investor redemption). Using a fund account as the source returns `403 forbidden` with code `fund_account_outflow_restricted`.
 
 ---
 
@@ -5411,11 +5428,13 @@ Exercise an option by `option_id`. If `holding_id` is omitted, the backend auto-
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `holding_id` | uint64 | No | Holding to consume; auto-resolved when omitted |
+| `on_behalf_of_fund_id` | uint64 | No | *E2, Plan E.* When non-zero, exercises the contract on behalf of an investment fund. The acting employee must be the fund's manager. Acquired shares land in `fund_holdings` instead of personal holdings. Only valid when the underlying `OptionContract` was itself accepted on behalf of a fund (i.e. its `on_behalf_of_fund_id` is set). |
 
 **Response 200:** Exercise result (holding update + ledger entries).
 
 **Error Responses:**
 - `400` — invalid `option_id`
+- `403` — `on_behalf_of_fund_id` set but acting employee is not the fund's manager
 - `404` — option / holding not found
 
 ---
@@ -5424,52 +5443,13 @@ Exercise an option by `option_id`. If `holding_id` is omitted, the backend auto-
 
 ### GET /api/v3/me/portfolio
 
-List authenticated user's holdings.
+> **Shape updated in Plan B (2026-05-28).** This endpoint now returns the unified grouped portfolio shape with separate `securities` and `funds` groups, full P/L totals, and per-position `dividends_received_rsd` / `fund_status` fields. See [Section 48.1](#481-my-portfolio-client-or-bank) for the current canonical documentation and response shape.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
+- Client principal → returns caller's own portfolio.
+- Employee principal → returns the bank's portfolio (identity rule: `OwnerIsBankIfEmployee`).
 
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `page` | int | Page number (default: 1) |
-| `page_size` | int | Items per page (default: 10) |
-| `security_type` | string | `stock`, `futures`, or `option` |
-
-**Response 200:**
-
-Holdings aggregate per `(user_id, system_type, security_type, security_id)` — buying the same stock from two different accounts returns a single row with the combined quantity. Per-purchase price, profit, and FX details are available at [GET /me/holdings/{id}/transactions](#get-apiv1meholdingsidtransactions).
-
-```json
-{
-  "holdings": [
-    {
-      "id": 1,
-      "security_type": "stock",
-      "ticker": "AAPL",
-      "name": "Apple Inc.",
-      "quantity": 10,
-      "public_quantity": 3,
-      "account_id": 42,
-      "last_modified": "2026-04-01T12:00:00Z"
-    }
-  ],
-  "total_count": 10
-}
-```
-
-**Holding object fields:**
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | uint64 | Holding ID |
-| `security_type` | string | `stock`, `futures`, or `option` |
-| `ticker` | string | Security ticker symbol |
-| `name` | string | Security name |
-| `quantity` | int64 | Total units owned (aggregated across every account used) |
-| `public_quantity` | int64 | Units listed on OTC market |
-| `account_id` | uint64 | Last-used account (audit pointer, not authoritative) |
-| `last_modified` | string | ISO 8601 timestamp of last update |
+**Response 200:** See [§48.1](#481-my-portfolio-client-or-bank) for the full response shape (grouped `securities` + `funds` with P/L totals and dividend fields).
 
 ### GET /api/v3/me/holdings/{id}/transactions
 
