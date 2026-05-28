@@ -240,6 +240,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	peer.Use(h.PeerAuthMW)
 	{
 		peer.POST("/interbank", h.PeerTx.PostInterbank)
+		// CHECK_STATUS: peer banks can query the state of a cross-bank TX
+		// by transactionId so stuck sagas can be resolved (Celina-5 §"Mehanizam za Retry").
+		peer.GET("/interbank/:transaction_id/status", h.PeerTxStatus.GetTxStatus)
 
 		// Phase 4 SI-TX OTC peer endpoints (Celina 5). Auth is the same
 		// hybrid X-Api-Key/HMAC bundle as /interbank — peer_bank_code is

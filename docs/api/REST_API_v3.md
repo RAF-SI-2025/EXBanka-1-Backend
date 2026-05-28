@@ -6959,6 +6959,39 @@ Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 3 implementat
 
 ---
 
+### GET /api/v3/interbank/:transaction_id/status
+
+Allows a peer bank to query the status of a cross-bank SI-TX transaction by its `transactionId` (the UUID / idempotence key used in the original `NEW_TX` envelope). Used by the Celina-5 CHECK_STATUS mechanism so stuck sagas can be resolved by either side when communication breaks mid-flight.
+
+**Authentication:** PeerAuth (X-Api-Key or HMAC bundle) — same as `POST /api/v3/interbank`.
+
+**Path Parameters:**
+- `transaction_id` — the SI-TX transaction UUID (= the `locallyGeneratedKey` sent in the original `NEW_TX` envelope).
+
+**Response 200:**
+```json
+{
+  "transaction_id": "abc-123-uuid",
+  "state":          "committed",
+  "our_role":       "sender",
+  "last_action_at": "2026-05-28T12:00:00Z",
+  "last_error":     ""
+}
+```
+
+- `state`: one of `"prepared"` (pending/in-progress), `"committed"`, `"rolled_back"`, `"dead_letter"` (terminal failure, max retries exceeded), `"unknown"` (no record found).
+- `our_role`: `"sender"` (we initiated this TX via `InitiateOutboundTx`), `"receiver"` (we received a `NEW_TX` from the caller), or `""` when unknown.
+- `last_action_at`: RFC3339 timestamp of the last status update, empty when unknown.
+- `last_error`: last recorded error string, empty on success.
+
+**Responses:**
+- **200 OK** — always returned for any known or unknown transaction (unknown → `state: "unknown"`).
+- **400 Bad Request** — `transaction_id` missing (path param required).
+- **401 Unauthorized** — peer auth failed.
+- **500 Internal Server Error** — unexpected backend error.
+
+---
+
 ### GET /api/v3/public-stock
 
 Peer-facing OTC discovery — returns stock holdings on this bank flagged for OTC public trading. Used by peer banks to populate their OTC discovery pages.

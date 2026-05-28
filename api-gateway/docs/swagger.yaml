@@ -7242,6 +7242,44 @@ paths:
         VOTE)'
       tags:
       - PeerOTC
+  /api/v3/interbank/{transaction_id}/status:
+    get:
+      description: Allows a peer bank to query the state of a cross-bank SI-TX transaction
+        by its transactionId. Returns the state and our role (sender|receiver). Used
+        by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved
+        by either side.
+      parameters:
+      - description: SI-TX transaction UUID (idempotence key)
+        in: path
+        name: transaction_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: query cross-bank transaction status (CHECK_STATUS)'
+      tags:
+      - PeerOTC
   /api/v3/loan-requests:
     get:
       description: Returns all loan requests with optional filters. Requires credits.read

@@ -9332,6 +9332,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/interbank/{transaction_id}/status": {
+            "get": {
+                "description": "Allows a peer bank to query the state of a cross-bank SI-TX transaction by its transactionId. Returns the state and our role (sender|receiver). Used by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved by either side.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: query cross-bank transaction status (CHECK_STATUS)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SI-TX transaction UUID (idempotence key)",
+                        "name": "transaction_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/loan-requests": {
             "get": {
                 "security": [

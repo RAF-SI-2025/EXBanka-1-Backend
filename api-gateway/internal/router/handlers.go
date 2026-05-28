@@ -128,6 +128,7 @@ type Handlers struct {
 	// admin routes, and PeerAuthMW is the hybrid auth middleware
 	// (X-Api-Key OR HMAC bundle) that protects /interbank.
 	PeerTx        *handler.PeerTxHandler
+	PeerTxStatus  *handler.PeerTxStatusHandler
 	PeerBankAdmin *handler.PeerBankAdminHandler
 	PeerAuthMW    gin.HandlerFunc
 
@@ -185,6 +186,7 @@ func NewHandlers(d Deps) *Handlers {
 		RecurringOrder:   handler.NewRecurringOrderHandler(d.RecurringOrderClient),
 		RecurringFund:    handler.NewRecurringFundHandler(d.RecurringFundClient),
 		PeerTx:           handler.NewPeerTxHandler(d.PeerTxClient),
+		PeerTxStatus:     handler.NewPeerTxStatusHandler(d.PeerTxClient),
 		PeerBankAdmin:    handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
 		PeerAuthMW:       middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
 		PeerOTC:          handler.NewPeerOTCHandler(d.PeerOTCClient),
