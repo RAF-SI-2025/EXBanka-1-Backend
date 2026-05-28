@@ -7899,11 +7899,23 @@ func (x *GetFundRequest) GetFundId() uint64 {
 }
 
 type FundDetailResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Fund          *FundResponse          `protobuf:"bytes,1,opt,name=fund,proto3" json:"fund,omitempty"`
-	Holdings      []*FundHoldingItem     `protobuf:"bytes,2,rep,name=holdings,proto3" json:"holdings,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Fund     *FundResponse          `protobuf:"bytes,1,opt,name=fund,proto3" json:"fund,omitempty"`
+	Holdings []*FundHoldingItem     `protobuf:"bytes,2,rep,name=holdings,proto3" json:"holdings,omitempty"`
+	// E1 enrichment fields (sub-plan E1, Plan E 2026-05-28)
+	InvestorCount         int64  `protobuf:"varint,3,opt,name=investor_count,json=investorCount,proto3" json:"investor_count,omitempty"`
+	TotalContributedRsd   string `protobuf:"bytes,4,opt,name=total_contributed_rsd,json=totalContributedRsd,proto3" json:"total_contributed_rsd,omitempty"`
+	LiquidRsdBalance      string `protobuf:"bytes,5,opt,name=liquid_rsd_balance,json=liquidRsdBalance,proto3" json:"liquid_rsd_balance,omitempty"`
+	TotalHoldingsValueRsd string `protobuf:"bytes,6,opt,name=total_holdings_value_rsd,json=totalHoldingsValueRsd,proto3" json:"total_holdings_value_rsd,omitempty"`
+	TotalValueRsd         string `protobuf:"bytes,7,opt,name=total_value_rsd,json=totalValueRsd,proto3" json:"total_value_rsd,omitempty"`
+	// total_dividends_paid_rsd is always "0" until E4 implements the
+	// fund_dividend_payments table. Kept in the proto so callers can rely on
+	// the field name regardless of whether E4 has landed.
+	TotalDividendsPaidRsd string `protobuf:"bytes,8,opt,name=total_dividends_paid_rsd,json=totalDividendsPaidRsd,proto3" json:"total_dividends_paid_rsd,omitempty"`
+	ProfitRsd             string `protobuf:"bytes,9,opt,name=profit_rsd,json=profitRsd,proto3" json:"profit_rsd,omitempty"`
+	ProfitPct             string `protobuf:"bytes,10,opt,name=profit_pct,json=profitPct,proto3" json:"profit_pct,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *FundDetailResponse) Reset() {
@@ -7950,6 +7962,62 @@ func (x *FundDetailResponse) GetHoldings() []*FundHoldingItem {
 	return nil
 }
 
+func (x *FundDetailResponse) GetInvestorCount() int64 {
+	if x != nil {
+		return x.InvestorCount
+	}
+	return 0
+}
+
+func (x *FundDetailResponse) GetTotalContributedRsd() string {
+	if x != nil {
+		return x.TotalContributedRsd
+	}
+	return ""
+}
+
+func (x *FundDetailResponse) GetLiquidRsdBalance() string {
+	if x != nil {
+		return x.LiquidRsdBalance
+	}
+	return ""
+}
+
+func (x *FundDetailResponse) GetTotalHoldingsValueRsd() string {
+	if x != nil {
+		return x.TotalHoldingsValueRsd
+	}
+	return ""
+}
+
+func (x *FundDetailResponse) GetTotalValueRsd() string {
+	if x != nil {
+		return x.TotalValueRsd
+	}
+	return ""
+}
+
+func (x *FundDetailResponse) GetTotalDividendsPaidRsd() string {
+	if x != nil {
+		return x.TotalDividendsPaidRsd
+	}
+	return ""
+}
+
+func (x *FundDetailResponse) GetProfitRsd() string {
+	if x != nil {
+		return x.ProfitRsd
+	}
+	return ""
+}
+
+func (x *FundDetailResponse) GetProfitPct() string {
+	if x != nil {
+		return x.ProfitPct
+	}
+	return ""
+}
+
 type FundHoldingItem struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SecurityType    string                 `protobuf:"bytes,1,opt,name=security_type,json=securityType,proto3" json:"security_type,omitempty"`
@@ -7959,6 +8027,8 @@ type FundHoldingItem struct {
 	AveragePriceRsd string                 `protobuf:"bytes,5,opt,name=average_price_rsd,json=averagePriceRsd,proto3" json:"average_price_rsd,omitempty"`
 	CurrentPriceRsd string                 `protobuf:"bytes,6,opt,name=current_price_rsd,json=currentPriceRsd,proto3" json:"current_price_rsd,omitempty"`
 	AcquiredAt      string                 `protobuf:"bytes,7,opt,name=acquired_at,json=acquiredAt,proto3" json:"acquired_at,omitempty"`
+	// current_value_rsd = quantity × current_price_rsd (computed server-side)
+	CurrentValueRsd string `protobuf:"bytes,8,opt,name=current_value_rsd,json=currentValueRsd,proto3" json:"current_value_rsd,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -8038,6 +8108,13 @@ func (x *FundHoldingItem) GetCurrentPriceRsd() string {
 func (x *FundHoldingItem) GetAcquiredAt() string {
 	if x != nil {
 		return x.AcquiredAt
+	}
+	return ""
+}
+
+func (x *FundHoldingItem) GetCurrentValueRsd() string {
+	if x != nil {
+		return x.CurrentValueRsd
 	}
 	return ""
 }
@@ -9467,8 +9544,14 @@ type OTCAcceptNegotiationRequest struct {
 	// buy_initiated). Required — accept now mints a contract and moves
 	// money, both of which need a bound account on the accepter's side.
 	AcceptorAccountId uint64 `protobuf:"varint,7,opt,name=acceptor_account_id,json=acceptorAccountId,proto3" json:"acceptor_account_id,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// E2: when non-zero the buyer side of this accept is on behalf of a fund.
+	// Premium debit comes from the fund's RSD account; the resulting contract
+	// is fund-owned. Caller must be the fund's manager (acting_employee_id
+	// must equal fund.manager_employee_id). acceptor_account_id MUST equal
+	// fund.rsd_account_id.
+	OnBehalfOfFundId uint64 `protobuf:"varint,8,opt,name=on_behalf_of_fund_id,json=onBehalfOfFundId,proto3" json:"on_behalf_of_fund_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *OTCAcceptNegotiationRequest) Reset() {
@@ -9546,6 +9629,13 @@ func (x *OTCAcceptNegotiationRequest) GetActingEmployeeId() uint64 {
 func (x *OTCAcceptNegotiationRequest) GetAcceptorAccountId() uint64 {
 	if x != nil {
 		return x.AcceptorAccountId
+	}
+	return 0
+}
+
+func (x *OTCAcceptNegotiationRequest) GetOnBehalfOfFundId() uint64 {
+	if x != nil {
+		return x.OnBehalfOfFundId
 	}
 	return 0
 }
@@ -13086,8 +13176,12 @@ type ExerciseContractRequest struct {
 	ActorSystemType string                 `protobuf:"bytes,3,opt,name=actor_system_type,json=actorSystemType,proto3" json:"actor_system_type,omitempty"`
 	// Set when an employee acts on behalf of a client. 0 = acting as the bank.
 	OnBehalfOfClientId uint64 `protobuf:"varint,4,opt,name=on_behalf_of_client_id,json=onBehalfOfClientId,proto3" json:"on_behalf_of_client_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// E2: when non-zero the buyer side of this exercise is on behalf of a fund.
+	// Strike debit comes from the fund's RSD account; acquired shares land in
+	// fund_holdings. Caller must be the fund's manager.
+	OnBehalfOfFundId uint64 `protobuf:"varint,5,opt,name=on_behalf_of_fund_id,json=onBehalfOfFundId,proto3" json:"on_behalf_of_fund_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ExerciseContractRequest) Reset() {
@@ -13144,6 +13238,13 @@ func (x *ExerciseContractRequest) GetActorSystemType() string {
 func (x *ExerciseContractRequest) GetOnBehalfOfClientId() uint64 {
 	if x != nil {
 		return x.OnBehalfOfClientId
+	}
+	return 0
+}
+
+func (x *ExerciseContractRequest) GetOnBehalfOfFundId() uint64 {
+	if x != nil {
+		return x.OnBehalfOfFundId
 	}
 	return 0
 }
@@ -17917,10 +18018,21 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x05funds\x18\x01 \x03(\v2\x13.stock.FundResponseR\x05funds\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\")\n" +
 	"\x0eGetFundRequest\x12\x17\n" +
-	"\afund_id\x18\x01 \x01(\x04R\x06fundId\"q\n" +
+	"\afund_id\x18\x01 \x01(\x04R\x06fundId\"\xd2\x03\n" +
 	"\x12FundDetailResponse\x12'\n" +
 	"\x04fund\x18\x01 \x01(\v2\x13.stock.FundResponseR\x04fund\x122\n" +
-	"\bholdings\x18\x02 \x03(\v2\x16.stock.FundHoldingItemR\bholdings\"\x84\x02\n" +
+	"\bholdings\x18\x02 \x03(\v2\x16.stock.FundHoldingItemR\bholdings\x12%\n" +
+	"\x0einvestor_count\x18\x03 \x01(\x03R\rinvestorCount\x122\n" +
+	"\x15total_contributed_rsd\x18\x04 \x01(\tR\x13totalContributedRsd\x12,\n" +
+	"\x12liquid_rsd_balance\x18\x05 \x01(\tR\x10liquidRsdBalance\x127\n" +
+	"\x18total_holdings_value_rsd\x18\x06 \x01(\tR\x15totalHoldingsValueRsd\x12&\n" +
+	"\x0ftotal_value_rsd\x18\a \x01(\tR\rtotalValueRsd\x127\n" +
+	"\x18total_dividends_paid_rsd\x18\b \x01(\tR\x15totalDividendsPaidRsd\x12\x1d\n" +
+	"\n" +
+	"profit_rsd\x18\t \x01(\tR\tprofitRsd\x12\x1d\n" +
+	"\n" +
+	"profit_pct\x18\n" +
+	" \x01(\tR\tprofitPct\"\xb0\x02\n" +
 	"\x0fFundHoldingItem\x12#\n" +
 	"\rsecurity_type\x18\x01 \x01(\tR\fsecurityType\x12\x1f\n" +
 	"\vsecurity_id\x18\x02 \x01(\x04R\n" +
@@ -17930,7 +18042,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x11average_price_rsd\x18\x05 \x01(\tR\x0faveragePriceRsd\x12*\n" +
 	"\x11current_price_rsd\x18\x06 \x01(\tR\x0fcurrentPriceRsd\x12\x1f\n" +
 	"\vacquired_at\x18\a \x01(\tR\n" +
-	"acquiredAt\"\xff\x01\n" +
+	"acquiredAt\x12*\n" +
+	"\x11current_value_rsd\x18\b \x01(\tR\x0fcurrentValueRsd\"\xff\x01\n" +
 	"\x11UpdateFundRequest\x12*\n" +
 	"\x11actor_employee_id\x18\x01 \x01(\x03R\x0factorEmployeeId\x12\x17\n" +
 	"\afund_id\x18\x02 \x01(\x04R\x06fundId\x12\x12\n" +
@@ -18061,7 +18174,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x15acting_principal_type\x18\b \x01(\tR\x13actingPrincipalType\x12.\n" +
 	"\x13acting_principal_id\x18\t \x01(\x04R\x11actingPrincipalId\x12,\n" +
 	"\x12acting_employee_id\x18\n" +
-	" \x01(\x04R\x10actingEmployeeId\"\xda\x02\n" +
+	" \x01(\x04R\x10actingEmployeeId\"\x8a\x03\n" +
 	"\x1bOTCAcceptNegotiationRequest\x12%\n" +
 	"\x0enegotiation_id\x18\x01 \x01(\x04R\rnegotiationId\x12*\n" +
 	"\x11caller_owner_type\x18\x02 \x01(\tR\x0fcallerOwnerType\x12&\n" +
@@ -18069,7 +18182,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x15acting_principal_type\x18\x04 \x01(\tR\x13actingPrincipalType\x12.\n" +
 	"\x13acting_principal_id\x18\x05 \x01(\x04R\x11actingPrincipalId\x12,\n" +
 	"\x12acting_employee_id\x18\x06 \x01(\x04R\x10actingEmployeeId\x12.\n" +
-	"\x13acceptor_account_id\x18\a \x01(\x04R\x11acceptorAccountId\"\xa8\x02\n" +
+	"\x13acceptor_account_id\x18\a \x01(\x04R\x11acceptorAccountId\x12.\n" +
+	"\x14on_behalf_of_fund_id\x18\b \x01(\x04R\x10onBehalfOfFundId\"\xa8\x02\n" +
 	"\x1cOTCAcceptNegotiationResponse\x127\n" +
 	"\awinning\x18\x01 \x01(\v2\x1d.stock.OTCNegotiationResponseR\awinning\x12&\n" +
 	"\x0fparent_offer_id\x18\x02 \x01(\x04R\rparentOfferId\x12#\n" +
@@ -18396,13 +18510,14 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vcontract_id\x18\x01 \x01(\x04R\n" +
 	"contractId\x12\"\n" +
 	"\ractor_user_id\x18\x02 \x01(\x03R\vactorUserId\x12*\n" +
-	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\"\xbe\x01\n" +
+	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\"\xee\x01\n" +
 	"\x17ExerciseContractRequest\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\x04R\n" +
 	"contractId\x12\"\n" +
 	"\ractor_user_id\x18\x02 \x01(\x03R\vactorUserId\x12*\n" +
 	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\x122\n" +
-	"\x16on_behalf_of_client_id\x18\x04 \x01(\x04R\x12onBehalfOfClientId\"\xf7\x02\n" +
+	"\x16on_behalf_of_client_id\x18\x04 \x01(\x04R\x12onBehalfOfClientId\x12.\n" +
+	"\x14on_behalf_of_fund_id\x18\x05 \x01(\x04R\x10onBehalfOfFundId\"\xf7\x02\n" +
 	"\x10ExerciseResponse\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\x04R\n" +
 	"contractId\x12\x16\n" +

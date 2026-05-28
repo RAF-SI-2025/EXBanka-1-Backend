@@ -120,9 +120,22 @@ func (h *InvestmentFundHandler) GetFund(ctx context.Context, in *stockpb.GetFund
 		return nil, mapFundErr(err)
 	}
 	resp := &stockpb.FundDetailResponse{Fund: toFundResponse(f)}
+
+	// E1: compute fund statistics (investor count, balances, P&L).
+	stat, _ := h.fundSvc.Statistics(ctx, f)
+	resp.InvestorCount = stat.InvestorCount
+	resp.TotalContributedRsd = stat.TotalContributedRSD.StringFixed(2)
+	resp.LiquidRsdBalance = stat.LiquidRSDBal.StringFixed(2)
+	resp.TotalHoldingsValueRsd = stat.TotalHoldingsValueRSD.StringFixed(2)
+	resp.TotalValueRsd = stat.TotalValueRSD.StringFixed(2)
+	resp.TotalDividendsPaidRsd = stat.TotalDividendsPaidRSD.StringFixed(2) // always "0.00" until E4
+	resp.ProfitRsd = stat.ProfitRSD.StringFixed(2)
+	resp.ProfitPct = stat.ProfitPct.StringFixed(4)
+
+	// Holdings list: use service snapshot (includes current_value_rsd per item).
 	if h.fundHoldings != nil {
-		holdings, err := h.fundHoldings.ListByFundFIFO(f.ID)
-		if err == nil {
+		holdings, hErr := h.fundHoldings.ListByFundFIFO(f.ID)
+		if hErr == nil {
 			resp.Holdings = make([]*stockpb.FundHoldingItem, 0, len(holdings))
 			for i := range holdings {
 				h2 := &holdings[i]
@@ -136,6 +149,9 @@ func (h *InvestmentFundHandler) GetFund(ctx context.Context, in *stockpb.GetFund
 				if h.listings != nil {
 					if listing, lerr := h.listings.GetBySecurityIDAndType(h2.SecurityID, h2.SecurityType); lerr == nil && listing != nil {
 						item.CurrentPriceRsd = listing.Price.String()
+						// current_value_rsd = quantity × current_price (E1 new field)
+						curVal := listing.Price.Mul(decimal.NewFromInt(h2.Quantity))
+						item.CurrentValueRsd = curVal.String()
 					}
 				}
 				if h.stocks != nil && h2.SecurityType == "stock" {

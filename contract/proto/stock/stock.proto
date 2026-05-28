@@ -1070,6 +1070,18 @@ message GetFundRequest { uint64 fund_id = 1; }
 message FundDetailResponse {
   FundResponse fund = 1;
   repeated FundHoldingItem holdings = 2;
+  // E1 enrichment fields (sub-plan E1, Plan E 2026-05-28)
+  int64  investor_count           = 3;
+  string total_contributed_rsd    = 4;
+  string liquid_rsd_balance       = 5;
+  string total_holdings_value_rsd = 6;
+  string total_value_rsd          = 7;
+  // total_dividends_paid_rsd is always "0" until E4 implements the
+  // fund_dividend_payments table. Kept in the proto so callers can rely on
+  // the field name regardless of whether E4 has landed.
+  string total_dividends_paid_rsd = 8;
+  string profit_rsd               = 9;
+  string profit_pct               = 10;
 }
 message FundHoldingItem {
   string security_type = 1;
@@ -1079,6 +1091,8 @@ message FundHoldingItem {
   string average_price_rsd = 5;
   string current_price_rsd = 6;
   string acquired_at = 7;
+  // current_value_rsd = quantity × current_price_rsd (computed server-side)
+  string current_value_rsd = 8;
 }
 
 message UpdateFundRequest {
@@ -1282,6 +1296,12 @@ message OTCAcceptNegotiationRequest {
   // buy_initiated). Required — accept now mints a contract and moves
   // money, both of which need a bound account on the accepter's side.
   uint64 acceptor_account_id   = 7;
+  // E2: when non-zero the buyer side of this accept is on behalf of a fund.
+  // Premium debit comes from the fund's RSD account; the resulting contract
+  // is fund-owned. Caller must be the fund's manager (acting_employee_id
+  // must equal fund.manager_employee_id). acceptor_account_id MUST equal
+  // fund.rsd_account_id.
+  uint64 on_behalf_of_fund_id  = 8;
 }
 
 // OTCAcceptNegotiationResponse — Phase 9 includes the minted contract.
@@ -1709,6 +1729,10 @@ message ExerciseContractRequest {
   string actor_system_type = 3;
   // Set when an employee acts on behalf of a client. 0 = acting as the bank.
   uint64 on_behalf_of_client_id = 4;
+  // E2: when non-zero the buyer side of this exercise is on behalf of a fund.
+  // Strike debit comes from the fund's RSD account; acquired shares land in
+  // fund_holdings. Caller must be the fund's manager.
+  uint64 on_behalf_of_fund_id = 5;
 }
 message ExerciseResponse {
   uint64 contract_id = 1;
