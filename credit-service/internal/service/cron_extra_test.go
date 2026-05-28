@@ -46,7 +46,7 @@ func TestProcessInstallment_HappyPath(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,
@@ -96,7 +96,7 @@ func TestProcessInstallment_DebitFailure_FixedLoan_NoPenalty(t *testing.T) {
 	accountClient := &mockCronAccountClient{err: errors.New("downstream failure")}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,
@@ -144,7 +144,7 @@ func TestProcessInstallment_DebitFailure_VariableLoan_PenaltyApplied(t *testing.
 	accountClient := &mockCronAccountClient{err: errors.New("downstream failure")}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,
@@ -167,7 +167,7 @@ func TestProcessInstallment_LoanLookupFails(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	// Loan ID 99999 doesn't exist — early return, no balance calls.
 	cron.processInstallment(context.Background(), 1, 99999, "1000.0000", "RSD", "2026-03-31")
@@ -183,7 +183,7 @@ func TestCollectDueInstallments_NoDueRows(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.collectDueInstallments(context.Background())
 	assert.Empty(t, accountClient.calls)
@@ -238,7 +238,7 @@ func TestProcessInstallment_BankCreditFails_CompensatesBorrowerDebit(t *testing.
 	}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,
@@ -266,7 +266,7 @@ func TestCronStart_CancellableViaContext(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

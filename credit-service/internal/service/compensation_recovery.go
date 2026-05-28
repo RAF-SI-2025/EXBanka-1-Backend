@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/credit-service/internal/kafka"
 	"github.com/exbanka/credit-service/internal/repository"
@@ -32,6 +33,7 @@ type CompensationRecovery struct {
 	sagaRepo    *repository.SagaLogRepository
 	disbursment *LoanDisbursementSaga
 	dlPublisher sagaDeadLetterPublisher
+	entry       *cronreg.Entry
 }
 
 // NewCompensationRecovery constructs a recovery worker.
@@ -39,34 +41,51 @@ type CompensationRecovery struct {
 //   - sagaRepo:    the credit_saga_logs repository.
 //   - disbursment: the LoanDisbursementSaga whose steps are retried.
 //   - dlPublisher: Kafka producer for dead-letter events (may be nil).
+//   - registry:    cronreg Registry for pause/trigger control.
 func NewCompensationRecovery(
 	sagaRepo *repository.SagaLogRepository,
 	disbursment *LoanDisbursementSaga,
 	dlPublisher *kafka.Producer,
+	registry *cronreg.Registry,
 ) *CompensationRecovery {
-	return &CompensationRecovery{
+	r := &CompensationRecovery{
 		sagaRepo:    sagaRepo,
 		disbursment: disbursment,
 		dlPublisher: dlPublisher,
 	}
+	r.entry = registry.Register("loan-saga-recovery", "Retry stuck loan disbursement saga compensations", loanCompensationTickInterval)
+	return r
 }
 
 // Start launches the recovery goroutine. The goroutine runs one immediate tick
 // at startup (to catch any compensations that survived a crash) then every
-// loanCompensationTickInterval until ctx is cancelled.
+// loanCompensationTickInterval until ctx is cancelled. Each tick is gated by
+// the cronreg Entry so the job can be paused / manually triggered.
 func (r *CompensationRecovery) Start(ctx context.Context) {
-	// Run an immediate pass at startup to catch any crash survivors.
-	r.runRecoveryTick(ctx)
-
-	ticker := time.NewTicker(loanCompensationTickInterval)
 	go func() {
+		// Immediate catch-up pass.
+		if r.entry.BeginRun() {
+			r.runRecoveryTick(ctx)
+			r.entry.EndRun(nil)
+		}
+		ticker := time.NewTicker(loanCompensationTickInterval)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ticker.C:
-				r.runRecoveryTick(ctx)
 			case <-ctx.Done():
 				return
+			case <-ticker.C:
+				if !r.entry.BeginRun() {
+					continue
+				}
+				r.runRecoveryTick(ctx)
+				r.entry.EndRun(nil)
+			case <-r.entry.TriggerChan():
+				if !r.entry.BeginRun() {
+					continue
+				}
+				r.runRecoveryTick(ctx)
+				r.entry.EndRun(nil)
 			}
 		}
 	}()

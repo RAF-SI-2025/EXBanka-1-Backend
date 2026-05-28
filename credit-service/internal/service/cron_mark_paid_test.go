@@ -140,7 +140,7 @@ func TestProcessInstallment_MarkPaidFailure_Compensates(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,

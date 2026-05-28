@@ -11,9 +11,11 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	adminpb "github.com/exbanka/contract/adminpb"
 	accountpb "github.com/exbanka/contract/accountpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	pb "github.com/exbanka/contract/creditpb"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
@@ -35,9 +37,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}, &model.IdempotencyRecord{}, &model.SagaLog{}); err != nil {
+	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}, &model.IdempotencyRecord{}, &model.SagaLog{}, &cronreg.CronPauseState{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("credit-service", cronreg.NewGormPauseStore(db))
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -57,6 +60,7 @@ func main() {
 		"notification.send-email",
 		"notification.general",
 		"credit.saga-dead-letter",
+		"admin.cron-action",
 	)
 
 	// Connect to account-service
@@ -123,7 +127,7 @@ func main() {
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	changelogSvc := service.NewChangelogService(changelogRepo)
-	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount, db)
+	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount, db, cronRegistry)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -131,7 +135,7 @@ func main() {
 
 	// Start the loan disbursement saga compensation recovery worker.
 	// It polls credit_saga_logs for stuck "compensating" rows and retries them.
-	compensationRecovery := service.NewCompensationRecovery(sagaRepo, disbursementSaga, producer)
+	compensationRecovery := service.NewCompensationRecovery(sagaRepo, disbursementSaga, producer, cronRegistry)
 	compensationRecovery.Start(ctx)
 
 	grpcHandler := handler.NewCreditGRPCHandler(loanRequestSvc, loanSvc, installmentSvc, rateConfigSvc, loanRepo, installmentRepo, producer, changelogSvc)
@@ -156,6 +160,7 @@ func main() {
 		},
 		Register: func(s *grpc.Server) {
 			pb.RegisterCreditServiceServer(s, grpcHandler)
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "credit-service")
 			metrics.InitializeGRPCMetrics(s)
 		},
