@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -34,10 +36,18 @@ type PortfolioHandler struct {
 	pb.UnimplementedPortfolioGRPCServiceServer
 	portfolioSvc portfolioSvcFacade
 	taxSvc       taxSvcFacade
+	unifiedSvc   *service.UnifiedPortfolioService
 }
 
 func NewPortfolioHandler(portfolioSvc *service.PortfolioService, taxSvc *service.TaxService) *PortfolioHandler {
 	return &PortfolioHandler{portfolioSvc: portfolioSvc, taxSvc: taxSvc}
+}
+
+// WithUnifiedPortfolioService wires the UnifiedPortfolioService.
+// Call this immediately after NewPortfolioHandler in cmd/main.go.
+func (h *PortfolioHandler) WithUnifiedPortfolioService(svc *service.UnifiedPortfolioService) *PortfolioHandler {
+	h.unifiedSvc = svc
+	return h
 }
 
 // newPortfolioHandlerForTest constructs a PortfolioHandler with interface-typed
@@ -279,4 +289,90 @@ func toExerciseResultPB(result *service.ExerciseResult) *pb.ExerciseResult {
 // for the portfolio/holding sentinel set.
 func mapPortfolioError(err error) error {
 	return err
+}
+
+// GetUnifiedPortfolio returns a fully composed portfolio for the requested
+// owner (client, bank, or investment_fund), including fund positions with P/L.
+func (h *PortfolioHandler) GetUnifiedPortfolio(ctx context.Context, req *pb.GetUnifiedPortfolioRequest) (*pb.UnifiedPortfolioResponse, error) {
+	if req.OwnerType == "" {
+		return nil, status.Error(codes.InvalidArgument, "owner_type required")
+	}
+	if h.unifiedSvc == nil {
+		return nil, status.Error(codes.Internal, "unified portfolio service not configured")
+	}
+
+	var ownerID *uint64
+	if req.OwnerId != 0 {
+		id := req.OwnerId
+		ownerID = &id
+	}
+
+	out, err := h.unifiedSvc.Get(ctx, req.OwnerType, ownerID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return mapUnifiedToProto(out), nil
+}
+
+func mapUnifiedToProto(p *service.UnifiedPortfolio) *pb.UnifiedPortfolioResponse {
+	resp := &pb.UnifiedPortfolioResponse{
+		OwnerType:      p.OwnerType,
+		TotalValueRsd:  p.TotalValueRSD.StringFixed(4),
+		TotalProfitRsd: p.TotalProfitRSD.StringFixed(4),
+		TotalProfitPct: p.TotalProfitPct.StringFixed(4),
+		Securities:     mapGroupToProto(p.Securities),
+		Funds:          mapGroupToProto(p.Funds),
+		OwnerName:      p.OwnerName,
+	}
+	if p.OwnerID != nil {
+		resp.OwnerId = *p.OwnerID
+		resp.PortfolioId = fmt.Sprintf("%s-%d", encodeOwnerTypePrefix(p.OwnerType), *p.OwnerID)
+	} else {
+		resp.PortfolioId = "bank"
+	}
+	return resp
+}
+
+func encodeOwnerTypePrefix(ownerType string) string {
+	switch ownerType {
+	case "investment_fund":
+		return "fund"
+	default:
+		return ownerType
+	}
+}
+
+func mapGroupToProto(g service.PortfolioGroup) *pb.PortfolioGroup {
+	out := &pb.PortfolioGroup{
+		TotalValueRsd:  g.TotalValueRSD.StringFixed(4),
+		TotalProfitRsd: g.TotalProfitRSD.StringFixed(4),
+		TotalProfitPct: g.TotalProfitPct.StringFixed(4),
+	}
+	for _, p := range g.Positions {
+		pos := &pb.PortfolioPosition{
+			AssetType:         p.AssetType,
+			Symbol:            p.Symbol,
+			FundId:            p.FundID,
+			FundName:          p.FundName,
+			ContractId:        p.ContractID,
+			Quantity:          p.Quantity,
+			AvgCostRsd:        p.AvgCostRSD.StringFixed(4),
+			CurrentPriceRsd:   p.CurrentPriceRSD.StringFixed(4),
+			CurrentValueRsd:   p.CurrentValueRSD.StringFixed(4),
+			PLRsd:             p.PLRSD.StringFixed(4),
+			PLPct:             p.PLPct.StringFixed(4),
+			AmountInvestedRsd: p.AmountInvestedRSD.StringFixed(4),
+			PctOfFund:         p.PctOfFund.StringFixed(4),
+			StrikeRsd:         p.StrikeRSD.StringFixed(4),
+			PremiumPaidRsd:    p.PremiumPaidRSD.StringFixed(4),
+			IntrinsicValueRsd: p.IntrinsicValueRSD.StringFixed(4),
+			LastUpdated:       p.LastUpdated.UTC().Format(time.RFC3339),
+		}
+		if p.SettlementDate != nil {
+			pos.SettlementDate = p.SettlementDate.UTC().Format("2006-01-02")
+		}
+		out.Positions = append(out.Positions, pos)
+	}
+	return out
 }
