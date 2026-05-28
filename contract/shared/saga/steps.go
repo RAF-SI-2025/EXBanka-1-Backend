@@ -81,6 +81,11 @@ const (
 	StepCreditBankFrom       StepKind = "credit_bank_from"
 	StepDebitBankTo          StepKind = "debit_bank_to"
 	StepCreditUserTo         StepKind = "credit_user_to"
+
+	// Loan disbursement (credit-service).
+	StepDebitBank       StepKind = "debit_bank"
+	StepCreditBorrower  StepKind = "credit_borrower"
+	StepMarkLoanActive  StepKind = "mark_loan_active"
 )
 
 var allSteps = map[StepKind]struct{}{
@@ -101,6 +106,7 @@ var allSteps = map[StepKind]struct{}{
 	StepDebitSender: {}, StepCreditRecipient: {}, StepCreditBankCommission: {},
 	StepDebitUserFrom: {}, StepCreditBankFrom: {}, StepDebitBankTo: {},
 	StepCreditUserTo: {},
+	StepDebitBank: {}, StepCreditBorrower: {}, StepMarkLoanActive: {},
 }
 
 // MustStep returns k if k is a registered StepKind. Otherwise it panics.
