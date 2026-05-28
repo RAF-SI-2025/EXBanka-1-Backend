@@ -67,6 +67,9 @@ func (f *fakePeerTxClient) HandleRollbackTx(ctx context.Context, in *transaction
 func (f *fakePeerTxClient) InitiateOutboundTx(ctx context.Context, in *transactionpb.SiTxInitiateRequest, opts ...grpc.CallOption) (*transactionpb.SiTxInitiateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "not used")
 }
+func (f *fakePeerTxClient) GetTxStatus(ctx context.Context, in *transactionpb.GetTxStatusRequest, opts ...grpc.CallOption) (*transactionpb.GetTxStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not used")
+}
 func (f *fakePeerTxClient) InitiateOutboundTxWithPostings(ctx context.Context, in *transactionpb.SiTxInitiateWithPostingsRequest, opts ...grpc.CallOption) (*transactionpb.SiTxInitiateResponse, error) {
 	f.gotReq = in
 	if f.err != nil {
