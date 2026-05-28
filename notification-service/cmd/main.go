@@ -6,6 +6,8 @@ import (
 	"log"
 	"time"
 
+	adminpb "github.com/exbanka/contract/adminpb"
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/contract/metrics"
 	notifpb "github.com/exbanka/contract/notificationpb"
 	shared "github.com/exbanka/contract/shared"
@@ -34,9 +36,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}); err != nil {
+	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}, &cronreg.CronPauseState{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("notification-service", cronreg.NewGormPauseStore(db))
 
 	// Repositories
 	inboxRepo := repository.NewMobileInboxRepository(db)
@@ -64,6 +67,7 @@ func main() {
 		"verification.challenge-created",
 		"notification.mobile-push",
 		"notification.general",
+		"admin.cron-action",
 	)
 
 	// Kafka consumer (email events)
@@ -86,7 +90,7 @@ func main() {
 	defer generalConsumer.Close()
 
 	// Background inbox cleanup
-	cleanupSvc := service.NewInboxCleanupService(inboxRepo)
+	cleanupSvc := service.NewInboxCleanupService(inboxRepo, cronRegistry)
 	cleanupSvc.StartCleanupCron(ctx)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
@@ -109,6 +113,7 @@ func main() {
 		},
 		Register: func(s *grpc.Server) {
 			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo, templateSvc))
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "notification-service")
 			reflection.Register(s)
 			metrics.InitializeGRPCMetrics(s)
