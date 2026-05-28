@@ -135,6 +135,10 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	}
 
 	sagaID := uuid.NewString()
+	// Deterministic idempotency keys for capital-gain rows so their Backward
+	// closures can delete the exact row by key (idempotent on retry).
+	sellerStrikeGainKey := fmt.Sprintf("%s:seller-strike-cg", sagaID)
+
 	// Synthetic txn ID for ConsumeForOTCContract idempotency: derived from
 	// the contract ID so retries land in the same row.
 	syntheticTxnID := c.ID + 1_000_000_000_000
@@ -277,13 +281,22 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 					AccountID:        c.SellerAccountID,
 					TaxYear:          exercisedAt.Year(),
 					TaxMonth:         int(exercisedAt.Month()),
+					IdempotencyKey:   &sellerStrikeGainKey,
 				}
 				return s.capitalGainRepo.Create(cg)
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				// No-op: capital gain rows are best-effort bookkeeping.
-				// Deletion without a unique idempotency key is not safe.
-				return nil
+				// Delete the seller's capital-gain row by its deterministic key.
+				// This step is post-pivot: the stocks already transferred, but
+				// if a later post-pivot step fails (e.g. mark_contract_exercised)
+				// and rollback unwinds through here, the CG row must be removed
+				// because the exercise is not yet finalized. Without deletion the
+				// accounting ledger permanently over-reports the seller's gain
+				// even though the contract was never marked exercised.
+				if s.capitalGainRepo == nil {
+					return nil
+				}
+				return s.capitalGainRepo.DeleteByIdempotencyKey(sellerStrikeGainKey)
 			},
 		}).
 		Add(saga.Step{
@@ -313,10 +326,19 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 				return s.contracts.Save(c)
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
+				// Re-fetch the contract to get the current version before saving.
+				// Using the captured `c` directly after a partial Save failure
+				// leaves the in-memory Version stale (BeforeUpdate already
+				// incremented it), causing the next retry to hit RowsAffected==0
+				// (ErrOptimisticLock) and permanently stuck compensation.
+				freshC, fetchErr := s.contracts.GetByID(c.ID)
+				if fetchErr != nil {
+					return fetchErr
+				}
 				// Restore to active so the exercise can be retried.
-				c.Status = model.OptionContractStatusActive
-				c.ExercisedAt = nil
-				return s.contracts.Save(c)
+				freshC.Status = model.OptionContractStatusActive
+				freshC.ExercisedAt = nil
+				return s.contracts.Save(freshC)
 			},
 		}).
 		Add(saga.Step{

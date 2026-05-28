@@ -248,9 +248,17 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 				return nil
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				// Restore offer to pending so other parties can still accept.
-				o.Status = model.OTCOfferStatusPending
-				return s.offers.Save(o)
+				// Re-fetch the offer to get the current version before saving.
+				// If we use the captured `o` directly after a failed Save attempt,
+				// the in-memory Version has already been incremented by BeforeUpdate,
+				// so the next retry's Save hits RowsAffected==0 (ErrOptimisticLock)
+				// and the compensation is permanently stuck.
+				fresh, fetchErr := s.offers.GetByID(o.ID)
+				if fetchErr != nil {
+					return fetchErr
+				}
+				fresh.Status = model.OTCOfferStatusPending
+				return s.offers.Save(fresh)
 			},
 		}).
 		Add(saga.Step{
@@ -274,18 +282,20 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 					AccountID:        sellerAccountID,
 					TaxYear:          now.Year(),
 					TaxMonth:         int(now.Month()),
+					IdempotencyKey:   &sellerCGKey,
 				}
 				return s.capitalGainRepo.Create(writerCG)
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				// Capital gain rows have no unique idempotency key in the current
-				// schema — deletion by contract_id+owner is the safest reverse.
-				// This is a best-effort cleanup; if it fails the row stays and
-				// will be a tiny accounting over-read (premium was never actually
-				// received since we're compensating). Acceptable trade-off: the
-				// alternative (keeping money + no CG row) is worse.
-				_ = sellerCGKey // referenced to avoid unused-var lint
-				return nil
+				// Delete the capital-gain row by its deterministic idempotency
+				// key. Without this deletion, the seller's income ledger
+				// permanently over-reports the premium even though the money was
+				// reversed. DeleteByIdempotencyKey is a no-op when the row
+				// doesn't exist, making it safe on retry.
+				if s.capitalGainRepo == nil {
+					return nil
+				}
+				return s.capitalGainRepo.DeleteByIdempotencyKey(sellerCGKey)
 			},
 		}).
 		Add(saga.Step{
@@ -309,12 +319,17 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 					AccountID:        buyerAccountID,
 					TaxYear:          now.Year(),
 					TaxMonth:         int(now.Month()),
+					IdempotencyKey:   &buyerCGKey,
 				}
 				return s.capitalGainRepo.Create(buyerCG)
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				_ = buyerCGKey // referenced to avoid unused-var lint
-				return nil
+				// Delete the buyer's capital-gain cost row for the same reason:
+				// the premium debit was reversed, so this row should not exist.
+				if s.capitalGainRepo == nil {
+					return nil
+				}
+				return s.capitalGainRepo.DeleteByIdempotencyKey(buyerCGKey)
 			},
 		}).
 		Add(saga.Step{
