@@ -10204,7 +10204,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/interbank": {
             "post": {
-                "description": "Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on ` + "`" + `type` + "`" + ` and dispatches. Legacy path: /api/v3/interbank (deprecated — use /api/v3/cross-bank-protocol/interbank for new registrations).",
+                "description": "Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on ` + "`" + `type` + "`" + ` and dispatches.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10235,7 +10235,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/interbank/{transaction_id}/status": {
             "get": {
-                "description": "Allows a peer bank to query the state of a cross-bank SI-TX transaction by its transactionId. Returns the state and our role (sender|receiver). Used by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved by either side. Legacy path: /api/v3/interbank/:transaction_id/status (deprecated — use /api/v3/cross-bank-protocol/interbank/:transaction_id/status for new registrations).",
+                "description": "Allows a peer bank to query the state of a cross-bank SI-TX transaction by its transactionId. Returns the state and our role (sender|receiver). Used by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved by either side.",
                 "produces": [
                     "application/json"
                 ],
@@ -10286,7 +10286,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/negotiations": {
             "post": {
-                "description": "Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9). Legacy path: /api/v3/negotiations (deprecated — use /api/v3/cross-bank-protocol/negotiations for new registrations).",
+                "description": "Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing and sellerId.routingNumber MUST equal this bank.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10342,7 +10342,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/negotiations/{rid}/{id}": {
             "get": {
-                "description": "Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).",
+                "description": "Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair.",
                 "produces": [
                     "application/json"
                 ],
@@ -10391,7 +10391,7 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "description": "Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).",
+                "description": "Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10448,7 +10448,7 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "description": "Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).",
+                "description": "Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5.",
                 "produces": [
                     "application/json"
                 ],
@@ -10488,7 +10488,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/negotiations/{rid}/{id}/accept": {
             "get": {
-                "description": "Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics. Legacy path: /api/v3/negotiations/:rid/:id/accept (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id/accept for new registrations).",
+                "description": "Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics.",
                 "produces": [
                     "application/json"
                 ],
@@ -10539,7 +10539,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/public-option-offers": {
             "get": {
-                "description": "Phase 6 cross-bank discovery. Returns this bank's OPEN, undirected option listings as PeerPublicOptionOffer rows in SI-TX shape. Auth via X-Api-Key (PeerAuth); X-Bank-Code is stamped into peer_bank_code so privately-targeted listings are filtered per-caller. Legacy path: /api/v3/public-option-offers (deprecated — use /api/v3/cross-bank-protocol/public-option-offers for new registrations).",
+                "description": "Phase 6 cross-bank discovery. Returns this bank's OPEN, undirected option listings as PeerPublicOptionOffer rows in SI-TX shape. Auth via X-Api-Key (PeerAuth); X-Bank-Code is stamped into peer_bank_code so privately-targeted listings are filtered per-caller.",
                 "produces": [
                     "application/json"
                 ],
@@ -10574,7 +10574,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/public-stock": {
             "get": {
-                "description": "Inbound from a peer bank. Returns this bank's holdings flagged public_quantity \u003e 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2. Legacy path: /api/v3/public-stock (deprecated — use /api/v3/cross-bank-protocol/public-stock for new registrations).",
+                "description": "Inbound from a peer bank. Returns this bank's holdings flagged public_quantity \u003e 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2.",
                 "produces": [
                     "application/json"
                 ],
@@ -10602,7 +10602,7 @@ const docTemplate = `{
         },
         "/api/v3/cross-bank-protocol/user/{rid}/{id}": {
             "get": {
-                "description": "Inbound from a peer bank. Looks up a local (client-N / employee-N) and returns first+last name for OTC negotiation display. Routing number in path MUST match this bank's routing — calls for foreign users return 404. Legacy path: /api/v3/user/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/user/:rid/:id for new registrations).",
+                "description": "Inbound from a peer bank. Looks up a local (client-N / employee-N) and returns first+last name for OTC negotiation display. Routing number in path MUST match this bank's routing — calls for foreign users return 404.",
                 "produces": [
                     "application/json"
                 ],
@@ -10711,88 +10711,6 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/interbank": {
-            "post": {
-                "description": "Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on ` + "`" + `type` + "`" + ` and dispatches. Legacy path: /api/v3/interbank (deprecated — use /api/v3/cross-bank-protocol/interbank for new registrations).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX / VOTE)",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/interbank/{transaction_id}/status": {
-            "get": {
-                "description": "Allows a peer bank to query the state of a cross-bank SI-TX transaction by its transactionId. Returns the state and our role (sender|receiver). Used by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved by either side. Legacy path: /api/v3/interbank/:transaction_id/status (deprecated — use /api/v3/cross-bank-protocol/interbank/:transaction_id/status for new registrations).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: query cross-bank transaction status (CHECK_STATUS)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SI-TX transaction UUID (idempotence key)",
-                        "name": "transaction_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -13547,259 +13465,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/negotiations": {
-            "post": {
-                "description": "Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9). Legacy path: /api/v3/negotiations (deprecated — use /api/v3/cross-bank-protocol/negotiations for new registrations).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: create OTC option negotiation",
-                "parameters": [
-                    {
-                        "description": "SI-TX OtcOffer wire shape",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.peerOtcOfferReq"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "ForeignBankId of the newly-created negotiation",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/negotiations/{rid}/{id}": {
-            "get": {
-                "description": "Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: read an OTC negotiation",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "routing number",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
-            "put": {
-                "description": "Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: counter-offer on an existing OTC negotiation",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "routing number (this bank's, that issued the foreign_id)",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "new SI-TX OtcOffer terms",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.peerOtcOfferReq"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "description": "Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5. Legacy path: /api/v3/negotiations/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id for new registrations).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: cancel an OTC negotiation",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "routing number",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/negotiations/{rid}/{id}/accept": {
-            "get": {
-                "description": "Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics. Legacy path: /api/v3/negotiations/:rid/:id/accept (deprecated — use /api/v3/cross-bank-protocol/negotiations/:rid/:id/accept for new registrations).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: accept an OTC negotiation (triggers option-formation SI-TX)",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "routing number",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "transactionId + status",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v3/notification-templates": {
             "get": {
                 "security": [
@@ -14590,69 +14255,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/public-option-offers": {
-            "get": {
-                "description": "Phase 6 cross-bank discovery. Returns this bank's OPEN, undirected option listings as PeerPublicOptionOffer rows in SI-TX shape. Auth via X-Api-Key (PeerAuth); X-Bank-Code is stamped into peer_bank_code so privately-targeted listings are filtered per-caller. Legacy path: /api/v3/public-option-offers (deprecated — use /api/v3/cross-bank-protocol/public-option-offers for new registrations).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-facing list of OPEN OTC option listings on this bank",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "501": {
-                        "description": "OTCOfferReader not wired",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/public-stock": {
-            "get": {
-                "description": "Inbound from a peer bank. Returns this bank's holdings flagged public_quantity \u003e 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2. Legacy path: /api/v3/public-stock (deprecated — use /api/v3/cross-bank-protocol/public-stock for new registrations).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: list public stock holdings",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v3/roles/{id}/permissions": {
             "post": {
                 "security": [
@@ -14897,57 +14499,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/user/{rid}/{id}": {
-            "get": {
-                "description": "Inbound from a peer bank. Looks up a local (client-N / employee-N) and returns first+last name for OTC negotiation display. Routing number in path MUST match this bank's routing — calls for foreign users return 404. Legacy path: /api/v3/user/:rid/:id (deprecated — use /api/v3/cross-bank-protocol/user/:rid/:id for new registrations).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: resolve a foreign user to display name",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "routing number (must equal this bank's routing)",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "principal id, e.g. client-1 or employee-3",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
