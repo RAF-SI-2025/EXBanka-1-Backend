@@ -9,6 +9,7 @@ import (
 	"time"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
@@ -88,6 +89,7 @@ type SagaRecovery struct {
 	// all recovery retries. Optional: when nil, the step is just logged as
 	// ERROR (same as the pre-A2.3 behaviour).
 	deadLetterProducer *kafkaprod.Producer
+	entry              *cronreg.Entry
 }
 
 // SagaRecoveryLogRepo is the minimum interface the reconciler needs.
@@ -123,14 +125,17 @@ func NewSagaRecovery(
 	orderRepo RecoveryOrderRepo,
 	stateAccountNo string,
 	producer *kafkaprod.Producer,
+	registry *cronreg.Registry,
 ) *SagaRecovery {
-	return &SagaRecovery{
+	s := &SagaRecovery{
 		sagaRepo:           sagaRepo,
 		accountClient:      accountClient,
 		orderRepo:          orderRepo,
 		stateAccountNo:     stateAccountNo,
 		deadLetterProducer: producer,
 	}
+	s.entry = registry.Register("saga-recovery", "Reconcile stuck saga steps after crashes", 60*time.Second)
+	return s
 }
 
 // Reconcile walks stuck saga steps and tries to drive each to completion.
@@ -517,8 +522,13 @@ func (r *SagaRecovery) lookupAccountNumber(ctx context.Context, accountID uint64
 // process lifetime and honors graceful shutdown.
 func (r *SagaRecovery) Run(ctx context.Context, tickInterval time.Duration) {
 	go func() {
-		if err := r.Reconcile(ctx); err != nil {
-			log.Printf("WARN: initial saga recovery: %v", err)
+		// Run immediately at startup.
+		if r.entry.BeginRun() {
+			err := r.Reconcile(ctx)
+			r.entry.EndRun(err)
+			if err != nil {
+				log.Printf("WARN: initial saga recovery: %v", err)
+			}
 		}
 		ticker := time.NewTicker(tickInterval)
 		defer ticker.Stop()
@@ -527,8 +537,22 @@ func (r *SagaRecovery) Run(ctx context.Context, tickInterval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := r.Reconcile(ctx); err != nil {
+				if !r.entry.BeginRun() {
+					continue
+				}
+				err := r.Reconcile(ctx)
+				r.entry.EndRun(err)
+				if err != nil {
 					log.Printf("WARN: periodic saga recovery: %v", err)
+				}
+			case <-r.entry.TriggerChan():
+				if !r.entry.BeginRun() {
+					continue
+				}
+				err := r.Reconcile(ctx)
+				r.entry.EndRun(err)
+				if err != nil {
+					log.Printf("WARN: triggered saga recovery: %v", err)
 				}
 			}
 		}

@@ -4,14 +4,18 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/exbanka/contract/cronreg"
 )
+
+func nilRegistry() *cronreg.Registry { return cronreg.NewRegistry("test", nil) }
 
 // TestTaxCronService_NewAndCancel verifies StartMonthlyCron registers a
 // goroutine that respects context cancellation and runCollection executes
 // without crashing on a zero-state TaxService.
 func TestTaxCronService_StartCancels(t *testing.T) {
 	svc, _ := buildTaxService()
-	cron := NewTaxCronService(svc)
+	cron := NewTaxCronService(svc, nilRegistry())
 	if cron == nil {
 		t.Fatal("expected service")
 	}
@@ -28,6 +32,6 @@ func TestTaxCronService_StartCancels(t *testing.T) {
 // against a fresh service (zero collections expected).
 func TestTaxCronService_RunCollection(t *testing.T) {
 	svc, _ := buildTaxService()
-	cron := NewTaxCronService(svc)
-	cron.runCollection() // should log + return; no panic
+	cron := NewTaxCronService(svc, nilRegistry())
+	_ = cron.runCollection() // should log + return; no panic
 }

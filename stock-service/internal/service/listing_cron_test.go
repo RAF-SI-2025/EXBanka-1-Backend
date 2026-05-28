@@ -93,7 +93,7 @@ func (m *listingCronListingMock) UpdatePriceByTicker(_, _ string, _, _, _ decima
 }
 
 func TestListingCron_NewListingCronService(t *testing.T) {
-	c := NewListingCronService(&listingCronListingMock{}, &listingCronDailyMock{}, nil)
+	c := NewListingCronService(&listingCronListingMock{}, &listingCronDailyMock{}, nil, nilRegistry())
 	if c == nil {
 		t.Fatal("NewListingCronService returned nil")
 	}
@@ -107,7 +107,7 @@ func TestListingCron_SnapshotDailyPrices(t *testing.T) {
 		},
 	}
 	dailyRepo := &listingCronDailyMock{}
-	svc := NewListingCronService(listingRepo, dailyRepo, nil)
+	svc := NewListingCronService(listingRepo, dailyRepo, nil, nilRegistry())
 
 	svc.SnapshotDailyPrices()
 
@@ -124,7 +124,7 @@ func TestListingCron_SnapshotDailyPrices(t *testing.T) {
 func TestListingCron_SnapshotDailyPrices_ListError(t *testing.T) {
 	listingRepo := &listingCronListingMock{listErr: errors.New("db down")}
 	dailyRepo := &listingCronDailyMock{}
-	svc := NewListingCronService(listingRepo, dailyRepo, nil)
+	svc := NewListingCronService(listingRepo, dailyRepo, nil, nilRegistry())
 	// Just ensure no panic and no upserts
 	svc.SnapshotDailyPrices()
 	if len(dailyRepo.upserts) != 0 {
@@ -137,7 +137,7 @@ func TestListingCron_SnapshotDailyPrices_UpsertErrorContinues(t *testing.T) {
 		listings: []model.Listing{{ID: 1}, {ID: 2}},
 	}
 	dailyRepo := &listingCronDailyMock{upsertErr: errors.New("conflict")}
-	svc := NewListingCronService(listingRepo, dailyRepo, nil)
+	svc := NewListingCronService(listingRepo, dailyRepo, nil, nilRegistry())
 
 	svc.SnapshotDailyPrices()
 	// upserts list will be empty because the mock returns error before append
@@ -149,7 +149,7 @@ func TestListingCron_SnapshotDailyPrices_UpsertErrorContinues(t *testing.T) {
 func TestListingCron_SeedInitialSnapshot_Empty(t *testing.T) {
 	listingRepo := &listingCronListingMock{listings: []model.Listing{{ID: 1}, {ID: 2}}}
 	dailyRepo := &listingCronDailyMock{} // GetHistory returns empty
-	svc := NewListingCronService(listingRepo, dailyRepo, nil)
+	svc := NewListingCronService(listingRepo, dailyRepo, nil, nilRegistry())
 	svc.SeedInitialSnapshot()
 	if len(dailyRepo.upserts) != 2 {
 		t.Errorf("expected 2 seeded snapshots, got %d", len(dailyRepo.upserts))
@@ -163,7 +163,7 @@ func TestListingCron_SeedInitialSnapshot_AlreadyExists(t *testing.T) {
 			1: {{ID: 9}},
 		},
 	}
-	svc := NewListingCronService(listingRepo, dailyRepo, nil)
+	svc := NewListingCronService(listingRepo, dailyRepo, nil, nilRegistry())
 	svc.SeedInitialSnapshot()
 	if len(dailyRepo.upserts) != 0 {
 		t.Errorf("expected zero upserts when history exists, got %d", len(dailyRepo.upserts))
@@ -173,7 +173,7 @@ func TestListingCron_SeedInitialSnapshot_AlreadyExists(t *testing.T) {
 func TestListingCron_SeedInitialSnapshot_ListError(t *testing.T) {
 	listingRepo := &listingCronListingMock{listErr: errors.New("oops")}
 	dailyRepo := &listingCronDailyMock{}
-	svc := NewListingCronService(listingRepo, dailyRepo, nil)
+	svc := NewListingCronService(listingRepo, dailyRepo, nil, nilRegistry())
 	svc.SeedInitialSnapshot()
 	if len(dailyRepo.upserts) != 0 {
 		t.Errorf("got %d upserts", len(dailyRepo.upserts))

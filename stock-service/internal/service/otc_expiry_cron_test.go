@@ -37,7 +37,7 @@ func newOTCExpiryDB(t *testing.T) *gorm.DB {
 }
 
 func TestOTCExpiryCron_NewDefaultsBatchAndCron(t *testing.T) {
-	cr := NewOTCExpiryCron(nil, nil, nil, nil, 0, "")
+	cr := NewOTCExpiryCron(nil, nil, nil, nil, 0, "", nilRegistry())
 	if cr.batchSize != 500 {
 		t.Errorf("batchSize=%d", cr.batchSize)
 	}
@@ -50,7 +50,7 @@ func TestOTCExpiryCron_NewDefaultsBatchAndCron(t *testing.T) {
 func TestOTCExpiryCron_ExpireOffer(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	offerRepo := repository.NewOTCOfferRepository(db)
-	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00")
+	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00", nilRegistry())
 
 	uid := uint64(7)
 	o := &model.OTCOffer{
@@ -77,7 +77,7 @@ func TestOTCExpiryCron_ExpireOffer(t *testing.T) {
 func TestOTCExpiryCron_ExpireContract_NoHoldingRes(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00")
+	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00", nilRegistry())
 
 	uid := uint64(7)
 	c := &model.OptionContract{
@@ -110,7 +110,7 @@ func TestOTCExpiryCron_ExpireContract_NoHoldingRes(t *testing.T) {
 func TestOTCExpiryCron_ExpireOffer_EmitsNotifications(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	offerRepo := repository.NewOTCOfferRepository(db)
-	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00")
+	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00", nilRegistry())
 	notifier := &recordingOTCNotifier{}
 	cr.notifier = notifier
 
@@ -159,7 +159,7 @@ func TestOTCExpiryCron_ExpireOffer_EmitsNotifications(t *testing.T) {
 func TestOTCExpiryCron_ExpireOffer_NoCounterparty_NotifiesInitiatorOnly(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	offerRepo := repository.NewOTCOfferRepository(db)
-	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00")
+	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00", nilRegistry())
 	notifier := &recordingOTCNotifier{}
 	cr.notifier = notifier
 
@@ -188,7 +188,7 @@ func TestOTCExpiryCron_ExpireOffer_NoCounterparty_NotifiesInitiatorOnly(t *testi
 func TestOTCExpiryCron_ExpireContract_EmitsNotifications(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00")
+	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00", nilRegistry())
 	notifier := &recordingOTCNotifier{}
 	cr.notifier = notifier
 
@@ -237,7 +237,7 @@ func TestOTCExpiryCron_ExpireContract_EmitsNotifications(t *testing.T) {
 func TestOTCExpiryCron_ExpireContract_BankParty_Skipped(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00")
+	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00", nilRegistry())
 	notifier := &recordingOTCNotifier{}
 	cr.notifier = notifier
 
@@ -303,7 +303,7 @@ func TestOTCExpiryCron_StartAndCancel(t *testing.T) {
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
 		repository.NewOTCOfferRepository(db),
-		nil, nil, 10, "02:00",
+		nil, nil, 10, "02:00", nilRegistry(),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	cr.Start(ctx)
@@ -317,7 +317,7 @@ func TestOTCExpiryCron_RunOnce_NothingToExpire(t *testing.T) {
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
 		repository.NewOTCOfferRepository(db),
-		nil, nil, 10, "02:00",
+		nil, nil, 10, "02:00", nilRegistry(),
 	)
 	if err := cr.RunOnce(context.Background()); err != nil {
 		t.Fatalf("err: %v", err)
@@ -326,7 +326,7 @@ func TestOTCExpiryCron_RunOnce_NothingToExpire(t *testing.T) {
 
 // TestOTCExpiryCron_WithOutbox covers the WithOutbox wiring helper.
 func TestOTCExpiryCron_WithOutbox(t *testing.T) {
-	cr := NewOTCExpiryCron(nil, nil, nil, nil, 10, "02:00")
+	cr := NewOTCExpiryCron(nil, nil, nil, nil, 10, "02:00", nilRegistry())
 	out := cr.WithOutbox(nil, nil)
 	if out == nil {
 		t.Error("WithOutbox returned nil")
@@ -340,7 +340,7 @@ func TestOTCExpiryCron_WithPeerContracts(t *testing.T) {
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
 		repository.NewOTCOfferRepository(db),
-		nil, nil, 10, "02:00",
+		nil, nil, 10, "02:00", nilRegistry(),
 	)
 	cr2 := cr.WithPeerContracts(repository.NewPeerOptionContractRepository(db))
 	if cr2.peerContracts == nil {
@@ -359,7 +359,7 @@ func TestOTCExpiryCron_ExpirePeerContract_CreditDirection(t *testing.T) {
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
 		repository.NewOTCOfferRepository(db),
-		nil, nil, 10, "02:00",
+		nil, nil, 10, "02:00", nilRegistry(),
 	).WithPeerContracts(peerRepo)
 
 	c := &model.PeerOptionContract{

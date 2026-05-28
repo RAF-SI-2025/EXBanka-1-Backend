@@ -15,7 +15,9 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	adminpb "github.com/exbanka/contract/adminpb"
 	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/cronreg"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/contract/influx"
 	"github.com/exbanka/contract/metrics"
@@ -119,9 +121,12 @@ func main() {
 		// and publishes them, so a crash between business commit and
 		// Kafka publish can no longer silently drop events.
 		&outbox.Event{},
+		&cronreg.CronPauseState{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
+
+	cronRegistry := cronreg.NewRegistry("stock-service", cronreg.NewGormPauseStore(db))
 
 	// Drop the pre-Task-4 (user_id, system_type) columns that AutoMigrate
 	// leaves behind on every table that previously carried them. Idempotent —
@@ -259,6 +264,7 @@ func main() {
 		"otc.contract-failed",
 		"notification.general",
 		"stock.saga-dead-letter",
+		"admin.cron-action",
 	)
 
 	// --- InfluxDB ---
@@ -521,7 +527,7 @@ func main() {
 		accountClient, exchangeClient, cfg.StateAccountNo,
 	).WithDB(db)
 
-	taxCronSvc := service.NewTaxCronService(taxSvc)
+	taxCronSvc := service.NewTaxCronService(taxSvc, cronRegistry)
 
 	// Long-lived ctx for background goroutines (seed, sync, crons, order execution).
 	// Must be created BEFORE NewOrderExecutionEngine so the engine's baseCtx is
@@ -535,7 +541,29 @@ func main() {
 	// gRPC method OTCGRPCService.ListUnifiedOffers serves the cached view.
 	otcOfferCache := otccache.New()
 	otcRefresher := otccache.NewRefresher(otcOfferCache, otcSvc, peerBankAdminClient, cfg.OwnBankCode, 5*time.Second)
-	go otcRefresher.Run(ctx)
+	otcCacheEntry := cronRegistry.Register("otc-offer-cache-refresher", "Refreshes unified OTC offer cache from local + peer banks", 5*time.Second)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !otcCacheEntry.BeginRun() {
+					continue
+				}
+				otcRefresher.Refresh(ctx)
+				otcCacheEntry.EndRun(nil)
+			case <-otcCacheEntry.TriggerChan():
+				if !otcCacheEntry.BeginRun() {
+					continue
+				}
+				otcRefresher.Refresh(ctx)
+				otcCacheEntry.EndRun(nil)
+			}
+		}
+	}()
 
 	// Phase 6 — cross-bank discovery of OPEN OTC OPTION listings.
 	// Currency resolved via the listings → exchanges chain (same lookup
@@ -549,7 +577,30 @@ func main() {
 	// outbox.Producer (which expects (ctx, topic, []byte)). The drainer ticks
 	// every 500ms publishing up to 100 pending rows per tick; failures
 	// increment row.attempt and leave the row pending for the next tick.
-	go outbox.NewDrainer(db, &outboxKafkaAdapter{prod: producer}).Run(ctx)
+	outboxDrainerEntry := cronRegistry.Register("outbox-drainer", "Drains transactional outbox to Kafka (500ms tick)", 500*time.Millisecond)
+	outboxDrainer := outbox.NewDrainer(db, &outboxKafkaAdapter{prod: producer})
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !outboxDrainerEntry.BeginRun() {
+					continue
+				}
+				outboxDrainer.DrainBatch(ctx, 100)
+				outboxDrainerEntry.EndRun(nil)
+			case <-outboxDrainerEntry.TriggerChan():
+				if !outboxDrainerEntry.BeginRun() {
+					continue
+				}
+				outboxDrainer.DrainBatch(ctx, 100)
+				outboxDrainerEntry.EndRun(nil)
+			}
+		}
+	}()
 
 	// Order services
 	securityLookup := service.NewSecurityLookupAdapter(stockRepo, futuresRepo, forexRepo, optionRepo)
@@ -610,11 +661,33 @@ func main() {
 		syncSvc.SeedAll(ctx, "data/futures_seed.json")
 	}()
 
-	// Start periodic price refresh
-	syncSvc.StartPeriodicRefresh(ctx, cfg.SecuritySyncIntervalMins)
+	// Start periodic price refresh (gated by cronreg)
+	securitySyncEntry := cronRegistry.Register("security-sync", "Refresh all security prices from the active source", time.Duration(cfg.SecuritySyncIntervalMins)*time.Minute)
+	go func() {
+		ticker := time.NewTicker(time.Duration(cfg.SecuritySyncIntervalMins) * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !securitySyncEntry.BeginRun() {
+					continue
+				}
+				syncSvc.RefreshPrices(ctx)
+				securitySyncEntry.EndRun(nil)
+			case <-securitySyncEntry.TriggerChan():
+				if !securitySyncEntry.BeginRun() {
+					continue
+				}
+				syncSvc.RefreshPrices(ctx)
+				securitySyncEntry.EndRun(nil)
+			}
+		}
+	}()
 
 	// Start daily price snapshot cron
-	listingCron := service.NewListingCronService(listingRepo, dailyPriceRepo, influxClient)
+	listingCron := service.NewListingCronService(listingRepo, dailyPriceRepo, influxClient, cronRegistry)
 	listingCron.StartDailyCron(ctx)
 
 	// Seed initial price history after listings are created
@@ -631,7 +704,7 @@ func main() {
 	// stuck from a prior crash) and then every 60 seconds until ctx is
 	// cancelled. Must use the long-lived main ctx so the ticker lives for the
 	// process lifetime and honors graceful shutdown via cancel().
-	sagaRecovery := service.NewSagaRecovery(sagaLogRepo, stockAccountClient, orderRepo, cfg.StateAccountNo, producer)
+	sagaRecovery := service.NewSagaRecovery(sagaLogRepo, stockAccountClient, orderRepo, cfg.StateAccountNo, producer, cronRegistry)
 	sagaRecovery.Run(ctx, 60*time.Second)
 
 	// Start tax collection cron
@@ -717,7 +790,7 @@ func main() {
 
 	// OTC expiry cron (daily). Covers intra-bank option_contracts and
 	// — via WithPeerContracts — cross-bank peer_option_contracts.
-	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC).
+	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC, cronRegistry).
 		WithOutbox(ob, db).
 		WithPeerContracts(peerOptionRepo)
 	otcExpiry.Start(ctx)
@@ -728,7 +801,7 @@ func main() {
 	// operator follow-up. Does NOT auto-release (risk of yanking the lock
 	// out from under a long-running saga). Run in a background goroutine
 	// that honors ctx cancellation.
-	staleScan := service.NewStaleReservationScanner(db, holdingReservationRepo, orderRepo, optionContractRepo, 24*time.Hour, 24*time.Hour).
+	staleScan := service.NewStaleReservationScanner(db, holdingReservationRepo, orderRepo, optionContractRepo, 24*time.Hour, 24*time.Hour, cronRegistry).
 		WithPeerContracts(peerOptionRepo)
 	go staleScan.Run(ctx)
 
@@ -768,8 +841,30 @@ func main() {
 		return out, nil
 	}
 	optionRefresher.WithAggregateBids(cacheAgg)
-	// Now that aggregation is wired, kick off the refresher.
-	go optionRefresher.Run(ctx)
+	// Now that aggregation is wired, kick off the refresher (gated by cronreg).
+	optionCacheEntry := cronRegistry.Register("option-offer-cache-refresher", "Refreshes unified option offer cache from local + peer banks", 5*time.Second)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !optionCacheEntry.BeginRun() {
+					continue
+				}
+				optionRefresher.Refresh(ctx)
+				optionCacheEntry.EndRun(nil)
+			case <-optionCacheEntry.TriggerChan():
+				if !optionCacheEntry.BeginRun() {
+					continue
+				}
+				optionRefresher.Refresh(ctx)
+				optionCacheEntry.EndRun(nil)
+			}
+		}
+	}()
 
 	peerAgg := func(offerIDs []uint64) (map[uint64]handler.PeerOfferAggregate, error) {
 		got, err := otcNegRepo.AggregateActiveBidsByOffer(offerIDs)
@@ -843,7 +938,7 @@ func main() {
 			pb.RegisterPriceAlertServiceServer(s, handler.NewPriceAlertHandler(priceAlertSvc))
 			// Cron: re-evaluate active alerts on a 30 s tick. Best-effort —
 			// failures log and the loop continues.
-			go service.NewPriceAlertCron(priceAlertSvc, listingRepo, priceAlertRepo, 30*time.Second).Run(ctx)
+			go service.NewPriceAlertCron(priceAlertSvc, listingRepo, priceAlertRepo, 30*time.Second, cronRegistry).Run(ctx)
 
 			recurringOrderRepo := repository.NewRecurringOrderRepository(db)
 			// The placer reshapes each recurring template tick into a Market
@@ -854,16 +949,18 @@ func main() {
 			recurringOrderSvc := service.NewRecurringOrderService(
 				recurringOrderRepo, listingRepo, newRecurringOrderPlacerAdapter(orderSvc), producer)
 			pb.RegisterRecurringOrderServiceServer(s, handler.NewRecurringOrderHandler(recurringOrderSvc))
-			go service.NewRecurringOrderCron(recurringOrderSvc, time.Hour).Run(ctx)
+			go service.NewRecurringOrderCron(recurringOrderSvc, time.Hour, cronRegistry).Run(ctx)
 
 			// Closed-end fund lifecycle: walk closed funds and transition
 			// their FundStatus per the calendar (15 min tick).
-			go service.NewFundLifecycleCron(db, producer, 15*time.Minute).Run(ctx)
+			go service.NewFundLifecycleCron(db, producer, 15*time.Minute, cronRegistry).Run(ctx)
 
 			recurringFundRepo := repository.NewRecurringFundInvestmentRepository(db)
 			recurringFundSvc := service.NewRecurringFundService(recurringFundRepo, fundRepo, fundService, producer)
 			pb.RegisterRecurringFundServiceServer(s, handler.NewRecurringFundHandler(recurringFundSvc))
-			go service.NewRecurringFundCron(recurringFundSvc, time.Hour).Run(ctx)
+			go service.NewRecurringFundCron(recurringFundSvc, time.Hour, cronRegistry).Run(ctx)
+
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":

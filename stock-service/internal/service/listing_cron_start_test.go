@@ -9,7 +9,7 @@ import (
 // TestListingCron_StartDailyCron_Cancels covers the StartDailyCron goroutine
 // path and its ctx.Done() exit branch.
 func TestListingCron_StartDailyCron_Cancels(t *testing.T) {
-	svc := NewListingCronService(&listingCronListingMock{}, &listingCronDailyMock{}, nil)
+	svc := NewListingCronService(&listingCronListingMock{}, &listingCronDailyMock{}, nil, nilRegistry())
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.StartDailyCron(ctx)
 	cancel()

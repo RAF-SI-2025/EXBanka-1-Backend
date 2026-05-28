@@ -289,7 +289,7 @@ func TestSagaRecovery_SettlementAlreadyCommitted_MarksCompleted(t *testing.T) {
 	}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestSagaRecovery_SettlementMissing_RetriesAndCompletes(t *testing.T) {
 	}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestSagaRecovery_QuoteSettlementMissing_RetriesWithForexMemo(t *testing.T) 
 	}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestSagaRecovery_MaxRetriesExceeded_MovesToDeadLetter(t *testing.T) {
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestSagaRecovery_CreditStep_WithoutOrderRepo_LeftAlone(t *testing.T) {
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestSagaRecovery_PlacementStep_NotAutoRetried(t *testing.T) {
 			stub := &fakeRecoveryAccountStub{}
 			client := newFakeRecoveryFillClient(stub)
 
-			rec := NewSagaRecovery(repo, client, nil, "", nil)
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 			if err := rec.Reconcile(context.Background()); err != nil {
 				t.Fatalf("Reconcile: %v", err)
 			}
@@ -471,7 +471,7 @@ func TestSagaRecovery_UpdateHolding_MarksCompleted(t *testing.T) {
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestSagaRecovery_RetryFailure_IncrementsRetryCount(t *testing.T) {
 	client := newFakeRecoveryFillClient(stub)
 	client.partialSettleErr = errors.New("boom")
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -519,7 +519,7 @@ func TestSagaRecovery_UnknownStepKind_Panics(t *testing.T) {
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 
 	defer func() {
 		r := recover()
@@ -550,7 +550,7 @@ func TestSagaRecovery_Run_StopsOnContextCancel(t *testing.T) {
 	client := newFakeRecoveryFillClient(stub)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	rec := NewSagaRecovery(repo, client, nil, "", nil)
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 	rec.Run(ctx, 10*time.Millisecond)
 
 	// Give the initial Reconcile a moment to run, then cancel. We only
@@ -596,7 +596,7 @@ func TestSagaRecovery_CreditProceeds_AutoRetriesWithKey(t *testing.T) {
 		orderID: {ID: orderID, AccountID: 11},
 	}}
 
-	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil)
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -632,7 +632,7 @@ func TestSagaRecovery_CommissionCredit_AutoRetriesWithKey(t *testing.T) {
 		orderID: {ID: orderID, AccountID: 99},
 	}}
 
-	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil)
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -668,7 +668,7 @@ func TestSagaRecovery_CompensationCredit_AutoRetriesWithKey(t *testing.T) {
 		orderID: {ID: orderID, AccountID: 22},
 	}}
 
-	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil)
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -696,7 +696,7 @@ func TestSagaRecovery_SellCompensationDebit_AutoRetriesWithKey(t *testing.T) {
 		orderID: {ID: orderID, AccountID: 33},
 	}}
 
-	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil)
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -729,7 +729,7 @@ func TestSagaRecovery_CreditRetryFailure_IncrementsRetryCount(t *testing.T) {
 		orderID: {ID: orderID, AccountID: 44},
 	}}
 
-	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil)
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001", nil, nilRegistry())
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}

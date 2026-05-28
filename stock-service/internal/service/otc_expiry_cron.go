@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared/outbox"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
@@ -39,6 +40,8 @@ type OTCExpiryCron struct {
 	// unit tests that don't wire a DB still work.
 	outbox   *outbox.Outbox
 	outboxDB *gorm.DB
+
+	entry *cronreg.Entry
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the cron
@@ -65,6 +68,7 @@ func NewOTCExpiryCron(
 	h *HoldingReservationService,
 	p *kafkaprod.Producer,
 	batchSize int, cronUTC string,
+	registry *cronreg.Registry,
 ) *OTCExpiryCron {
 	if batchSize <= 0 {
 		batchSize = 500
@@ -79,6 +83,7 @@ func NewOTCExpiryCron(
 	if p != nil {
 		cr.notifier = p
 	}
+	cr.entry = registry.Register("otc-expiry-cron", "Expire OTC contracts and offers past their settlement date (daily)", 0)
 	return cr
 }
 
@@ -242,15 +247,34 @@ func (cr *OTCExpiryCron) Start(ctx context.Context) {
 	go func() {
 		// Catch-up pass on startup. Best-effort — failures here are
 		// logged and the daily schedule continues.
-		if err := cr.RunOnce(ctx); err != nil {
-			log.Printf("WARN: OTC expiry startup run: %v", err)
+		if cr.entry.BeginRun() {
+			err := cr.RunOnce(ctx)
+			cr.entry.EndRun(err)
+			if err != nil {
+				log.Printf("WARN: OTC expiry startup run: %v", err)
+			}
 		}
 		for {
 			next := otcNextRunAt(time.Now().UTC(), cr.cronUTC)
 			select {
 			case <-time.After(time.Until(next)):
-				if err := cr.RunOnce(ctx); err != nil {
+				if !cr.entry.BeginRun() {
+					log.Println("OTC expiry cron: paused, skipping this tick")
+					continue
+				}
+				err := cr.RunOnce(ctx)
+				cr.entry.EndRun(err)
+				if err != nil {
 					log.Printf("WARN: OTC expiry run: %v", err)
+				}
+			case <-cr.entry.TriggerChan():
+				if !cr.entry.BeginRun() {
+					continue
+				}
+				err := cr.RunOnce(ctx)
+				cr.entry.EndRun(err)
+				if err != nil {
+					log.Printf("WARN: OTC expiry triggered run: %v", err)
 				}
 			case <-ctx.Done():
 				return

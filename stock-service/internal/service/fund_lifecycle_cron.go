@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -25,9 +26,10 @@ type FundLifecycleCron struct {
 	db       *gorm.DB
 	notifier recurringOrderNotifier
 	interval time.Duration
+	entry    *cronreg.Entry
 }
 
-func NewFundLifecycleCron(db *gorm.DB, notifier recurringOrderNotifier, interval time.Duration) *FundLifecycleCron {
+func NewFundLifecycleCron(db *gorm.DB, notifier recurringOrderNotifier, interval time.Duration, registry *cronreg.Registry) *FundLifecycleCron {
 	if interval <= 0 {
 		interval = 15 * time.Minute
 	}
@@ -35,6 +37,7 @@ func NewFundLifecycleCron(db *gorm.DB, notifier recurringOrderNotifier, interval
 	if notifier != nil {
 		c.notifier = notifier
 	}
+	c.entry = registry.Register("fund-lifecycle-cron", "Transition closed-end fund statuses per calendar", interval)
 	return c
 }
 
@@ -46,7 +49,17 @@ func (c *FundLifecycleCron) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !c.entry.BeginRun() {
+				continue
+			}
 			c.tick(ctx, time.Now().UTC())
+			c.entry.EndRun(nil)
+		case <-c.entry.TriggerChan():
+			if !c.entry.BeginRun() {
+				continue
+			}
+			c.tick(ctx, time.Now().UTC())
+			c.entry.EndRun(nil)
 		}
 	}
 }
