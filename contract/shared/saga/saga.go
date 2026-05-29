@@ -402,14 +402,34 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			s.logf("saga=%s step=%s mark completed: %v", s.id, step.Name, mErr)
 		}
 		done = append(done, completedStep{step: step, handle: handle, number: i + 1})
+
+		// "after"-kind forced failure: the step's side effects applied and were
+		// recorded complete; now fail the saga so the rollback compensates this
+		// step (it is in `done`) and all prior. No-op unless built with
+		// -tags sagafaults. Drives SG-* scenarios that fail a phase *after* its
+		// effect lands.
+		if afterErr := faultAfterForward(ctx, step.Name); afterErr != nil {
+			if fErr := s.recorder.MarkFailed(ctx, handle, afterErr.Error()); fErr != nil {
+				s.logf("saga=%s step=%s mark failed (after-fault): %v", s.id, step.Name, fErr)
+			}
+			compensated := s.rollback(ctx, state, done)
+			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), afterErr.Error(), compensated)
+			return afterErr
+		}
 	}
 
 	s.publisher.OnCommitted(ctx, s.id)
 	return nil
 }
 
-// runForward invokes a step's Forward, optionally wrapped in Retry.
+// runForward invokes a step's Forward, optionally wrapped in Retry. The fault
+// hooks (no-ops unless built with -tags sagafaults) can delay the step or fail
+// it before its side effects, to drive the SG-* saga test scenarios.
 func (s *Saga) runForward(ctx context.Context, step Step, state *State) error {
+	faultDelay(ctx, step.Name)
+	if err := faultBeforeForward(ctx, step.Name); err != nil {
+		return err
+	}
 	if s.retry.MaxAttempts > 0 {
 		return shared.Retry(ctx, s.retry, func() error { return step.Forward(ctx, state) })
 	}
@@ -417,15 +437,24 @@ func (s *Saga) runForward(ctx context.Context, step Step, state *State) error {
 }
 
 // runBackward invokes a step's Backward, optionally wrapped in Retry. A nil
-// Backward returns nil (the step declared itself non-compensatable).
+// Backward returns nil (the step declared itself non-compensatable). The
+// compensate fault hook (no-op unless built with -tags sagafaults) is consulted
+// inside the retried closure so "fail N times then succeed" plays out across
+// retries.
 func (s *Saga) runBackward(ctx context.Context, step Step, state *State) error {
 	if step.Backward == nil {
 		return nil
 	}
-	if s.retry.MaxAttempts > 0 {
-		return shared.Retry(ctx, s.retry, func() error { return step.Backward(ctx, state) })
+	do := func() error {
+		if err := faultCompensate(ctx, s.id, step.Name); err != nil {
+			return err
+		}
+		return step.Backward(ctx, state)
 	}
-	return step.Backward(ctx, state)
+	if s.retry.MaxAttempts > 0 {
+		return shared.Retry(ctx, s.retry, do)
+	}
+	return do()
 }
 
 // rollback walks completed steps in reverse, compensating each. Returns the
