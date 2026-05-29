@@ -422,6 +422,46 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 	return nil
 }
 
+// Compensate drives an already-started saga to a fully rolled-back state from
+// its persisted log, without running any Forward. It is the crash-recovery
+// counterpart to Execute for the case where the saga was already aborting when
+// the process died (compensation rows exist): every step the recorder reports
+// completed is compensated in reverse order. Steps that never completed are
+// skipped — their Forward did not apply, so there is nothing to undo.
+//
+// Because every Backward in this codebase's recoverable sagas is idempotent
+// (keyed credits/debits, no-op-if-absent decrements, set-to-same status), it is
+// safe to call Compensate even on steps already compensated by the original
+// (crashed) rollback — the second Backward is a no-op. The walk still honors
+// Pivot (halts) and nil Backward (skips), matching Execute's rollback.
+//
+// state may be nil; an empty State is created if so. Returns nil once the
+// reverse walk completes; per-step Backward failures are recorded
+// (compensating status) and surfaced via the lifecycle publisher's OnStuck for
+// the recovery loop to retry on a later tick, exactly as in Execute.
+func (s *Saga) Compensate(ctx context.Context, state *State) error {
+	if state == nil {
+		state = NewState()
+	}
+	if len(s.steps) == 0 {
+		return nil
+	}
+	done := make([]completedStep, 0, len(s.steps))
+	for i, step := range s.steps {
+		ok, err := s.recorder.IsCompleted(ctx, s.id, step.Name)
+		if err != nil {
+			s.logf("saga=%s step=%s IsCompleted during compensate: %v", s.id, step.Name, err)
+			continue
+		}
+		if ok {
+			done = append(done, completedStep{step: step, number: i + 1})
+		}
+	}
+	compensated := s.rollback(ctx, state, done)
+	s.publisher.OnRolledBack(ctx, s.id, "", "recovery compensation", compensated)
+	return nil
+}
+
 // runForward invokes a step's Forward, optionally wrapped in Retry. The fault
 // hooks (no-ops unless built with -tags sagafaults) can delay the step or fail
 // it before its side effects, to drive the SG-* saga test scenarios.

@@ -99,6 +99,11 @@ type FundHoldingUpsert interface {
 	// DecrementForFundSecurity reverses an on-behalf-of-fund buyer credit
 	// (exercise-saga backward step). No-op when the row is absent.
 	DecrementForFundSecurity(fundID uint64, securityType string, securityID uint64, qty int64) error
+	// UpsertIdempotent / DecrementForFundSecurityIdempotent are the
+	// marker-guarded variants the exercise saga uses so a retry or
+	// crash-recovery replay credits the fund's shares exactly once.
+	UpsertIdempotent(h *model.FundHolding, idemKey string) error
+	DecrementForFundSecurityIdempotent(fundID uint64, securityType string, securityID uint64, qty int64, idemKey string) error
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga
@@ -144,6 +149,11 @@ type OTCHoldingMutator interface {
 	// DecrementForOwner reverses an exercise buyer credit (exercise-saga
 	// backward step), deleting the row at zero. No-op when the row is absent.
 	DecrementForOwner(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64) error
+	// UpsertIdempotent / DecrementForOwnerIdempotent are the marker-guarded
+	// variants the exercise saga uses so a retry or crash-recovery replay
+	// credits the buyer's shares exactly once.
+	UpsertIdempotent(ctx context.Context, h *model.Holding, idemKey string) error
+	DecrementForOwnerIdempotent(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64, idemKey string) error
 }
 
 // OTCStockMetaResolver is the narrow lookup the exercise saga uses to

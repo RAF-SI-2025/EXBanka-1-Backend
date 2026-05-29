@@ -39,6 +39,50 @@ func (r *FundHoldingRepository) Upsert(h *model.FundHolding) error {
 	}).Create(h).Error
 }
 
+// UpsertIdempotent is Upsert guarded by a HoldingCreditMarker so a replay
+// (saga retry / crash-recovery re-run) credits the fund's shares exactly once.
+// Mirrors HoldingRepository.UpsertIdempotent for the on-behalf-of-fund branch
+// of the OTC exercise buyer-credit step. Marker insert + upsert run in one
+// transaction; an already-present marker short-circuits to a no-op.
+func (r *FundHoldingRepository) UpsertIdempotent(h *model.FundHolding, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		marker := &model.HoldingCreditMarker{IdempotencyKey: idemKey}
+		res := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(marker)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return nil
+		}
+		return NewFundHoldingRepository(tx).Upsert(h)
+	})
+}
+
+// DecrementForFundSecurityIdempotent reverses an UpsertIdempotent fund credit.
+// No-op when the marker is absent (never credited or already reversed); when
+// present it decrements the fund holding and deletes the marker so a later
+// re-credit under the same key applies again.
+func (r *FundHoldingRepository) DecrementForFundSecurityIdempotent(fundID uint64, securityType string, securityID uint64, qty int64, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var marker model.HoldingCreditMarker
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("idempotency_key = ?", idemKey).First(&marker).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if derr := NewFundHoldingRepository(tx).DecrementForFundSecurity(fundID, securityType, securityID, qty); derr != nil {
+			return derr
+		}
+		return tx.Delete(&marker).Error
+	})
+}
+
 func (r *FundHoldingRepository) DecrementQuantity(holdingID uint64, q int64) error {
 	// SkipHooks: the FundHolding BeforeUpdate hook adds `WHERE version = ?`
 	// using the (zero-value) receiver, i.e. `WHERE version = 0`, which matches

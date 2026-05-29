@@ -117,6 +117,55 @@ func (r *HoldingRepository) Upsert(ctx context.Context, holding *model.Holding) 
 	})
 }
 
+// UpsertIdempotent is Upsert guarded by a credit marker so a replay (saga
+// retry or crash-recovery re-run) credits the shares exactly once. In one
+// transaction it inserts a HoldingCreditMarker for idemKey ON CONFLICT DO
+// NOTHING; if the marker is newly inserted it applies the weighted-average
+// upsert, otherwise it returns without mutating (the credit already landed).
+// Paired with DecrementForOwnerIdempotent which deletes the marker as it
+// reverses the credit.
+func (r *HoldingRepository) UpsertIdempotent(ctx context.Context, holding *model.Holding, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		marker := &model.HoldingCreditMarker{IdempotencyKey: idemKey}
+		res := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(marker)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			// Marker already present — the credit was applied by a prior run.
+			return nil
+		}
+		return NewHoldingRepository(tx).Upsert(ctx, holding)
+	})
+}
+
+// DecrementForOwnerIdempotent reverses an UpsertIdempotent credit. In one
+// transaction it checks for the credit marker; if absent it is a no-op (the
+// credit was never applied or was already reversed). If present it decrements
+// the owner's holding and deletes the marker, so a subsequent re-credit under
+// the same key applies again. Safe to retry — the marker presence gates the
+// single decrement.
+func (r *HoldingRepository) DecrementForOwnerIdempotent(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var marker model.HoldingCreditMarker
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("idempotency_key = ?", idemKey).First(&marker).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if derr := NewHoldingRepository(tx).DecrementForOwner(ctx, ownerType, ownerID, securityType, securityID, qty); derr != nil {
+			return derr
+		}
+		return tx.Delete(&marker).Error
+	})
+}
+
 func (r *HoldingRepository) GetByID(id uint64) (*model.Holding, error) {
 	var holding model.Holding
 	if err := r.db.First(&holding, id).Error; err != nil {

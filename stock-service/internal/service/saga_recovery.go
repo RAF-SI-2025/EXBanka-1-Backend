@@ -89,7 +89,25 @@ type SagaRecovery struct {
 	// all recovery retries. Optional: when nil, the step is just logged as
 	// ERROR (same as the pre-A2.3 behaviour).
 	deadLetterProducer *kafkaprod.Producer
-	entry              *cronreg.Entry
+	// exerciseRecoverer auto-resolves stuck OTC exercise sagas by re-driving
+	// them to a terminal state (forward-resume or rollback). Optional: when
+	// nil, exercise steps fall back to logged-for-review. Wired in main.go to
+	// the OTCOfferService. See RecoverExerciseSaga.
+	exerciseRecoverer ExerciseSagaRecoverer
+	entry             *cronreg.Entry
+}
+
+// ExerciseSagaRecoverer drives a crash-stranded OTC exercise saga to a terminal
+// state with no human intervention. Implemented by *OTCOfferService.
+type ExerciseSagaRecoverer interface {
+	RecoverExerciseSaga(ctx context.Context, sagaID string, contractID uint64) error
+}
+
+// WithExerciseRecoverer wires the OTC exercise auto-resolver. Returns the same
+// *SagaRecovery for chaining at construction time in main.go.
+func (r *SagaRecovery) WithExerciseRecoverer(rec ExerciseSagaRecoverer) *SagaRecovery {
+	r.exerciseRecoverer = rec
+	return r
 }
 
 // SagaRecoveryLogRepo is the minimum interface the reconciler needs.
@@ -264,16 +282,12 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 	// without an idempotency-key contract.
 	case saga.StepReserveAndContract,
 		saga.StepReservePremium,
-		saga.StepReserveStrike,
 		saga.StepSettlePremiumBuyer,
-		saga.StepSettleStrikeBuyer,
-		saga.StepConsumeSellerHolding,
 		saga.StepDebitSource,
 		saga.StepCreditTarget,
 		saga.StepDebitFund,
 		saga.StepCreditFund,
 		saga.StepCreditPremiumSeller,
-		saga.StepCreditStrikeSeller,
 		saga.StepUpsertPosition,
 		saga.StepCreditBankFee:
 		log.Printf("WARN: stuck OTC/Fund saga step %d (order=%d, step=%s) — needs human review",
@@ -303,27 +317,20 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
 			"auto-completed by recovery (publish is outbox-backed, idempotent)")
 
-	// --- OTC exercise post-saga steps (moved inside saga by A2.2). Same
-	// rationale as accept steps above.
-	case saga.StepUpsertBuyerHolding:
-		// Upsert is idempotent (weighted-average merge). Safe to auto-complete.
-		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
-			"auto-completed by recovery (holding upsert is idempotent)")
-
-	case saga.StepRecordSellerStrikeGain, saga.StepRecordBuyerExerciseCost:
-		log.Printf("WARN: stuck OTC exercise capital-gain step %d (order=%d, step=%s) — needs human review",
-			step.ID, step.OrderID, step.StepName)
-		return nil
-
-	case saga.StepMarkContractExercised:
-		log.Printf("WARN: stuck OTC exercise mark_contract_exercised step %d (order=%d) — needs human review",
-			step.ID, step.OrderID)
-		return nil
-
-	case saga.StepPublishOTCExercise:
-		// Same as publish_otc_accepted_event: outbox-backed, idempotent.
-		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
-			"auto-completed by recovery (publish is outbox-backed, idempotent)")
+	// --- OTC exercise saga steps (assembled by buildExerciseSaga). Every
+	// stuck exercise step is auto-resolved by re-driving the whole saga to a
+	// terminal state (forward-resume to EXERCISED, or rollback to ACTIVE if it
+	// was already aborting). No human review. See reconcileExercise.
+	case saga.StepReserveStrike,
+		saga.StepSettleStrikeBuyer,
+		saga.StepCreditStrikeSeller,
+		saga.StepConsumeSellerHolding,
+		saga.StepUpsertBuyerHolding,
+		saga.StepRecordSellerStrikeGain,
+		saga.StepRecordBuyerExerciseCost,
+		saga.StepMarkContractExercised,
+		saga.StepPublishOTCExercise:
+		return r.reconcileExercise(ctx, step)
 
 	// --- Crossbank steps. These ride on InterBankSagaLog (a different table)
 	// in production and have a separate reconciliation cron. They should NOT
@@ -366,6 +373,41 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 			"recovery: unhandled StepKind %q — add case to switch in saga_recovery.go",
 			step.StepName))
 	}
+}
+
+// reconcileExercise auto-resolves a stuck OTC exercise saga step by delegating
+// to the exercise recoverer, which re-drives the WHOLE saga (identified by
+// step.SagaID, contract = step.OrderID) to a terminal state — forward-resume to
+// EXERCISED, or rollback to ACTIVE when it was already aborting. The delegate is
+// idempotent, so it is safe to invoke once per stuck row of the same saga (and
+// across ticks). On success the row is marked completed/compensated so it drops
+// out of the stuck query; the delegate already moved every other row of the
+// saga to terminal too.
+//
+// Falls back to the historical log-and-leave only when no recoverer is wired
+// (e.g. a test SagaRecovery), or when the row lacks the contract id needed to
+// rebuild the saga.
+func (r *SagaRecovery) reconcileExercise(ctx context.Context, step model.SagaLog) error {
+	if r.exerciseRecoverer == nil {
+		log.Printf("WARN: stuck OTC exercise step %d (order=%d, step=%s) — no recoverer wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" || step.OrderID == 0 {
+		log.Printf("WARN: stuck OTC exercise step %d (step=%s) — missing saga_id/order_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	if err := r.exerciseRecoverer.RecoverExerciseSaga(ctx, step.SagaID, step.OrderID); err != nil {
+		return fmt.Errorf("recover exercise saga %s (contract=%d): %w", step.SagaID, step.OrderID, err)
+	}
+	// The delegate drove the saga terminal. Transition this row out of the
+	// stuck set: compensation rows go to compensated, forward rows to completed.
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (saga re-driven to terminal)")
 }
 
 // reconcileSettle resolves a stuck settle_reservation / settle_reservation_quote

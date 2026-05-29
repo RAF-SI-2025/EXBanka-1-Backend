@@ -483,6 +483,73 @@ func TestSagaRecovery_UpdateHolding_MarksCompleted(t *testing.T) {
 	}
 }
 
+// fakeExerciseRecoverer records RecoverExerciseSaga calls so the dispatch test
+// can assert the reconciler delegated with the right (sagaID, contractID).
+type fakeExerciseRecoverer struct {
+	calls []struct {
+		sagaID     string
+		contractID uint64
+	}
+	err error
+}
+
+func (f *fakeExerciseRecoverer) RecoverExerciseSaga(_ context.Context, sagaID string, contractID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID     string
+		contractID uint64
+	}{sagaID, contractID})
+	return f.err
+}
+
+// Every stuck OTC exercise step must auto-resolve by delegating to the
+// exercise recoverer (re-driving the whole saga) — no human review. The row is
+// then marked terminal so it drops out of the stuck set.
+func TestSagaRecovery_ExerciseStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"reserve_strike", "settle_strike_buyer", "credit_strike_seller",
+		"consume_seller_holding", "upsert_buyer_holding", "record_seller_strike_gain",
+		"record_buyer_exercise_cost", "mark_contract_exercised", "publish_otc_exercise_event",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			// order_id carries the contract id for exercise rows.
+			step := settleStep(1, 4242, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeExerciseRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithExerciseRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].contractID != 4242 {
+				t.Fatalf("expected RecoverExerciseSaga(saga-1, 4242), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
+// When no recoverer is wired (e.g. a bare test harness), exercise steps fall
+// back to log-and-leave: no UpdateStatus, no panic.
+func TestSagaRecovery_ExerciseStep_NoRecoverer_LeavesRow(t *testing.T) {
+	step := settleStep(1, 4242, 9001, decimal.NewFromInt(1), "mark_contract_exercised")
+	repo := newFakeRecoveryRepo(step)
+	stub := &fakeRecoveryAccountStub{}
+	client := newFakeRecoveryFillClient(stub)
+
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(repo.updateCalls) != 0 {
+		t.Fatalf("expected no UpdateStatus without a recoverer, got %+v", repo.updateCalls)
+	}
+}
+
 // When the retry itself fails, IncrementRetryCount is called so repeated
 // failures can eventually hit the ceiling and stop being retried.
 func TestSagaRecovery_RetryFailure_IncrementsRetryCount(t *testing.T) {
