@@ -113,9 +113,13 @@ func (h *InvestmentFundHandler) GetFund(c *gin.Context) {
 	// Return the full enriched shape. The proto fields are already populated
 	// by the stock-service handler (E1). We shape the JSON response here so
 	// the frontend gets a flat structure with all statistics at the top level.
+	// holdings is a proto `repeated` field: an empty list is indistinguishable
+	// from absent on the wire, so resp.GetHoldings() decodes as a nil slice for
+	// any fund with no positions. emptyIfNil keeps it serializing as `[]`
+	// rather than `null` (matches every other list-returning gateway handler).
 	c.JSON(http.StatusOK, gin.H{
 		"fund":                     resp.GetFund(),
-		"holdings":                 resp.GetHoldings(),
+		"holdings":                 emptyIfNil(resp.GetHoldings()),
 		"investor_count":           resp.GetInvestorCount(),
 		"total_contributed_rsd":    resp.GetTotalContributedRsd(),
 		"liquid_rsd_balance":       resp.GetLiquidRsdBalance(),

@@ -206,6 +206,24 @@ func TestFund_GetFund_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestFund_GetFund_EmptyHoldingsIsArray guards the null-holdings bug: a proto
+// `repeated` field with no elements decodes as a nil slice on the gateway side,
+// which encoding/json would render as `null`. The handler must emit `[]`.
+func TestFund_GetFund_EmptyHoldingsIsArray(t *testing.T) {
+	cl := &stubInvestmentFundClient{
+		getFn: func(in *stockpb.GetFundRequest) (*stockpb.FundDetailResponse, error) {
+			// Holdings deliberately left nil — mirrors a fund with no positions.
+			return &stockpb.FundDetailResponse{Fund: &stockpb.FundResponse{Id: in.FundId}}, nil
+		},
+	}
+	r := investmentFundRouter(handler.NewInvestmentFundHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/funds/11", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"holdings":[]`)
+	require.NotContains(t, rec.Body.String(), `"holdings":null`)
+}
+
 func TestFund_GetFund_BadID(t *testing.T) {
 	r := investmentFundRouter(handler.NewInvestmentFundHandler(&stubInvestmentFundClient{}))
 	rec := httptest.NewRecorder()
