@@ -7134,6 +7134,63 @@ paths:
       summary: Global loans changelog (admin)
       tags:
       - Admin
+  /api/v3/admin/audit/saga-logs:
+    get:
+      description: Returns transaction-service saga_logs (forward + compensation steps),
+        paginated and filterable. Requires admin.audit.view. Lets an admin review
+        saga execution and compensation history.
+      parameters:
+      - description: page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: page size (default 50, max 200)
+        in: query
+        name: page_size
+        type: integer
+      - description: filter to a single saga
+        in: query
+        name: saga_id
+        type: string
+      - description: pending|completed|failed|compensating|dead_letter
+        in: query
+        name: status
+        type: string
+      - description: transfer|payment
+        in: query
+        name: transaction_type
+        type: string
+      - description: YYYY-MM-DD (created_at >=)
+        in: query
+        name: since
+        type: string
+      - description: YYYY-MM-DD (created_at <=)
+        in: query
+        name: until
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List transfer/payment saga execution logs (admin audit)
+      tags:
+      - AdminAudit
   /api/v3/admin/crons:
     get:
       description: Returns cron job information from every service that exposes the

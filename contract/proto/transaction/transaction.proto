@@ -21,6 +21,9 @@ service TransactionService {
   rpc UpdatePaymentRecipient(UpdatePaymentRecipientRequest) returns (PaymentRecipientResponse);
   rpc DeletePaymentRecipient(DeletePaymentRecipientRequest) returns (DeletePaymentRecipientResponse);
 
+  // Admin audit: read transfer/payment saga execution logs.
+  rpc ListSagaLogs(ListSagaLogsRequest) returns (ListSagaLogsResponse);
+
 }
 
 message CreatePaymentRequest {
@@ -439,4 +442,39 @@ message ResolvePeerByBankCodeRequest {
 message ResolvePeerByBankCodeResponse {
   PeerBankFull peer_bank = 1;
   bool found = 2;
+}
+
+// --- Admin audit: saga logs (transfer/payment saga execution + compensation) ---
+
+message ListSagaLogsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string saga_id = 3;           // optional: filter to one saga
+  string status = 4;            // optional: pending|completed|failed|compensating|dead_letter
+  string transaction_type = 5;  // optional: transfer|payment
+  int64 since = 6;              // optional: unix seconds (created_at >=)
+  int64 until = 7;              // optional: unix seconds (created_at <=)
+}
+
+message SagaLogEntry {
+  uint64 id = 1;
+  string saga_id = 2;
+  uint64 transaction_id = 3;
+  string transaction_type = 4;
+  int32 step_number = 5;
+  string step_name = 6;
+  string status = 7;
+  bool is_compensation = 8;
+  string account_number = 9;
+  string amount = 10;            // signed decimal string
+  string error_message = 11;
+  uint64 compensation_of = 12;   // 0 when not a compensation
+  int32 retry_count = 13;
+  int64 created_at = 14;         // unix seconds
+  int64 completed_at = 15;       // unix seconds, 0 when null
+}
+
+message ListSagaLogsResponse {
+  repeated SagaLogEntry logs = 1;
+  int64 total = 2;
 }

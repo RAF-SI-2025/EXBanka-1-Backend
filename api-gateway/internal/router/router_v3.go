@@ -1013,6 +1013,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			auditAdmin.GET("/loans-changelog", h.AdminAudit.ListLoansChangelog)
 			auditAdmin.GET("/employees-changelog", h.AdminAudit.ListEmployeesChangelog)
 			auditAdmin.GET("/cron-actions", h.AdminAudit.ListCronActions)
+			auditAdmin.GET("/saga-logs", h.AdminAudit.ListSagaLogs)
 		}
 	}
 
