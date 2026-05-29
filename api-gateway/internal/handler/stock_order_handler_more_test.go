@@ -213,6 +213,56 @@ func TestCreateOrderOnBehalf_Success(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
 }
 
+// TestCreateOrderOnBehalf_FundOrder covers buying a stock on behalf of an
+// investment fund via /orders: on_behalf_of_fund_id is supplied instead of
+// client_id. The order must reach stock-service with the fund id set, the
+// acting employee as owner (bank), and NO on_behalf_of_client_id. The
+// client-ownership check must be skipped — the account is the fund's RSD
+// account, not a client's, so an account owned by someone other than the
+// (absent) client must not cause a 403.
+func TestCreateOrderOnBehalf_FundOrder(t *testing.T) {
+	acct := &stubAccountClient{
+		getAccountFn: func(in *accountpb.GetAccountRequest) *accountpb.AccountResponse {
+			// If this were consulted for ownership it would mismatch (owner 999);
+			// fund orders must not consult it, so a success here proves the skip.
+			return &accountpb.AccountResponse{Id: in.Id, OwnerId: 999}
+		},
+	}
+	ord := &fullOrderClient{
+		createFn: func(in *stockpb.CreateOrderRequest) (*stockpb.Order, error) {
+			require.Equal(t, uint64(9), in.OnBehalfOfFundId)
+			require.Equal(t, uint64(0), in.OnBehalfOfClientId)
+			require.Equal(t, "bank", in.SystemType)
+			require.Equal(t, uint64(0), in.UserId)
+			require.Equal(t, uint64(11), in.ActingEmployeeId)
+			return &stockpb.Order{Id: 1}, nil
+		},
+	}
+	r := adminOrdersRouter(handler.NewStockOrderHandler(ord, acct))
+	body := `{"on_behalf_of_fund_id":9,"account_id":42,"listing_id":7,"direction":"buy","order_type":"market","quantity":10}`
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("POST", "/orders", strings.NewReader(body)))
+	require.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
+}
+
+func TestCreateOrderOnBehalf_FundAndClientBothSet(t *testing.T) {
+	r := adminOrdersRouter(handler.NewStockOrderHandler(&fullOrderClient{}, &stubAccountClient{}))
+	body := `{"client_id":5,"on_behalf_of_fund_id":9,"account_id":42,"listing_id":7,"direction":"buy","order_type":"market","quantity":10}`
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("POST", "/orders", strings.NewReader(body)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "only one of")
+}
+
+func TestCreateOrderOnBehalf_NeitherClientNorFund(t *testing.T) {
+	r := adminOrdersRouter(handler.NewStockOrderHandler(&fullOrderClient{}, &stubAccountClient{}))
+	body := `{"account_id":42,"listing_id":7,"direction":"buy","order_type":"market","quantity":10}`
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("POST", "/orders", strings.NewReader(body)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "on_behalf_of_fund_id")
+}
+
 func TestCreateOrderOnBehalf_BadBody(t *testing.T) {
 	r := adminOrdersRouter(handler.NewStockOrderHandler(&fullOrderClient{}, &stubAccountClient{}))
 	rec := httptest.NewRecorder()

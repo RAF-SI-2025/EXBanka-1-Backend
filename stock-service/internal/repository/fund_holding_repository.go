@@ -24,8 +24,14 @@ func (r *FundHoldingRepository) Upsert(h *model.FundHolding) error {
 		Columns: []clause.Column{{Name: "fund_id"}, {Name: "security_type"}, {Name: "security_id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"quantity": gorm.Expr("fund_holdings.quantity + ?", h.Quantity),
+			// CAST the two bind parameters to numeric: without an explicit
+			// type Postgres sees `$n * $m` as `unknown * unknown` and fails
+			// the whole prepared statement with "operator is not unique"
+			// (SQLSTATE 42725) — even on the insert (no-conflict) path, since
+			// the ON CONFLICT clause is parsed regardless. This silently broke
+			// every fund-holding write, leaving fund holdings permanently empty.
 			"average_price_rsd": gorm.Expr(
-				"((fund_holdings.average_price_rsd * fund_holdings.quantity) + (? * ?)) / NULLIF(fund_holdings.quantity + ?, 0)",
+				"((fund_holdings.average_price_rsd * fund_holdings.quantity) + (CAST(? AS numeric) * CAST(? AS numeric))) / NULLIF(fund_holdings.quantity + ?, 0)",
 				h.AveragePriceRSD, h.Quantity, h.Quantity,
 			),
 			"version": gorm.Expr("fund_holdings.version + 1"),

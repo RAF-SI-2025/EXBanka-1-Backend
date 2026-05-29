@@ -287,41 +287,53 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 }
 
 // CreateOrderOnBehalf godoc
-// @Summary      Place stock/futures/forex/option order on behalf of a client
-// @Description  Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.
+// @Summary      Place stock/futures/forex/option order on behalf of a client or fund
+// @Description  Employee-only. Supply exactly one of `client_id` (on behalf of a client) or `on_behalf_of_fund_id` (on behalf of an investment fund). For client orders the gateway verifies the account belongs to the named client; for fund orders the account is the fund's RSD account and stock-service re-validates the fund-manager binding. stock-service records acting_employee_id for audit.
 // @Tags         orders
 // @Accept       json
 // @Produce      json
-// @Param        body body object true "Order"
+// @Param        body body object true "Order. Provide client_id OR on_behalf_of_fund_id (not both)."
 // @Security     BearerAuth
 // @Success      201 {object} map[string]interface{}
-// @Failure      400 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{} "validation_error — provide exactly one of client_id / on_behalf_of_fund_id"
 // @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      409 {object} map[string]interface{}
 // @Router       /api/v2/orders [post]
 func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 	var req struct {
-		ClientID      uint64  `json:"client_id"`
-		AccountID     uint64  `json:"account_id"`
-		SecurityType  string  `json:"security_type"`
-		ListingID     uint64  `json:"listing_id"`
-		HoldingID     uint64  `json:"holding_id"`
-		Direction     string  `json:"direction"`
-		OrderType     string  `json:"order_type"`
-		Quantity      int64   `json:"quantity"`
-		LimitValue    *string `json:"limit_value"`
-		StopValue     *string `json:"stop_value"`
-		AllOrNone     bool    `json:"all_or_none"`
-		Margin        bool    `json:"margin"`
-		BaseAccountID *uint64 `json:"base_account_id,omitempty"`
+		ClientID         uint64  `json:"client_id"`
+		AccountID        uint64  `json:"account_id"`
+		SecurityType     string  `json:"security_type"`
+		ListingID        uint64  `json:"listing_id"`
+		HoldingID        uint64  `json:"holding_id"`
+		Direction        string  `json:"direction"`
+		OrderType        string  `json:"order_type"`
+		Quantity         int64   `json:"quantity"`
+		LimitValue       *string `json:"limit_value"`
+		StopValue        *string `json:"stop_value"`
+		AllOrNone        bool    `json:"all_or_none"`
+		Margin           bool    `json:"margin"`
+		BaseAccountID    *uint64 `json:"base_account_id,omitempty"`
+		OnBehalfOfFundID uint64  `json:"on_behalf_of_fund_id,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, 400, ErrValidation, "invalid request body")
 		return
 	}
-	if req.ClientID == 0 {
-		apiError(c, 400, ErrValidation, "client_id is required")
+	// This route serves two on-behalf modes: on-behalf-of-client (client_id)
+	// and on-behalf-of-fund (on_behalf_of_fund_id). Exactly one must be set.
+	// A fund order names the fund's RSD account, not a client account, so the
+	// client-ownership checks below are skipped for it; stock-service
+	// re-validates the acting employee is the fund's manager and that the
+	// account is the fund's (mirrors the /me/orders fund path).
+	isFundOrder := req.OnBehalfOfFundID != 0
+	if isFundOrder && req.ClientID != 0 {
+		apiError(c, 400, ErrValidation, "provide only one of client_id or on_behalf_of_fund_id")
+		return
+	}
+	if !isFundOrder && req.ClientID == 0 {
+		apiError(c, 400, ErrValidation, "client_id or on_behalf_of_fund_id is required")
 		return
 	}
 	direction, err := oneOf("direction", req.Direction, "buy", "sell")
@@ -389,8 +401,9 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 
 	// Verify the account belongs to the named client. Post-rollup (Part A)
 	// sell orders also carry an account_id (proceeds destination) which must
-	// belong to the client.
-	if direction == "buy" || direction == "sell" {
+	// belong to the client. Skipped for fund orders: the account is the fund's
+	// RSD account (not a client account); stock-service binds it to the fund.
+	if !isFundOrder && (direction == "buy" || direction == "sell") {
 		acctResp, acctErr := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
 		if acctErr != nil {
 			handleGRPCError(c, acctErr)
@@ -402,7 +415,7 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 		}
 	}
 	// Also verify the base account belongs to the named client when provided.
-	if req.BaseAccountID != nil {
+	if !isFundOrder && req.BaseAccountID != nil {
 		baseAcctResp, baseErr := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: *req.BaseAccountID})
 		if baseErr != nil {
 			handleGRPCError(c, baseErr)
@@ -416,18 +429,27 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	grpcReq := &stockpb.CreateOrderRequest{
-		UserId:             req.ClientID,
-		SystemType:         "employee",
-		ListingId:          req.ListingID,
-		HoldingId:          req.HoldingID,
-		Direction:          direction,
-		OrderType:          orderType,
-		Quantity:           req.Quantity,
-		AllOrNone:          req.AllOrNone,
-		Margin:             req.Margin,
-		AccountId:          req.AccountID,
-		ActingEmployeeId:   derefU64Ptr(identity.ActingEmployeeID),
-		OnBehalfOfClientId: req.ClientID,
+		ListingId:        req.ListingID,
+		HoldingId:        req.HoldingID,
+		Direction:        direction,
+		OrderType:        orderType,
+		Quantity:         req.Quantity,
+		AllOrNone:        req.AllOrNone,
+		Margin:           req.Margin,
+		AccountId:        req.AccountID,
+		ActingEmployeeId: derefU64Ptr(identity.ActingEmployeeID),
+	}
+	if isFundOrder {
+		// Fund order: the resulting holding belongs to the fund, not a client.
+		// Owner is the acting employee (bank), matching the /me/orders fund
+		// branch; stock-service routes the fill into fund_holdings.
+		grpcReq.UserId = ownerToLegacyUserID(identity.OwnerID)
+		grpcReq.SystemType = ownerToLegacySystemType(identity.OwnerType)
+		grpcReq.OnBehalfOfFundId = req.OnBehalfOfFundID
+	} else {
+		grpcReq.UserId = req.ClientID
+		grpcReq.SystemType = "employee"
+		grpcReq.OnBehalfOfClientId = req.ClientID
 	}
 	if req.LimitValue != nil {
 		grpcReq.LimitValue = req.LimitValue
