@@ -83,6 +83,21 @@ func (r *FundHoldingRepository) ListBySecurityID(securityID uint64) ([]model.Fun
 	return out, nil
 }
 
+// DecrementForFundSecurity subtracts qty from a fund's holding for a security.
+// Backward compensator for an on-behalf-of-fund OTC-exercise buyer credit
+// (pivot removal — 2026-05-29). No-op if the holding row does not exist, so the
+// saga's backward pass is safe to retry.
+func (r *FundHoldingRepository) DecrementForFundSecurity(fundID uint64, securityType string, securityID uint64, qty int64) error {
+	h, err := r.GetByFundAndSecurity(fundID, securityType, securityID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	return r.DecrementQuantity(h.ID, qty)
+}
+
 func (r *FundHoldingRepository) GetByFundAndSecurity(fundID uint64, securityType string, securityID uint64) (*model.FundHolding, error) {
 	var h model.FundHolding
 	err := r.db.Where("fund_id = ? AND security_type = ? AND security_id = ?", fundID, securityType, securityID).First(&h).Error

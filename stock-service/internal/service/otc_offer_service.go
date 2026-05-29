@@ -96,6 +96,9 @@ type OTCOfferService struct {
 // a fund holding. Implemented by *repository.FundHoldingRepository.
 type FundHoldingUpsert interface {
 	Upsert(h *model.FundHolding) error
+	// DecrementForFundSecurity reverses an on-behalf-of-fund buyer credit
+	// (exercise-saga backward step). No-op when the row is absent.
+	DecrementForFundSecurity(fundID uint64, securityType string, securityID uint64, qty int64) error
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga
@@ -138,6 +141,9 @@ type OTCAccountClient interface {
 // stamped for cross-service audit.
 type OTCHoldingMutator interface {
 	Upsert(ctx context.Context, h *model.Holding) error
+	// DecrementForOwner reverses an exercise buyer credit (exercise-saga
+	// backward step), deleting the row at zero. No-op when the row is absent.
+	DecrementForOwner(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64) error
 }
 
 // OTCStockMetaResolver is the narrow lookup the exercise saga uses to

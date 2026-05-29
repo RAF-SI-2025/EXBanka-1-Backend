@@ -46,14 +46,17 @@ type ExerciseInput struct {
 //  8. mark_contract_exercised — flip contract.Status = exercised.
 //  9. publish_otc_exercise_event — Kafka + in-app notifications.
 //
-// Steps 1-4 are inside the saga with backward compensation. Step 4
-// (consume_seller_holding) is the Pivot: once shares have left the
-// seller's portfolio the share transfer is irrecoverable and we do
-// NOT compensate earlier money steps on failure in steps 5-9 (doing so
-// would credit money back without returning shares, leaving the system
-// in a worse state). Steps 5-9 are inside the saga but run AFTER the
-// pivot, so their failure is logged and the saga attempts forward-only
-// retries rather than backward compensation.
+// There is NO pivot (removed 2026-05-29). Every state-changing step has an
+// inverse Backward, so a failure at any forward step unwinds the whole flow in
+// reverse — matching the SAGA spec's symmetric C5…C1. This is safe because
+// compensation runs synchronously inside Execute, before ExerciseContract
+// returns: the buyer cannot act on the briefly-credited shares mid-flight, so
+// returning them to the seller (consume's Backward) and removing them from the
+// buyer (upsert's Backward) fully restores prior state. The money steps
+// (reserve/settle/credit) already had inverse Backwards. Net invariants: per
+// currency SUM(available+reserved) and per symbol SUM(quantity+reserved) are
+// unchanged on any Compensated outcome, and the contract stays "active" unless
+// the flow Completes.
 func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput) (*model.OptionContract, error) {
 	if s.sagaRepo == nil || s.accounts == nil || s.holdingRes == nil || s.holdingRepo == nil {
 		return nil, errOTCSagaDepsNotWired
@@ -240,11 +243,15 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 				_, e := s.holdingRes.ConsumeForOTCContract(ctx, c.ID, qty, syntheticTxnID)
 				return e
 			},
-			// Pivot: shares physically moved between portfolios. Steps after
-			// this point cannot compensate backward (the seller's position is
-			// gone). If they fail, the saga returns an error but the earlier
-			// money steps are NOT rolled back.
-			Pivot: true,
+			// Pivot removed (2026-05-29): the share transfer is fully reversible
+			// within the synchronous saga — compensation runs before Exercise
+			// returns, so the buyer cannot act on the shares mid-flight. The
+			// backward step returns the consumed shares (and their reservation)
+			// to the seller, so a failure in any later step (F5 etc.) fully
+			// unwinds rather than leaving money moved without shares.
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				return s.holdingRes.RestoreForOTCContract(ctx, c.ID, syntheticTxnID)
+			},
 		}).
 		Add(saga.Step{
 			Name: saga.StepUpsertBuyerHolding,
@@ -263,15 +270,16 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 				}
 				return s.holdingRepo.Upsert(ctx, buyerHolding)
 			},
-			// After the pivot, backward compensations for post-pivot steps
-			// run ONLY if the step itself was attempted and we're unwinding
-			// from a later step's failure. The HoldingRepository.Upsert is
-			// idempotent (weighted-average merge), so the safest backward
-			// action is a no-op (we cannot easily "un-upsert" a position
-			// without knowing the prior state, and the shares transfer is
-			// already irrecoverable past the pivot).
+			// Reverse the buyer credit: remove the acquired shares again so a
+			// later-step failure fully unwinds the transfer (pivot removal —
+			// 2026-05-29). Mirrors the forward's fund-vs-personal branch; both
+			// decrement helpers no-op when the row is absent, so the backward
+			// pass is idempotent on retry.
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				return nil
+				if c.OnBehalfOfFundID != nil && *c.OnBehalfOfFundID != 0 && s.fundHoldingRepo != nil {
+					return s.fundHoldingRepo.DecrementForFundSecurity(*c.OnBehalfOfFundID, "stock", c.StockID, qty)
+				}
+				return s.holdingRepo.DecrementForOwner(ctx, c.BuyerOwnerType, c.BuyerOwnerID, "stock", c.StockID, qty)
 			},
 		}).
 		Add(saga.Step{

@@ -126,6 +126,49 @@ func TestHoldingReservationService_ConsumeForOTCContract_HappyPath(t *testing.T)
 	}
 }
 
+// TestHoldingReservationService_RestoreForOTCContract_RoundTrip is the
+// pivot-removal compensator test: after a full consume, RestoreForOTCContract
+// must return the shares (Quantity) and their reservation (ReservedQuantity)
+// to the seller, reactivate the reservation, and be idempotent on retry.
+func TestHoldingReservationService_RestoreForOTCContract_RoundTrip(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	if _, err := svc.ReserveForOTCContract(context.Background(),
+		model.OwnerClient, &uid, "stock", h.SecurityID, 777, 5); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	if _, err := svc.ConsumeForOTCContract(context.Background(), 777, 5, 42); err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.Quantity != 95 || got.ReservedQuantity != 0 {
+		t.Fatalf("post-consume qty=%d reserved=%d (want 95/0)", got.Quantity, got.ReservedQuantity)
+	}
+
+	// Restore returns shares + reservation.
+	if err := svc.RestoreForOTCContract(context.Background(), 777, 42); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	got, _ = holdingRepo.GetByID(h.ID)
+	if got.Quantity != 100 || got.ReservedQuantity != 5 {
+		t.Errorf("post-restore qty=%d reserved=%d (want 100/5)", got.Quantity, got.ReservedQuantity)
+	}
+
+	// Idempotent: a second restore (settlement row already deleted) is a no-op.
+	if err := svc.RestoreForOTCContract(context.Background(), 777, 42); err != nil {
+		t.Fatalf("restore #2: %v", err)
+	}
+	got, _ = holdingRepo.GetByID(h.ID)
+	if got.Quantity != 100 || got.ReservedQuantity != 5 {
+		t.Errorf("post-2nd-restore qty=%d reserved=%d (want 100/5)", got.Quantity, got.ReservedQuantity)
+	}
+
+	// Reservation reactivated → it can be consumed again (new txn id).
+	if _, err := svc.ConsumeForOTCContract(context.Background(), 777, 5, 43); err != nil {
+		t.Fatalf("re-consume after restore: %v", err)
+	}
+}
+
 func TestHoldingReservationService_ConsumeForOTCContract_BadQty(t *testing.T) {
 	svc, _, _ := newHoldingReservationFixture(t)
 	_, err := svc.ConsumeForOTCContract(context.Background(), 1, 0, 1)

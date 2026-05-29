@@ -125,6 +125,28 @@ func (r *HoldingRepository) GetByID(id uint64) (*model.Holding, error) {
 	return &holding, nil
 }
 
+// DecrementForOwner subtracts qty from an owner's holding for a security,
+// deleting the row when it reaches zero. Backward compensator for an
+// OTC-exercise buyer credit (pivot removal — 2026-05-29). Uses a FOR UPDATE
+// lock per the concurrency rules; no-op if the holding does not exist, so the
+// saga's backward pass is safe to retry.
+func (r *HoldingRepository) DecrementForOwner(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		h, err := r.LockByOwnerAndSecurityTx(tx, ownerType, ownerID, securityType, securityID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		h.Quantity -= qty
+		if h.Quantity <= 0 {
+			return tx.Delete(&model.Holding{}, h.ID).Error
+		}
+		return tx.Save(h).Error
+	})
+}
+
 // LockByIDTx does SELECT FOR UPDATE inside an active transaction. Used by
 // OTCStockService's CreateSellOffer/CancelSellOffer/FillSellOffer to
 // serialize concurrent public_quantity mutations on the same holding.
