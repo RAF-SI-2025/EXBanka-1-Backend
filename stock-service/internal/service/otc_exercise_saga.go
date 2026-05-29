@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
@@ -67,21 +69,21 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		return nil, err
 	}
 	if c.Status != model.OptionContractStatusActive {
-		return nil, errors.New("contract is not active")
+		return nil, status.Error(codes.FailedPrecondition, "contract is not active")
 	}
 
 	if !c.SettlementDate.After(time.Now().UTC().Truncate(24 * time.Hour)) {
-		return nil, errors.New("contract has expired (settlement_date <= today)")
+		return nil, status.Error(codes.FailedPrecondition, "contract has expired (settlement_date <= today)")
 	}
 	// Only the contract buyer may exercise. Comparison runs through the
 	// (owner_type, owner_id) identity, derived from the actor's legacy pair.
 	actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(in.ActorUserID), in.ActorSystemType)
 	if c.BuyerOwnerType != actorOwnerType || !ownerIDEqual(c.BuyerOwnerID, actorOwnerID) {
-		return nil, errors.New("only the contract buyer can exercise")
+		return nil, status.Error(codes.PermissionDenied, "only the contract buyer can exercise")
 	}
 
 	if c.BuyerAccountID == 0 || c.SellerAccountID == 0 {
-		return nil, errors.New("contract has no bound accounts")
+		return nil, status.Error(codes.FailedPrecondition, "contract has no bound accounts")
 	}
 
 	// Snapshot the seller's cost basis BEFORE the saga consumes their
