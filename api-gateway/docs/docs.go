@@ -6530,7 +6530,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.",
+                "description": "Employee-only. Supply exactly one of ` + "`" + `client_id` + "`" + ` (on behalf of a client) or ` + "`" + `on_behalf_of_fund_id` + "`" + ` (on behalf of an investment fund). For client orders the gateway verifies the account belongs to the named client; for fund orders the account is the fund's RSD account and stock-service re-validates the fund-manager binding. stock-service records acting_employee_id for audit.",
                 "consumes": [
                     "application/json"
                 ],
@@ -6540,10 +6540,10 @@ const docTemplate = `{
                 "tags": [
                     "orders"
                 ],
-                "summary": "Place stock/futures/forex/option order on behalf of a client",
+                "summary": "Place stock/futures/forex/option order on behalf of a client or fund",
                 "parameters": [
                     {
-                        "description": "Order",
+                        "description": "Order. Provide client_id OR on_behalf_of_fund_id (not both).",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -6561,7 +6561,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad Request",
+                        "description": "validation_error — provide exactly one of client_id / on_behalf_of_fund_id",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

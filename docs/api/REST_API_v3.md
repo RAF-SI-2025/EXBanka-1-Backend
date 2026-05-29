@@ -5332,7 +5332,12 @@ Reject a pending order that requires supervisor approval. Renamed from `/decline
 
 ### POST /api/v3/orders
 
-Place a stock/futures/forex/option order on behalf of a named client. The gateway verifies that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. The order is recorded with `acting_employee_id` set to the caller's employee ID.
+Place a stock/futures/forex/option order on behalf of **either** a named client **or** an investment fund. Supply exactly one of `client_id` or `on_behalf_of_fund_id`:
+
+- **On behalf of a client** (`client_id`): the gateway verifies that `account_id` (and `base_account_id`, when present) belongs to `client_id` before forwarding to stock-service.
+- **On behalf of a fund** (`on_behalf_of_fund_id`): `account_id` is the fund's RSD account, not a client account — the client-ownership check is skipped at the gateway. stock-service re-validates that the acting employee is the fund's manager and binds the account to the fund. The fill lands in `fund_holdings`, mirroring `POST /api/v3/me/orders` with `on_behalf_of_fund_id`.
+
+The order is recorded with `acting_employee_id` set to the caller's employee ID.
 
 **Authentication:** Employee JWT + `orders.place-on-behalf` permission
 
@@ -5340,8 +5345,9 @@ Place a stock/futures/forex/option order on behalf of a named client. The gatewa
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `client_id` | uint64 | Yes | Client for whom the order is placed |
-| `account_id` | uint64 | Yes | Account to debit; must belong to `client_id` |
+| `client_id` | uint64 | Conditional | Client for whom the order is placed. Required unless `on_behalf_of_fund_id` is set. Mutually exclusive with `on_behalf_of_fund_id`. |
+| `on_behalf_of_fund_id` | uint64 | Conditional | Investment fund for which the order is placed. Required unless `client_id` is set. Mutually exclusive with `client_id`. Acting employee must be the fund's manager. |
+| `account_id` | uint64 | Yes | Account to debit; for client orders must belong to `client_id`, for fund orders must be the fund's RSD account |
 | `security_type` | string | Optional | `stock`, `futures`, `forex`, or `option`. Required for forex-specific gateway validation. |
 | `listing_id` | uint64 | Yes (buy) | Listing ID (required for buy orders) |
 | `holding_id` | uint64 | Yes (sell) | Holding ID (required for sell orders) |
@@ -5352,13 +5358,25 @@ Place a stock/futures/forex/option order on behalf of a named client. The gatewa
 | `stop_value` | string | Conditional | Required for `stop` or `stop_limit` orders |
 | `all_or_none` | boolean | No | Default: false |
 | `margin` | boolean | No | Default: false |
-| `base_account_id` | uint64 | Yes (forex) | Required when `security_type=forex`. Must belong to `client_id` and differ from `account_id`. |
+| `base_account_id` | uint64 | Yes (forex) | Required when `security_type=forex`. For client orders must belong to `client_id` and differ from `account_id`. |
 
-**Example Request:**
+**Example Request (on behalf of a client):**
 ```json
 {
   "client_id": 5,
   "account_id": 12,
+  "listing_id": 42,
+  "direction": "buy",
+  "order_type": "market",
+  "quantity": 10
+}
+```
+
+**Example Request (on behalf of a fund):**
+```json
+{
+  "on_behalf_of_fund_id": 9,
+  "account_id": 100,
   "listing_id": 42,
   "direction": "buy",
   "order_type": "market",
@@ -5371,8 +5389,8 @@ Place a stock/futures/forex/option order on behalf of a named client. The gatewa
 | Status | Description |
 |---|---|
 | 201 | Order created |
-| 400 | Validation error — including forex direction/`base_account_id` mismatches |
-| 403 | Account (or base account) does not belong to the specified client |
+| 400 | Validation error — including forex direction/`base_account_id` mismatches, or supplying neither/both of `client_id` and `on_behalf_of_fund_id` |
+| 403 | Account (or base account) does not belong to the specified client; or acting employee is not the fund's manager (fund orders, enforced by stock-service) |
 | 403 | Missing `orders.place-on-behalf` permission |
 
 ---
@@ -5673,6 +5691,8 @@ List investment funds (Discovery page).
 Get one fund detail with enriched statistics (E1, Plan E 2026-05-28).
 
 **Authentication:** Any JWT
+
+> `holdings` is always a JSON array. A fund with no positions returns `"holdings": []` (never `null`).
 
 **Response 200:**
 ```json
