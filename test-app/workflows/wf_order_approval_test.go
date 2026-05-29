@@ -16,6 +16,7 @@ import (
 //	agent places another order → supervisor rejects → order is rejected, no new holding.
 func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	adminC := loginAsAdmin(t)
+	enableTestingMode(t, adminC)
 
 	// Step 1: Create agent and supervisor
 	_, agentC, _ := setupAgentEmployee(t, adminC)
@@ -72,12 +73,12 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 		t.Fatalf("WF-8: list portfolio: %v", err)
 	}
 	helpers.RequireStatus(t, portfolioResp, 200)
-	holdings, ok := portfolioResp.Body["holdings"].([]interface{})
-	if !ok || len(holdings) == 0 {
-		t.Fatal("WF-8: expected at least one holding after approved buy, got none")
+	positions := stockPositions(t, portfolioResp.Body)
+	if len(positions) == 0 {
+		t.Fatal("WF-8: expected at least one securities position after approved buy, got none")
 	}
-	holdingsCountAfterApprove := len(holdings)
-	t.Logf("WF-8: agent has %d holding(s) after approved buy", holdingsCountAfterApprove)
+	holdingsCountAfterApprove := len(positions)
+	t.Logf("WF-8: agent has %d securities position(s) after approved buy", holdingsCountAfterApprove)
 
 	// Step 5: Agent places another buy order
 	buyResp2, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{

@@ -22,6 +22,7 @@ import (
 // gateway-side removal of `holding_id is required for sell orders`.
 func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 	adminC := loginAsAdmin(t)
+	enableTestingMode(t, adminC)
 
 	// Setup: one client with two RSD accounts, both funded.
 	clientID, acctAnum, clientC, _ := setupActivatedClient(t, adminC)
@@ -87,23 +88,20 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 		t.Fatalf("list portfolio: %v", err)
 	}
 	helpers.RequireStatus(t, portfolioResp, 200)
-	holdings, ok := portfolioResp.Body["holdings"].([]interface{})
-	if !ok {
-		t.Fatalf("expected holdings array, got %T", portfolioResp.Body["holdings"])
+	// Phase-8: holdings are grouped under securities.positions[] (no flat
+	// "holdings" array, no per-position id). The three buys of the same
+	// listing aggregate into ONE stock position.
+	positions := stockPositions(t, portfolioResp.Body)
+	if len(positions) != 1 {
+		t.Fatalf("expected 1 aggregated securities position, got %d: %v", len(positions), positions)
 	}
-	// Filter to the exact listing_id we traded — other pre-seeded holdings
-	// from stock sync cron are not expected for fresh clients, but guard
-	// defensively.
-	if len(holdings) != 1 {
-		t.Fatalf("expected 1 aggregated holding row, got %d: %v", len(holdings), holdings)
-	}
-	h := holdings[0].(map[string]interface{})
+	h := positions[0].(map[string]interface{})
 	qty := int(h["quantity"].(float64))
 	if qty != 30 {
 		t.Fatalf("expected aggregated quantity=30, got %d", qty)
 	}
-	holdingID := int(h["id"].(float64))
-	t.Logf("sell-all: holding id=%d quantity=%d aggregated from 3 buys", holdingID, qty)
+	holdingSymbol, _ := h["symbol"].(string)
+	t.Logf("sell-all: position symbol=%s quantity=%d aggregated from 3 buys", holdingSymbol, qty)
 
 	// Record acctA balance pre-sell so we can verify proceeds land there.
 	balBefore := getAccountBalancesByNumber(t, adminC, acctAnum)
@@ -135,13 +133,15 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 		t.Fatalf("list portfolio after sell: %v", err)
 	}
 	helpers.RequireStatus(t, afterResp, 200)
-	afterHoldings, _ := afterResp.Body["holdings"].([]interface{})
-	for _, raw := range afterHoldings {
+	// Track the position by symbol (no per-position id in the unified
+	// portfolio). After selling all 30 shares the position should either be
+	// gone or report quantity 0.
+	for _, raw := range stockPositions(t, afterResp.Body) {
 		h := raw.(map[string]interface{})
-		if int(h["id"].(float64)) == holdingID {
+		if sym, _ := h["symbol"].(string); sym == holdingSymbol {
 			remaining := int(h["quantity"].(float64))
 			if remaining != 0 {
-				t.Errorf("expected holding %d quantity=0 after sell-all, got %d", holdingID, remaining)
+				t.Errorf("expected position %s quantity=0 after sell-all, got %d", holdingSymbol, remaining)
 			}
 		}
 	}

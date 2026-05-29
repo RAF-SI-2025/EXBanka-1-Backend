@@ -599,3 +599,23 @@ func assertBalanceChanged(t *testing.T, c *client.APIClient, accountNum string, 
 			accountNum, expectedDelta, actual, before, after)
 	}
 }
+
+// createClientForeignAccount creates a foreign-currency account for a client
+// (account_kind=foreign — current accounts are RSD-only) and returns the
+// account ID + number. Used by OTC stock tests that need a USD account to back
+// a buy offer / receive sale proceeds on a USD-denominated listing.
+func createClientForeignAccount(t *testing.T, adminC *client.APIClient, clientID int, currency string, balance float64) (accountID uint64, accountNumber string) {
+	t.Helper()
+	resp, err := adminC.POST("/api/v3/accounts", map[string]interface{}{
+		"owner_id":        clientID,
+		"account_kind":    "foreign",
+		"account_type":    "personal",
+		"currency_code":   currency,
+		"initial_balance": balance,
+	})
+	if err != nil {
+		t.Fatalf("createClientForeignAccount: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 201)
+	return uint64(helpers.GetNumberField(t, resp, "id")), helpers.GetStringField(t, resp, "account_number")
+}
