@@ -171,20 +171,30 @@ func getBankRSDAccount(t *testing.T, c *client.APIClient) (string, float64) {
 	if !ok {
 		t.Fatalf("getBankRSDAccount: response missing 'accounts' array. Body: %s", string(resp.RawBody))
 	}
+	// Deterministically pick the lowest-id RSD bank account: the seeded bank
+	// treasury / fee-collector. Investment-fund RSD accounts are also flagged
+	// is_bank_account, so "first RSD in the list" is non-deterministic under
+	// parallel runs (and would return a 0-balance fund account); the seeded
+	// treasury always has the lowest id.
+	bestID := -1.0
+	var bestNum string
+	var bestBal float64
 	for _, a := range accts {
 		m, ok := a.(map[string]interface{})
-		if !ok {
+		if !ok || m["currency_code"] != "RSD" {
 			continue
 		}
-		if m["currency_code"] != "RSD" {
-			continue
+		idVal, _ := m["id"].(float64)
+		if bestID < 0 || idVal < bestID {
+			bestID = idVal
+			bestNum, _ = m["account_number"].(string)
+			bestBal = parseJSONBalance(t, m, "available_balance")
 		}
-		acctNum, _ := m["account_number"].(string)
-		bal := parseJSONBalance(t, m, "available_balance")
-		return acctNum, bal
 	}
-	t.Fatal("getBankRSDAccount: no bank account with currency_code=RSD found")
-	return "", 0
+	if bestID < 0 {
+		t.Fatal("getBankRSDAccount: no bank account with currency_code=RSD found")
+	}
+	return bestNum, bestBal
 }
 
 // scanKafkaForActivationToken reads the notification.send-email topic from the earliest
