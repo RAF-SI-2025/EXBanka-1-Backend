@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/contract/shared/outbox"
 	pb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
@@ -42,6 +44,15 @@ import (
 )
 
 func main() {
+	// Defence in depth: a binary built with saga fault injection (-tags
+	// sagafaults) must never run as a real service. The build tag already
+	// keeps the fault code out of production binaries; this refuses to even
+	// start a fault-enabled build unless the SG test harness explicitly opts
+	// in via SAGA_FAULTS_OK=1.
+	if saga.FaultsEnabled && os.Getenv("SAGA_FAULTS_OK") != "1" {
+		log.Fatal("stock-service: built with saga fault injection but SAGA_FAULTS_OK!=1 — refusing to start outside a test environment")
+	}
+
 	cfg := config.Load()
 
 	// --- Database ---
