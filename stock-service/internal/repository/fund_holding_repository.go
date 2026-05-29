@@ -40,7 +40,16 @@ func (r *FundHoldingRepository) Upsert(h *model.FundHolding) error {
 }
 
 func (r *FundHoldingRepository) DecrementQuantity(holdingID uint64, q int64) error {
-	res := r.db.Model(&model.FundHolding{}).
+	// SkipHooks: the FundHolding BeforeUpdate hook adds `WHERE version = ?`
+	// using the (zero-value) receiver, i.e. `WHERE version = 0`, which matches
+	// no row once a holding has been upserted more than once — silently
+	// failing every fund sell/liquidation. The conditional `quantity >= ?` in
+	// the WHERE already guards against over-decrement (the UPDATE is atomic at
+	// the row level), and we bump version explicitly, so the version-check hook
+	// is both unnecessary and harmful here. (CLAUDE.md: intentional
+	// version-skipping bulk updates must use SkipHooks.)
+	res := r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.FundHolding{}).
 		Where("id = ? AND quantity >= ?", holdingID, q).
 		Updates(map[string]interface{}{
 			"quantity": gorm.Expr("quantity - ?", q),

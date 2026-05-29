@@ -116,6 +116,7 @@ type OrderRepo interface {
 type OrderTransactionRepo interface {
 	Create(tx *model.OrderTransaction) error
 	Update(tx *model.OrderTransaction) error
+	Delete(id uint64) error
 	ListByOrderID(orderID uint64) ([]model.OrderTransaction, error)
 }
 

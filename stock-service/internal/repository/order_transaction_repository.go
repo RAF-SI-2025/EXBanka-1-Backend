@@ -28,6 +28,14 @@ func (r *OrderTransactionRepository) Update(tx *model.OrderTransaction) error {
 	return r.db.Save(tx).Error
 }
 
+// Delete removes a single order-transaction row by ID. Used by the execution
+// engine to clean up the row it speculatively created for a fill attempt that
+// then failed, so a failed (and compensated) attempt leaves no phantom
+// transaction behind.
+func (r *OrderTransactionRepository) Delete(id uint64) error {
+	return r.db.Delete(&model.OrderTransaction{}, id).Error
+}
+
 func (r *OrderTransactionRepository) ListByOrderID(orderID uint64) ([]model.OrderTransaction, error) {
 	var txns []model.OrderTransaction
 	if err := r.db.Where("order_id = ?", orderID).

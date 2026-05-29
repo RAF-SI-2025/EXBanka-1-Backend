@@ -156,6 +156,17 @@ func (m *mockOrderTxRepo) Update(tx *model.OrderTransaction) error {
 	return nil
 }
 
+// Delete removes a transaction from the in-memory store by ID.
+func (m *mockOrderTxRepo) Delete(id uint64) error {
+	for i, existing := range m.txns {
+		if existing.ID == id {
+			m.txns = append(m.txns[:i], m.txns[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *mockOrderTxRepo) ListByOrderID(orderID uint64) ([]model.OrderTransaction, error) {
 	var result []model.OrderTransaction
 	for _, t := range m.txns {
