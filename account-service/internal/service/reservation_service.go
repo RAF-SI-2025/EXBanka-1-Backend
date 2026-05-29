@@ -148,7 +148,45 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 			return err
 		}
 		if !inserted {
-			// Idempotent replay — return current state without mutating.
+			// A reservation already exists for this (orderID, orderKind).
+			if existing.Status == model.ReservationStatusReleased || existing.Status == model.ReservationStatusSettled {
+				// Re-activate it so a previously-compensated flow (e.g. an OTC
+				// exercise that failed mid-saga and rolled back) can be retried.
+				// Re-apply the hold and clear prior settlements so it behaves
+				// like a fresh active reservation. Without this, a compensated
+				// exercise left the reservation released/settled and the retry's
+				// settle failed with "reservation status=released/settled",
+				// stranding an otherwise-active contract.
+				if acc.AvailableBalance.LessThan(existing.Amount) {
+					return status.Errorf(codes.FailedPrecondition,
+						"insufficient available balance to re-activate reservation: have %s, need %s",
+						acc.AvailableBalance, existing.Amount)
+				}
+				if err := s.resRepo.WithTx(tx).DeleteSettlements(existing.ID); err != nil {
+					return err
+				}
+				acc.ReservedBalance = acc.ReservedBalance.Add(existing.Amount)
+				acc.AvailableBalance = acc.AvailableBalance.Sub(existing.Amount)
+				saveRes := tx.Save(&acc)
+				if saveRes.Error != nil {
+					return saveRes.Error
+				}
+				if saveRes.RowsAffected == 0 {
+					return shared.ErrOptimisticLock
+				}
+				existing.Status = model.ReservationStatusActive
+				existing.UpdatedAt = time.Now()
+				if err := s.resRepo.WithTx(tx).UpdateStatus(existing); err != nil {
+					return err
+				}
+				out = &ReserveFundsResult{
+					ReservationID:    existing.ID,
+					ReservedBalance:  acc.ReservedBalance,
+					AvailableBalance: acc.AvailableBalance,
+				}
+				return nil
+			}
+			// Active — idempotent replay, no mutation.
 			out = &ReserveFundsResult{
 				ReservationID:    existing.ID,
 				ReservedBalance:  acc.ReservedBalance,
