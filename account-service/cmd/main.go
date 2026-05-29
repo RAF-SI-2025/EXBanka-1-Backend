@@ -116,7 +116,7 @@ func main() {
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
 	changelogSvc := service.NewChangelogService(changelogRepo)
-	reservationService := service.NewReservationService(db, accountRepo, reservationRepo, ledgerRepo)
+	reservationService := service.NewReservationService(db, accountRepo, reservationRepo, ledgerRepo).WithCache(redisCache)
 	incomingReservationService := service.NewIncomingReservationService(db, accountRepo, incomingReservationRepo)
 
 	ctx, cancel := context.WithCancel(context.Background())
