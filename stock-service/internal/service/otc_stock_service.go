@@ -688,7 +688,12 @@ func computeSettleSeq(sagaID string, offerID uint64, qty int64) uint64 {
 		h ^= uint64(sagaID[i])
 		h *= prime
 	}
-	return h ^ (offerID*1_000_003 + uint64(qty))
+	// Mask to 63 bits. This value is sent to account-service as an
+	// order_transaction_id, whose column is a signed PG bigint (int64); a
+	// value above math.MaxInt64 fails to encode and 500s the fill — and since
+	// sagaID is a random UUID it happens ~50% of the time. Masking keeps the
+	// id non-negative while preserving its idempotency role.
+	return (h ^ (offerID*1_000_003 + uint64(qty))) & 0x7FFFFFFFFFFFFFFF
 }
 
 // ListMyListings returns the caller's own sell + buy offers in a single
