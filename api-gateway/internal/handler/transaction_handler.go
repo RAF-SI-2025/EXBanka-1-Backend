@@ -37,6 +37,19 @@ func (h *TransactionHandler) AccountCurrency(ctx context.Context, accountNumber 
 	return acc.GetCurrencyCode(), nil
 }
 
+// AccountOwner resolves an account's owner_id and currency via account-service.
+// Used by the cross-bank payment dispatcher to enforce that the caller actually
+// owns the sender account before any funds move (Resource Ownership Verification
+// Requirement) — the intra-bank path enforces this in the service via ClientId,
+// but the SI-TX dispatch bypasses that, so the gateway must gate it.
+func (h *TransactionHandler) AccountOwner(ctx context.Context, accountNumber string) (ownerID uint64, currency string, err error) {
+	acc, err := h.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: accountNumber})
+	if err != nil {
+		return 0, "", err
+	}
+	return acc.GetOwnerId(), acc.GetCurrencyCode(), nil
+}
+
 // resolveClientAccountNumbers fetches all account numbers belonging to a client from account-service.
 func (h *TransactionHandler) resolveClientAccountNumbers(c *gin.Context, clientID uint64) ([]string, error) {
 	resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{

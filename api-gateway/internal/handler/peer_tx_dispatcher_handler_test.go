@@ -57,6 +57,33 @@ func decodeAPIError(t *testing.T, body []byte) (code, message string) {
 	return resp.Error.Code, resp.Error.Message
 }
 
+// TestPeerTxDispatcher_CreatePayment_ForeignFromNotOwned is the regression test
+// for the cross-bank ownership bypass: a client must NOT be able to dispatch a
+// cross-bank payment debiting an account they don't own. The sender account's
+// owner_id (999) differs from the caller principal (7) → 404, and the SI-TX
+// dispatch must NOT be reached (no money moves).
+func TestPeerTxDispatcher_CreatePayment_ForeignFromNotOwned(t *testing.T) {
+	dispatched := false
+	stubPeerTx := &stubPeerTxClient{
+		initiateFn: func(_ context.Context, _ *transactionpb.SiTxInitiateRequest, _ ...grpc.CallOption) (*transactionpb.SiTxInitiateResponse, error) {
+			dispatched = true
+			return &transactionpb.SiTxInitiateResponse{TransactionId: "tx-should-not-happen"}, nil
+		},
+	}
+	acct := &accountFullStub{getByNumFn: func(in *accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error) {
+		return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", OwnerId: 999}, nil // not the caller (7)
+	}}
+	r := peerTxDispatcherRouter(t, &stubTransactionClient{}, stubPeerTx, "111", acct)
+	req := httptest.NewRequest("POST", "/api/v3/me/payments",
+		strings.NewReader(`{"from_account_number":"111000000000000999","to_account_number":"222999999999999999","amount":"100","currency":"RSD"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNotFound, rec.Code, "expected 404 for cross-bank payment from a non-owned account; body=%s", rec.Body.String())
+	require.False(t, dispatched, "SI-TX must NOT be dispatched for a non-owned sender account (money-theft vector)")
+}
+
 func TestPeerTxDispatcher_CreatePayment(t *testing.T) {
 	// Standard inter-bank stub: returns a deterministic SiTxInitiateResponse so
 	// tests can assert on transaction_id + poll_url. Tests that delegate to
@@ -101,7 +128,7 @@ func TestPeerTxDispatcher_CreatePayment(t *testing.T) {
 		},
 		{
 			name:            "foreign receiverAccount field dispatches to PeerTxService",
-			body:            `{"senderAccount":"111000000000000001","receiverAccount":"333111111111111111","amount":"100","currency":"RSD"}`,
+			body:            `{"from_account_number":"111000000000000001","receiverAccount":"333111111111111111","amount":"100","currency":"RSD"}`,
 			expectStatus:    http.StatusAccepted,
 			expectDelegated: false,
 			expectAccepted:  true,
@@ -137,9 +164,10 @@ func TestPeerTxDispatcher_CreatePayment(t *testing.T) {
 				},
 			}
 			// Account stub returns a currency so the auto-resolve (no-currency)
-			// foreign case can stamp the SI-TX posting currency.
+			// foreign case can stamp the SI-TX posting currency. OwnerId matches
+			// the router's caller principal (7) so the ownership gate passes.
 			acct := &accountFullStub{getByNumFn: func(in *accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error) {
-				return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", OwnerId: 1}, nil
+				return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", OwnerId: 7}, nil
 			}}
 
 			r := peerTxDispatcherRouter(t, tx, stubPeerTx, "111", acct)

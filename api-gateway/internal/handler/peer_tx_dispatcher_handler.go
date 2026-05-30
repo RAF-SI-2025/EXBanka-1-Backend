@@ -84,15 +84,34 @@ func (h *PeerTxDispatcherHandler) CreatePayment(c *gin.Context) {
 	if len(receiver) >= 3 && receiver[:3] != h.ownBankCode {
 		// Cross-bank payment dispatched via SI-TX.
 		amount := strings.Trim(string(req.Amount), `"`)
+		// Validate the amount up front (positive decimal) so a bad value returns
+		// 400, not a 500 surfaced from the downstream reserve.
+		if amtF, perr := strconv.ParseFloat(amount, 64); perr != nil || amtF <= 0 {
+			apiError(c, http.StatusBadRequest, ErrValidation, "amount must be a positive number")
+			return
+		}
+		if req.FromAccountNumber == "" {
+			apiError(c, http.StatusBadRequest, ErrValidation, "from_account_number is required")
+			return
+		}
+		// OWNERSHIP GATE: the caller must own the sender account (or, as an
+		// employee, the middleware permission gates them). Without this, any
+		// authenticated client could dispatch a cross-bank payment debiting
+		// ANOTHER client's account — the intra-bank path enforces this in the
+		// service via ClientId, but the SI-TX dispatch does not. Resolve the
+		// account once: its owner_id gates ownership AND its currency stamps the
+		// posting (saving a second lookup).
+		ownerID, acctCurrency, oerr := h.tx.AccountOwner(c.Request.Context(), req.FromAccountNumber)
+		if oerr != nil {
+			handleGRPCError(c, oerr)
+			return
+		}
+		if ownErr := enforceOwnership(c, ownerID); ownErr != nil {
+			return // enforceOwnership already wrote the 404
+		}
 		currency := req.Currency
 		if currency == "" {
-			// Resolve the sender's account currency — the SI-TX posting currency.
-			cur, cerr := h.tx.AccountCurrency(c.Request.Context(), req.FromAccountNumber)
-			if cerr != nil {
-				handleGRPCError(c, cerr)
-				return
-			}
-			currency = cur
+			currency = acctCurrency
 		}
 		resp, err := h.peerTx.InitiateOutboundTx(c.Request.Context(), &transactionpb.SiTxInitiateRequest{
 			FromAccountNumber: req.FromAccountNumber,
