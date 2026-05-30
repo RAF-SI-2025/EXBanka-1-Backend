@@ -533,6 +533,53 @@ func TestSagaRecovery_ExerciseStep_AutoResolvesViaRecoverer(t *testing.T) {
 	}
 }
 
+// fakeAcceptRecoverer records RecoverAcceptSaga calls.
+type fakeAcceptRecoverer struct {
+	calls []struct {
+		sagaID  string
+		offerID uint64
+	}
+	err error
+}
+
+func (f *fakeAcceptRecoverer) RecoverAcceptSaga(_ context.Context, sagaID string, offerID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID  string
+		offerID uint64
+	}{sagaID, offerID})
+	return f.err
+}
+
+// Every stuck OTC accept step must auto-resolve by delegating to the accept
+// recoverer — no human review — then mark the row terminal.
+func TestSagaRecovery_AcceptStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"reserve_and_contract", "reserve_premium", "settle_premium_buyer",
+		"credit_premium_seller", "mark_offer_accepted", "record_seller_premium_gain",
+		"record_buyer_premium_cost", "publish_otc_accepted_event",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 7777, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeAcceptRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithAcceptRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].offerID != 7777 {
+				t.Fatalf("expected RecoverAcceptSaga(saga-1, 7777), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
 // When no recoverer is wired (e.g. a bare test harness), exercise steps fall
 // back to log-and-leave: no UpdateStatus, no panic.
 func TestSagaRecovery_ExerciseStep_NoRecoverer_LeavesRow(t *testing.T) {

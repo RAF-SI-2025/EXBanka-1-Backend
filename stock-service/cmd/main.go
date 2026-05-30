@@ -803,6 +803,7 @@ func main() {
 	// a terminal state with no human intervention. Done here (not at
 	// construction) because otcOfferSvc only exists now.
 	sagaRecovery.WithExerciseRecoverer(otcOfferSvc)
+	sagaRecovery.WithAcceptRecoverer(otcOfferSvc)
 	sagaRecovery.Run(ctx, 60*time.Second)
 
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---

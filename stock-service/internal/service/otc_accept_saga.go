@@ -137,15 +137,74 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		SellerAccountID: sellerAccountID,
 	}
 
-	// Pre-compute idempotency keys + memos. The contract.ID is unknown
-	// until step 1 runs; capture it via a local var the later closures
-	// reference. Step 1 always runs first so subsequent forwards/backwards
-	// see the populated id.
-	settleMemo := "OTC premium for contract"
-	idemSeller := ""
-	creditMemo := ""
+	sg, state := s.buildAcceptSaga(ctx, sagaID, acceptSagaParams{
+		offer: o, contract: contract,
+		buyerOwnerType: buyerOwnerType, buyerOwnerID: buyerOwnerID,
+		sellerOwnerType: sellerOwnerType, sellerOwnerID: sellerOwnerID,
+		buyerAccountID: buyerAccountID, sellerAccountID: sellerAccountID,
+		buyerAcctNumber: buyerAcct.AccountNumber, sellerAcctNumber: sellerAcct.AccountNumber,
+		premiumSellerCcy: premiumSellerCcy, premiumBuyerCcy: premiumBuyerCcy,
+		premiumCcy: premiumCcy, buyerCcy: buyerCcy,
+		actorSystemType: in.ActorSystemType, actorUserID: in.ActorUserID,
+		qty: qty,
+	})
+	if err := sg.Execute(ctx, state); err != nil {
+		return nil, err
+	}
+	return contract, nil
+}
+
+// acceptSagaParams bundles everything buildAcceptSaga needs. Populated by
+// Accept (from the offer + acting principal) and by RecoverAcceptSaga (from the
+// persisted contract + offer) so both build the identical saga.
+type acceptSagaParams struct {
+	offer            *model.OTCOffer
+	contract         *model.OptionContract // id 0 on a fresh accept; loaded on recovery
+	buyerOwnerType   model.OwnerType
+	buyerOwnerID     *uint64
+	sellerOwnerType  model.OwnerType
+	sellerOwnerID    *uint64
+	buyerAccountID   uint64
+	sellerAccountID  uint64
+	buyerAcctNumber  string
+	sellerAcctNumber string
+	premiumSellerCcy decimal.Decimal
+	premiumBuyerCcy  decimal.Decimal
+	premiumCcy       string
+	buyerCcy         string
+	actorSystemType  string
+	actorUserID      int64
+	qty              int64
+}
+
+// buildAcceptSaga assembles the accept saga under the given sagaID. Pure
+// assembly: step closures reference p and derive contract.ID-dependent memos
+// lazily (the id is set by step 1's idempotent create, or pre-populated when
+// recovery loads the contract), so crash recovery can rebuild the identical
+// saga and forward-resume it. Idempotency keys on every money step make the
+// replay of the crashed step a safe no-op.
+func (s *OTCOfferService) buildAcceptSaga(ctx context.Context, sagaID string, p acceptSagaParams) (*saga.Saga, *saga.State) {
+	o := p.offer
+	contract := p.contract
+	qty := p.qty
+	buyerOwnerType, buyerOwnerID := p.buyerOwnerType, p.buyerOwnerID
+	sellerOwnerType, sellerOwnerID := p.sellerOwnerType, p.sellerOwnerID
+	buyerAccountID := p.buyerAccountID
+	sellerAccountID := p.sellerAccountID
+	premiumSellerCcy, premiumBuyerCcy := p.premiumSellerCcy, p.premiumBuyerCcy
+	premiumCcy, buyerCcy := p.premiumCcy, p.buyerCcy
+
+	// contract.ID-dependent memos/keys computed lazily at call time: the id is
+	// populated by step 1 (fresh) or already set (recovery), so steps that run
+	// after step 1 always see it.
+	settleMemo := func() string { return fmt.Sprintf("OTC premium for contract #%d", contract.ID) }
+	idemSeller := func() string { return fmt.Sprintf("otc-accept-%d-seller", contract.ID) }
+	creditMemo := func() string { return fmt.Sprintf("OTC premium credit for contract #%d", contract.ID) }
 
 	state := saga.NewState()
+	// Stamp the offer id as order_id on every persisted saga_logs row so accept
+	// crash-recovery can rebuild from (sagaID, offerID) → contract via sagaID.
+	state.Set("order_id", o.ID)
 	state.Set("step:reserve_and_contract:amount", o.Quantity)
 	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
 	state.Set("step:reserve_premium:currency", buyerCcy)
@@ -154,10 +213,8 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	state.Set("step:credit_premium_seller:amount", premiumSellerCcy)
 	state.Set("step:credit_premium_seller:currency", premiumCcy)
 
-	// Flags guarded by saga step lifecycle — used by the capital-gain and
-	// publish steps that run after the money flow.
-	// sellerCGCreated / buyerCGCreated track whether the CG rows were
-	// inserted so their Backward can delete them idempotently.
+	// Deterministic capital-gain idempotency keys so the CG steps' Backward can
+	// delete the exact row, and a recovery replay of the Create is a no-op.
 	sellerCGKey := fmt.Sprintf("%s:seller-premium-cg", sagaID)
 	buyerCGKey := fmt.Sprintf("%s:buyer-premium-cg", sagaID)
 
@@ -165,17 +222,21 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Add(saga.Step{
 			Name: saga.StepReserveAndContract,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				if err := s.contracts.Create(contract); err != nil {
-					return err
+				// Idempotent mint: a crash-recovery replay must reuse the
+				// contract the original run already created (matched by sagaID),
+				// not insert a duplicate. contract.ID is already set when recovery
+				// pre-loaded it; otherwise look it up by sagaID, then create.
+				if contract.ID == 0 {
+					if existing, gerr := s.contracts.GetBySagaID(sagaID); gerr == nil && existing != nil {
+						*contract = *existing
+					} else if err := s.contracts.Create(contract); err != nil {
+						return err
+					}
 				}
 				if _, err := s.holdingRes.ReserveForOTCContract(ctx, sellerOwnerType, sellerOwnerID, "stock", o.StockID, contract.ID, qty); err != nil {
 					_ = s.contracts.Delete(contract.ID)
 					return err
 				}
-				// Re-derive memos that depend on contract.ID now that we have it.
-				settleMemo = fmt.Sprintf("OTC premium for contract #%d", contract.ID)
-				idemSeller = fmt.Sprintf("otc-accept-%d-seller", contract.ID)
-				creditMemo = fmt.Sprintf("OTC premium credit for contract #%d", contract.ID)
 				return nil
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
@@ -199,7 +260,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Add(saga.Step{
 			Name: saga.StepSettlePremiumBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo,
+				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo(),
 					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer), orderkind.OTCPremium)
 				return e
 			},
@@ -207,7 +268,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 				// Settlement debited buyer; reverse with a credit back to
 				// the buyer's account (the reservation row is already
 				// consumed, so ReleaseReservation no-ops).
-				_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, premiumBuyerCcy,
+				_, e := s.accounts.CreditAccount(ctx, p.buyerAcctNumber, premiumBuyerCcy,
 					fmt.Sprintf("Compensating OTC premium #%d", contract.ID),
 					fmt.Sprintf("otc-accept-%d-comp-buyer", contract.ID))
 				return e
@@ -216,13 +277,13 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Add(saga.Step{
 			Name: saga.StepCreditPremiumSeller,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
+				_, e := s.accounts.CreditAccount(ctx, p.sellerAcctNumber, premiumSellerCcy, creditMemo(), idemSeller())
 				return e
 			},
 			// Last money step before the post-saga operational steps.
 			// Backward is a debit to undo the seller credit.
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.DebitAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy,
+				_, e := s.accounts.DebitAccount(ctx, p.sellerAcctNumber, premiumSellerCcy,
 					fmt.Sprintf("Compensating OTC seller premium #%d", contract.ID),
 					fmt.Sprintf("otc-accept-%d-comp-seller", contract.ID))
 				return e
@@ -233,16 +294,16 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				revNum, _ := s.revisions.NextRevisionNumber(o.ID)
 				o.Status = model.OTCOfferStatusAccepted
-				o.LastModifiedByPrincipalType = in.ActorSystemType
-				o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
+				o.LastModifiedByPrincipalType = p.actorSystemType
+				o.LastModifiedByPrincipalID = uint64(p.actorUserID)
 				if err := s.offers.Save(o); err != nil {
 					return err
 				}
 				_ = s.revisions.Append(&model.OTCOfferRevision{
 					OfferID: o.ID, RevisionNumber: revNum,
 					Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
-					ModifiedByPrincipalType: in.ActorSystemType,
-					ModifiedByPrincipalID:   uint64(in.ActorUserID),
+					ModifiedByPrincipalType: p.actorSystemType,
+					ModifiedByPrincipalID:   uint64(p.actorUserID),
 					Action:                  model.OTCActionAccept,
 				})
 				return nil
@@ -374,11 +435,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 			},
 		})
 
-	if err := sg.Execute(ctx, state); err != nil {
-		return nil, err
-	}
-
-	return contract, nil
+	return sg, state
 }
 
 // identifyOTCBuyerSellerOwners maps a triggering actor (the principal who
