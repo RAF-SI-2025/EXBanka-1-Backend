@@ -3688,6 +3688,18 @@ Returns all card requests submitted by the authenticated principal.
 
 ---
 
+### GET /api/v3/me/cards/requests/:id
+
+Get a single card request the authenticated client submitted. The `/me` self-version of the employee route `GET /api/v3/cards/requests/:id`, so a client can track one of their own requests without an employee permission. Ownership is enforced from the JWT — a request belonging to another client returns `404`.
+
+**Authentication:** Client JWT (RequireClientToken)
+
+**Response 200:** A single card request object (same shape as the items in `GET /api/v3/me/cards/requests`).
+
+**Response 404:** Not found, or the request is not owned by the caller.
+
+---
+
 ### GET /api/v3/cards/requests
 
 Returns all card requests, optionally filtered by status.
@@ -4176,6 +4188,18 @@ List all loan requests submitted by the authenticated principal.
   "total": 2
 }
 ```
+
+---
+
+### GET /api/v3/me/loan-requests/:id
+
+Get a single loan request the authenticated client submitted. The `/me` self-version of the employee route `GET /api/v3/loan-requests/:id`, so a client can track one of their own requests without an employee permission. Ownership is enforced from the JWT — a request belonging to another client returns `404`.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Response 200:** A single loan request object (same shape as the items in `GET /api/v3/me/loan-requests`).
+
+**Response 404:** Not found, or the request is not owned by the caller.
 
 ---
 

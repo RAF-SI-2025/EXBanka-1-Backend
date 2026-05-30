@@ -11350,6 +11350,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/cards/requests/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single card request owned by the authenticated client. The /me self-version of GET /api/v3/cards/requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "card-requests"
+                ],
+                "summary": "Get one of the caller's own card requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "card request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/dividends": {
             "get": {
                 "security": [
@@ -11458,6 +11500,48 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/loan-requests/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single loan request owned by the authenticated client. The /me self-version of GET /api/v3/loan-requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "loans"
+                ],
+                "summary": "Get one of the caller's own loan requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "loan request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }

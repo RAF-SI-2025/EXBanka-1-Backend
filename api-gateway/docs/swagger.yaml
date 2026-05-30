@@ -8675,6 +8675,36 @@ paths:
       summary: List my card requests
       tags:
       - card-requests
+  /api/v3/me/cards/requests/{id}:
+    get:
+      description: Returns a single card request owned by the authenticated client.
+        The /me self-version of GET /api/v3/cards/requests/{id} (which is employee-permissioned);
+        ownership is enforced from the JWT, so a client can track a request they submitted
+        without an employee route.
+      parameters:
+      - description: card request id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one of the caller's own card requests
+      tags:
+      - card-requests
   /api/v3/me/dividends:
     get:
       description: Returns paginated dividend_payouts for the caller's holdings, most-recent
@@ -8746,6 +8776,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Submit loan application
+      tags:
+      - loans
+  /api/v3/me/loan-requests/{id}:
+    get:
+      description: Returns a single loan request owned by the authenticated client.
+        The /me self-version of GET /api/v3/loan-requests/{id} (which is employee-permissioned);
+        ownership is enforced from the JWT, so a client can track a request they submitted
+        without an employee route.
+      parameters:
+      - description: loan request id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one of the caller's own loan requests
       tags:
       - loans
   /api/v3/me/otc/contracts:

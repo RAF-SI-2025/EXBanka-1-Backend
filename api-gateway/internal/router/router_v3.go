@@ -90,6 +90,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/cards/virtual", h.Card.CreateVirtualCard)
 		me.POST("/cards/requests", middleware.RequireClientToken(), h.Card.CreateCardRequest)
 		me.GET("/cards/requests", middleware.RequireClientToken(), h.Card.ListMyCardRequests)
+		me.GET("/cards/requests/:id", middleware.RequireClientToken(), h.Card.GetMyCardRequest)
 
 		// Payments. Cross-bank money sends (to another person at another bank)
 		// are payments: PeerTxDispatcherHandler detects a foreign 3-digit
@@ -121,6 +122,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Loans
 		me.POST("/loan-requests", h.Credit.CreateLoanRequest)
 		me.GET("/loan-requests", h.Credit.ListMyLoanRequests)
+		me.GET("/loan-requests/:id", h.Credit.GetMyLoanRequest)
 		me.GET("/loans", h.Credit.ListMyLoans)
 		me.GET("/loans/:id", h.Credit.GetMyLoan)
 		me.GET("/loans/:id/installments", h.Credit.GetMyInstallments)

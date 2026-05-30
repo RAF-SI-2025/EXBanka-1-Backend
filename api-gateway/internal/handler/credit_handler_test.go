@@ -30,6 +30,7 @@ func creditRouter(h *handler.CreditHandler) *gin.Engine {
 	}
 	r.POST("/loans/requests", withCtx, h.CreateLoanRequest)
 	r.GET("/loans/requests/:id", withCtx, h.GetLoanRequest)
+	r.GET("/me/loan-requests/:id", withCtx, h.GetMyLoanRequest)
 	r.GET("/loans/requests", withEmployee, h.ListLoanRequests)
 	r.PUT("/loans/requests/:id/approve", withEmployee, h.ApproveLoanRequest)
 	r.PUT("/loans/requests/:id/reject", withEmployee, h.RejectLoanRequest)
@@ -130,6 +131,34 @@ func TestCredit_GetLoanRequest_BadID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// The /me self-version returns the caller's own loan request and enforces
+// ownership from the JWT (principal_id=1 in the test router).
+func TestCredit_GetMyLoanRequest_OwnerOK(t *testing.T) {
+	cc := &stubCreditClient{
+		getReqFn: func(in *creditpb.GetLoanRequestReq) (*creditpb.LoanRequestResponse, error) {
+			return &creditpb.LoanRequestResponse{Id: in.Id, ClientId: 1}, nil
+		},
+	}
+	r := creditRouter(handler.NewCreditHandler(cc))
+	req := httptest.NewRequest("GET", "/me/loan-requests/5", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+func TestCredit_GetMyLoanRequest_NotOwner404(t *testing.T) {
+	cc := &stubCreditClient{
+		getReqFn: func(in *creditpb.GetLoanRequestReq) (*creditpb.LoanRequestResponse, error) {
+			return &creditpb.LoanRequestResponse{Id: in.Id, ClientId: 999}, nil // owned by someone else
+		},
+	}
+	r := creditRouter(handler.NewCreditHandler(cc))
+	req := httptest.NewRequest("GET", "/me/loan-requests/5", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 }
 
 func TestCredit_ListLoanRequests_Default(t *testing.T) {
