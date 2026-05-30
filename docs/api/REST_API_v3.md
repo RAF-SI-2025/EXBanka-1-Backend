@@ -8821,6 +8821,45 @@ Response shape:
 }
 ```
 
+**GET /api/v3/admin/audit/saga-logs**
+
+Returns transaction-service saga execution logs (transfer/payment forward + compensation steps), so an admin can review saga history and stuck/compensating flows.
+
+- Authentication: Bearer token (employee only)
+- Permission: `admin.audit.view`
+- Query params: `page` (default 1), `page_size` (default 50, max 200), `saga_id` (filter to one saga), `status` (`pending|completed|failed|compensating|dead_letter`), `transaction_type` (`transfer|payment`), `since`/`until` (`YYYY-MM-DD`)
+
+Response shape:
+
+```json
+{
+  "logs": [
+    {
+      "id": 12,
+      "saga_id": "6f3e…",
+      "transaction_id": 84,
+      "transaction_type": "transfer",
+      "step_number": 2,
+      "step_name": "credit_destination",
+      "status": "completed",
+      "is_compensation": false,
+      "account_number": "111000…",
+      "amount": "100.0000",
+      "error_message": "",
+      "compensation_of": 0,
+      "retry_count": 0,
+      "created_at": 1748520000,
+      "completed_at": 1748520001
+    }
+  ],
+  "total": 7,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+> `logs` is always a JSON array (`[]` when empty). Currently sourced from transaction-service (transfer/payment sagas); credit-service and stock-service saga logs can be added behind the same route as follow-ups.
+
 | Status | Description |
 |--------|-------------|
 | 200 | Paginated cron-action audit log entries |

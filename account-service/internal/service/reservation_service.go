@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	shared "github.com/exbanka/contract/shared"
@@ -41,6 +42,7 @@ type ReservationService struct {
 	accountRepo *repository.AccountRepository
 	resRepo     *repository.AccountReservationRepository
 	ledgerRepo  *repository.LedgerRepository
+	cache       *cache.RedisCache // optional; invalidated after balance mutations
 }
 
 func NewReservationService(
@@ -50,6 +52,31 @@ func NewReservationService(
 	ledgerRepo *repository.LedgerRepository,
 ) *ReservationService {
 	return &ReservationService{db: db, accountRepo: accountRepo, resRepo: resRepo, ledgerRepo: ledgerRepo}
+}
+
+// WithCache wires the shared account Redis cache so reserve/settle/release
+// mutations invalidate the cached account, keeping GetAccount/GetAccountByNumber
+// reads fresh. Without it (nil cache) the methods still work; callers just see
+// the account_service cache TTL lag. Returns the service for chaining.
+func (s *ReservationService) WithCache(c *cache.RedisCache) *ReservationService {
+	s.cache = c
+	return s
+}
+
+// invalidateAccount drops the cached account by id and number after a balance
+// mutation. Keys MUST match AccountService's ("account:id:%d", "account:num:%s")
+// so a stock-order reserve/settle is reflected by the next GetAccount read.
+func (s *ReservationService) invalidateAccount(id uint64, number string) {
+	if s.cache == nil {
+		return
+	}
+	ctx := context.Background()
+	if id != 0 {
+		_ = s.cache.Delete(ctx, fmt.Sprintf("account:id:%d", id))
+	}
+	if number != "" {
+		_ = s.cache.Delete(ctx, fmt.Sprintf("account:num:%s", number))
+	}
 }
 
 // ReserveFundsResult is returned by ReserveFunds.
@@ -90,6 +117,7 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 		orderKind = model.OrderKindStockOrder
 	}
 	var out *ReserveFundsResult
+	var accNumber string
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var acc model.Account
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&acc, accountID).Error; err != nil {
@@ -98,6 +126,7 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 			}
 			return err
 		}
+		accNumber = acc.AccountNumber
 		if acc.CurrencyCode != currencyCode {
 			return status.Errorf(codes.FailedPrecondition, "currency mismatch: account=%s reserve=%s", acc.CurrencyCode, currencyCode)
 		}
@@ -119,7 +148,45 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 			return err
 		}
 		if !inserted {
-			// Idempotent replay — return current state without mutating.
+			// A reservation already exists for this (orderID, orderKind).
+			if existing.Status == model.ReservationStatusReleased || existing.Status == model.ReservationStatusSettled {
+				// Re-activate it so a previously-compensated flow (e.g. an OTC
+				// exercise that failed mid-saga and rolled back) can be retried.
+				// Re-apply the hold and clear prior settlements so it behaves
+				// like a fresh active reservation. Without this, a compensated
+				// exercise left the reservation released/settled and the retry's
+				// settle failed with "reservation status=released/settled",
+				// stranding an otherwise-active contract.
+				if acc.AvailableBalance.LessThan(existing.Amount) {
+					return status.Errorf(codes.FailedPrecondition,
+						"insufficient available balance to re-activate reservation: have %s, need %s",
+						acc.AvailableBalance, existing.Amount)
+				}
+				if err := s.resRepo.WithTx(tx).DeleteSettlements(existing.ID); err != nil {
+					return err
+				}
+				acc.ReservedBalance = acc.ReservedBalance.Add(existing.Amount)
+				acc.AvailableBalance = acc.AvailableBalance.Sub(existing.Amount)
+				saveRes := tx.Save(&acc)
+				if saveRes.Error != nil {
+					return saveRes.Error
+				}
+				if saveRes.RowsAffected == 0 {
+					return shared.ErrOptimisticLock
+				}
+				existing.Status = model.ReservationStatusActive
+				existing.UpdatedAt = time.Now()
+				if err := s.resRepo.WithTx(tx).UpdateStatus(existing); err != nil {
+					return err
+				}
+				out = &ReserveFundsResult{
+					ReservationID:    existing.ID,
+					ReservedBalance:  acc.ReservedBalance,
+					AvailableBalance: acc.AvailableBalance,
+				}
+				return nil
+			}
+			// Active — idempotent replay, no mutation.
 			out = &ReserveFundsResult{
 				ReservationID:    existing.ID,
 				ReservedBalance:  acc.ReservedBalance,
@@ -151,6 +218,7 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateAccount(accountID, accNumber)
 	return out, nil
 }
 
@@ -160,6 +228,8 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 // ReleasedAmount=0 in that case.
 func (s *ReservationService) ReleaseReservation(ctx context.Context, orderID uint64, orderKind string) (*ReleaseResult, error) {
 	var out *ReleaseResult
+	var accID uint64
+	var accNumber string
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		res, err := s.resRepo.WithTx(tx).GetByOrderIDForUpdate(orderID, orderKind)
 		if err != nil {
@@ -187,6 +257,8 @@ func (s *ReservationService) ReleaseReservation(ctx context.Context, orderID uin
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&acc, res.AccountID).Error; err != nil {
 			return err
 		}
+		accID = acc.ID
+		accNumber = acc.AccountNumber
 		acc.ReservedBalance = acc.ReservedBalance.Sub(remaining)
 		if acc.ReservedBalance.Sign() < 0 {
 			acc.ReservedBalance = decimal.Zero
@@ -212,6 +284,7 @@ func (s *ReservationService) ReleaseReservation(ctx context.Context, orderID uin
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateAccount(accID, accNumber)
 	return out, nil
 }
 
@@ -228,6 +301,8 @@ func (s *ReservationService) PartialSettleReservation(ctx context.Context, order
 		return nil, status.Error(codes.InvalidArgument, "amount must be > 0")
 	}
 	var out *PartialSettleResult
+	var accID uint64
+	var accNumber string
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		res, err := s.resRepo.WithTx(tx).GetByOrderIDForUpdate(orderID, orderKind)
 		if err != nil {
@@ -244,6 +319,8 @@ func (s *ReservationService) PartialSettleReservation(ctx context.Context, order
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&acc, res.AccountID).Error; err != nil {
 			return err
 		}
+		accID = acc.ID
+		accNumber = acc.AccountNumber
 
 		settled, err := s.resRepo.WithTx(tx).SumSettlements(res.ID)
 		if err != nil {
@@ -333,6 +410,7 @@ func (s *ReservationService) PartialSettleReservation(ctx context.Context, order
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateAccount(accID, accNumber)
 	return out, nil
 }
 

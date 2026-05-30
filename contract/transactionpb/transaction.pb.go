@@ -3818,6 +3818,306 @@ func (x *ResolvePeerByBankCodeResponse) GetFound() bool {
 	return false
 }
 
+type ListSagaLogsRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Page            int32                  `protobuf:"varint,1,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize        int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	SagaId          string                 `protobuf:"bytes,3,opt,name=saga_id,json=sagaId,proto3" json:"saga_id,omitempty"`                            // optional: filter to one saga
+	Status          string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`                                          // optional: pending|completed|failed|compensating|dead_letter
+	TransactionType string                 `protobuf:"bytes,5,opt,name=transaction_type,json=transactionType,proto3" json:"transaction_type,omitempty"` // optional: transfer|payment
+	Since           int64                  `protobuf:"varint,6,opt,name=since,proto3" json:"since,omitempty"`                                           // optional: unix seconds (created_at >=)
+	Until           int64                  `protobuf:"varint,7,opt,name=until,proto3" json:"until,omitempty"`                                           // optional: unix seconds (created_at <=)
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ListSagaLogsRequest) Reset() {
+	*x = ListSagaLogsRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSagaLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSagaLogsRequest) ProtoMessage() {}
+
+func (x *ListSagaLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSagaLogsRequest.ProtoReflect.Descriptor instead.
+func (*ListSagaLogsRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *ListSagaLogsRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListSagaLogsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListSagaLogsRequest) GetSagaId() string {
+	if x != nil {
+		return x.SagaId
+	}
+	return ""
+}
+
+func (x *ListSagaLogsRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListSagaLogsRequest) GetTransactionType() string {
+	if x != nil {
+		return x.TransactionType
+	}
+	return ""
+}
+
+func (x *ListSagaLogsRequest) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *ListSagaLogsRequest) GetUntil() int64 {
+	if x != nil {
+		return x.Until
+	}
+	return 0
+}
+
+type SagaLogEntry struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	SagaId          string                 `protobuf:"bytes,2,opt,name=saga_id,json=sagaId,proto3" json:"saga_id,omitempty"`
+	TransactionId   uint64                 `protobuf:"varint,3,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	TransactionType string                 `protobuf:"bytes,4,opt,name=transaction_type,json=transactionType,proto3" json:"transaction_type,omitempty"`
+	StepNumber      int32                  `protobuf:"varint,5,opt,name=step_number,json=stepNumber,proto3" json:"step_number,omitempty"`
+	StepName        string                 `protobuf:"bytes,6,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
+	Status          string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	IsCompensation  bool                   `protobuf:"varint,8,opt,name=is_compensation,json=isCompensation,proto3" json:"is_compensation,omitempty"`
+	AccountNumber   string                 `protobuf:"bytes,9,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
+	Amount          string                 `protobuf:"bytes,10,opt,name=amount,proto3" json:"amount,omitempty"` // signed decimal string
+	ErrorMessage    string                 `protobuf:"bytes,11,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	CompensationOf  uint64                 `protobuf:"varint,12,opt,name=compensation_of,json=compensationOf,proto3" json:"compensation_of,omitempty"` // 0 when not a compensation
+	RetryCount      int32                  `protobuf:"varint,13,opt,name=retry_count,json=retryCount,proto3" json:"retry_count,omitempty"`
+	CreatedAt       int64                  `protobuf:"varint,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`       // unix seconds
+	CompletedAt     int64                  `protobuf:"varint,15,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"` // unix seconds, 0 when null
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SagaLogEntry) Reset() {
+	*x = SagaLogEntry{}
+	mi := &file_transaction_transaction_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SagaLogEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SagaLogEntry) ProtoMessage() {}
+
+func (x *SagaLogEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SagaLogEntry.ProtoReflect.Descriptor instead.
+func (*SagaLogEntry) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *SagaLogEntry) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *SagaLogEntry) GetSagaId() string {
+	if x != nil {
+		return x.SagaId
+	}
+	return ""
+}
+
+func (x *SagaLogEntry) GetTransactionId() uint64 {
+	if x != nil {
+		return x.TransactionId
+	}
+	return 0
+}
+
+func (x *SagaLogEntry) GetTransactionType() string {
+	if x != nil {
+		return x.TransactionType
+	}
+	return ""
+}
+
+func (x *SagaLogEntry) GetStepNumber() int32 {
+	if x != nil {
+		return x.StepNumber
+	}
+	return 0
+}
+
+func (x *SagaLogEntry) GetStepName() string {
+	if x != nil {
+		return x.StepName
+	}
+	return ""
+}
+
+func (x *SagaLogEntry) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *SagaLogEntry) GetIsCompensation() bool {
+	if x != nil {
+		return x.IsCompensation
+	}
+	return false
+}
+
+func (x *SagaLogEntry) GetAccountNumber() string {
+	if x != nil {
+		return x.AccountNumber
+	}
+	return ""
+}
+
+func (x *SagaLogEntry) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *SagaLogEntry) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *SagaLogEntry) GetCompensationOf() uint64 {
+	if x != nil {
+		return x.CompensationOf
+	}
+	return 0
+}
+
+func (x *SagaLogEntry) GetRetryCount() int32 {
+	if x != nil {
+		return x.RetryCount
+	}
+	return 0
+}
+
+func (x *SagaLogEntry) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *SagaLogEntry) GetCompletedAt() int64 {
+	if x != nil {
+		return x.CompletedAt
+	}
+	return 0
+}
+
+type ListSagaLogsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Logs          []*SagaLogEntry        `protobuf:"bytes,1,rep,name=logs,proto3" json:"logs,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSagaLogsResponse) Reset() {
+	*x = ListSagaLogsResponse{}
+	mi := &file_transaction_transaction_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSagaLogsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSagaLogsResponse) ProtoMessage() {}
+
+func (x *ListSagaLogsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSagaLogsResponse.ProtoReflect.Descriptor instead.
+func (*ListSagaLogsResponse) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *ListSagaLogsResponse) GetLogs() []*SagaLogEntry {
+	if x != nil {
+		return x.Logs
+	}
+	return nil
+}
+
+func (x *ListSagaLogsResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 var File_transaction_transaction_proto protoreflect.FileDescriptor
 
 const file_transaction_transaction_proto_rawDesc = "" +
@@ -4123,7 +4423,38 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\tbank_code\x18\x01 \x01(\tR\bbankCode\"m\n" +
 	"\x1dResolvePeerByBankCodeResponse\x126\n" +
 	"\tpeer_bank\x18\x01 \x01(\v2\x19.transaction.PeerBankFullR\bpeerBank\x12\x14\n" +
-	"\x05found\x18\x02 \x01(\bR\x05found2\xb4\v\n" +
+	"\x05found\x18\x02 \x01(\bR\x05found\"\xce\x01\n" +
+	"\x13ListSagaLogsRequest\x12\x12\n" +
+	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x17\n" +
+	"\asaga_id\x18\x03 \x01(\tR\x06sagaId\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12)\n" +
+	"\x10transaction_type\x18\x05 \x01(\tR\x0ftransactionType\x12\x14\n" +
+	"\x05since\x18\x06 \x01(\x03R\x05since\x12\x14\n" +
+	"\x05until\x18\a \x01(\x03R\x05until\"\xf8\x03\n" +
+	"\fSagaLogEntry\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
+	"\asaga_id\x18\x02 \x01(\tR\x06sagaId\x12%\n" +
+	"\x0etransaction_id\x18\x03 \x01(\x04R\rtransactionId\x12)\n" +
+	"\x10transaction_type\x18\x04 \x01(\tR\x0ftransactionType\x12\x1f\n" +
+	"\vstep_number\x18\x05 \x01(\x05R\n" +
+	"stepNumber\x12\x1b\n" +
+	"\tstep_name\x18\x06 \x01(\tR\bstepName\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\x12'\n" +
+	"\x0fis_compensation\x18\b \x01(\bR\x0eisCompensation\x12%\n" +
+	"\x0eaccount_number\x18\t \x01(\tR\raccountNumber\x12\x16\n" +
+	"\x06amount\x18\n" +
+	" \x01(\tR\x06amount\x12#\n" +
+	"\rerror_message\x18\v \x01(\tR\ferrorMessage\x12'\n" +
+	"\x0fcompensation_of\x18\f \x01(\x04R\x0ecompensationOf\x12\x1f\n" +
+	"\vretry_count\x18\r \x01(\x05R\n" +
+	"retryCount\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x0e \x01(\x03R\tcreatedAt\x12!\n" +
+	"\fcompleted_at\x18\x0f \x01(\x03R\vcompletedAt\"[\n" +
+	"\x14ListSagaLogsResponse\x12-\n" +
+	"\x04logs\x18\x01 \x03(\v2\x19.transaction.SagaLogEntryR\x04logs\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total2\x89\f\n" +
 	"\x12TransactionService\x12P\n" +
 	"\rCreatePayment\x12!.transaction.CreatePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12R\n" +
 	"\x0eExecutePayment\x12\".transaction.ExecutePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12J\n" +
@@ -4140,7 +4471,8 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x13GetPaymentRecipient\x12'.transaction.GetPaymentRecipientRequest\x1a%.transaction.PaymentRecipientResponse\x12n\n" +
 	"\x15ListPaymentRecipients\x12).transaction.ListPaymentRecipientsRequest\x1a*.transaction.ListPaymentRecipientsResponse\x12k\n" +
 	"\x16UpdatePaymentRecipient\x12*.transaction.UpdatePaymentRecipientRequest\x1a%.transaction.PaymentRecipientResponse\x12q\n" +
-	"\x16DeletePaymentRecipient\x12*.transaction.DeletePaymentRecipientRequest\x1a+.transaction.DeletePaymentRecipientResponse2\x92\x03\n" +
+	"\x16DeletePaymentRecipient\x12*.transaction.DeletePaymentRecipientRequest\x1a+.transaction.DeletePaymentRecipientResponse\x12S\n" +
+	"\fListSagaLogs\x12 .transaction.ListSagaLogsRequest\x1a!.transaction.ListSagaLogsResponse2\x92\x03\n" +
 	"\n" +
 	"FeeService\x12G\n" +
 	"\bListFees\x12\x1c.transaction.ListFeesRequest\x1a\x1d.transaction.ListFeesResponse\x12L\n" +
@@ -4176,7 +4508,7 @@ func file_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_transaction_transaction_proto_rawDescData
 }
 
-var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
+var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_transaction_transaction_proto_goTypes = []any{
 	(*CreatePaymentRequest)(nil),            // 0: transaction.CreatePaymentRequest
 	(*GetPaymentRequest)(nil),               // 1: transaction.GetPaymentRequest
@@ -4236,6 +4568,9 @@ var file_transaction_transaction_proto_goTypes = []any{
 	(*ResolvePeerByAPITokenResponse)(nil),   // 55: transaction.ResolvePeerByAPITokenResponse
 	(*ResolvePeerByBankCodeRequest)(nil),    // 56: transaction.ResolvePeerByBankCodeRequest
 	(*ResolvePeerByBankCodeResponse)(nil),   // 57: transaction.ResolvePeerByBankCodeResponse
+	(*ListSagaLogsRequest)(nil),             // 58: transaction.ListSagaLogsRequest
+	(*SagaLogEntry)(nil),                    // 59: transaction.SagaLogEntry
+	(*ListSagaLogsResponse)(nil),            // 60: transaction.ListSagaLogsResponse
 }
 var file_transaction_transaction_proto_depIdxs = []int32{
 	5,  // 0: transaction.ListPaymentsResponse.payments:type_name -> transaction.PaymentResponse
@@ -4252,77 +4587,80 @@ var file_transaction_transaction_proto_depIdxs = []int32{
 	45, // 11: transaction.ListPeerBanksResponse.peer_banks:type_name -> transaction.PeerBank
 	53, // 12: transaction.ResolvePeerByAPITokenResponse.peer_bank:type_name -> transaction.PeerBankFull
 	53, // 13: transaction.ResolvePeerByBankCodeResponse.peer_bank:type_name -> transaction.PeerBankFull
-	0,  // 14: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
-	20, // 15: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
-	1,  // 16: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
-	2,  // 17: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
-	4,  // 18: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
-	6,  // 19: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
-	21, // 20: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
-	7,  // 21: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
-	7,  // 22: transaction.TransactionService.GetTransferStatus:input_type -> transaction.GetTransferRequest
-	9,  // 23: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
-	12, // 24: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
-	13, // 25: transaction.TransactionService.GetPaymentRecipient:input_type -> transaction.GetPaymentRecipientRequest
-	14, // 26: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
-	16, // 27: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
-	17, // 28: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
-	22, // 29: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
-	24, // 30: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
-	25, // 31: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
-	26, // 32: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
-	28, // 33: transaction.FeeService.CalculateFee:input_type -> transaction.CalculateFeeRequest
-	34, // 34: transaction.PeerTxService.HandleNewTx:input_type -> transaction.SiTxNewTxRequest
-	37, // 35: transaction.PeerTxService.HandleCommitTx:input_type -> transaction.SiTxCommitRequest
-	38, // 36: transaction.PeerTxService.HandleRollbackTx:input_type -> transaction.SiTxRollbackRequest
-	40, // 37: transaction.PeerTxService.InitiateOutboundTx:input_type -> transaction.SiTxInitiateRequest
-	42, // 38: transaction.PeerTxService.InitiateOutboundTxWithPostings:input_type -> transaction.SiTxInitiateWithPostingsRequest
-	43, // 39: transaction.PeerTxService.GetTxStatus:input_type -> transaction.GetTxStatusRequest
-	46, // 40: transaction.PeerBankAdminService.ListPeerBanks:input_type -> transaction.ListPeerBanksRequest
-	48, // 41: transaction.PeerBankAdminService.GetPeerBank:input_type -> transaction.GetPeerBankRequest
-	49, // 42: transaction.PeerBankAdminService.CreatePeerBank:input_type -> transaction.CreatePeerBankRequest
-	50, // 43: transaction.PeerBankAdminService.UpdatePeerBank:input_type -> transaction.UpdatePeerBankRequest
-	51, // 44: transaction.PeerBankAdminService.DeletePeerBank:input_type -> transaction.DeletePeerBankRequest
-	54, // 45: transaction.PeerBankAdminService.ResolvePeerByAPIToken:input_type -> transaction.ResolvePeerByAPITokenRequest
-	56, // 46: transaction.PeerBankAdminService.ResolvePeerByBankCode:input_type -> transaction.ResolvePeerByBankCodeRequest
-	5,  // 47: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
-	5,  // 48: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
-	5,  // 49: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
-	3,  // 50: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
-	3,  // 51: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
-	11, // 52: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
-	11, // 53: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
-	11, // 54: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
-	8,  // 55: transaction.TransactionService.GetTransferStatus:output_type -> transaction.TransferStatusResponse
-	10, // 56: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
-	19, // 57: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	19, // 58: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	15, // 59: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
-	19, // 60: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	18, // 61: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
-	23, // 62: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
-	31, // 63: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
-	31, // 64: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
-	27, // 65: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
-	29, // 66: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
-	36, // 67: transaction.PeerTxService.HandleNewTx:output_type -> transaction.SiTxVoteResponse
-	39, // 68: transaction.PeerTxService.HandleCommitTx:output_type -> transaction.SiTxAckResponse
-	39, // 69: transaction.PeerTxService.HandleRollbackTx:output_type -> transaction.SiTxAckResponse
-	41, // 70: transaction.PeerTxService.InitiateOutboundTx:output_type -> transaction.SiTxInitiateResponse
-	41, // 71: transaction.PeerTxService.InitiateOutboundTxWithPostings:output_type -> transaction.SiTxInitiateResponse
-	44, // 72: transaction.PeerTxService.GetTxStatus:output_type -> transaction.GetTxStatusResponse
-	47, // 73: transaction.PeerBankAdminService.ListPeerBanks:output_type -> transaction.ListPeerBanksResponse
-	45, // 74: transaction.PeerBankAdminService.GetPeerBank:output_type -> transaction.PeerBank
-	45, // 75: transaction.PeerBankAdminService.CreatePeerBank:output_type -> transaction.PeerBank
-	45, // 76: transaction.PeerBankAdminService.UpdatePeerBank:output_type -> transaction.PeerBank
-	52, // 77: transaction.PeerBankAdminService.DeletePeerBank:output_type -> transaction.DeletePeerBankResponse
-	55, // 78: transaction.PeerBankAdminService.ResolvePeerByAPIToken:output_type -> transaction.ResolvePeerByAPITokenResponse
-	57, // 79: transaction.PeerBankAdminService.ResolvePeerByBankCode:output_type -> transaction.ResolvePeerByBankCodeResponse
-	47, // [47:80] is the sub-list for method output_type
-	14, // [14:47] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	59, // 14: transaction.ListSagaLogsResponse.logs:type_name -> transaction.SagaLogEntry
+	0,  // 15: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
+	20, // 16: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
+	1,  // 17: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
+	2,  // 18: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
+	4,  // 19: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
+	6,  // 20: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
+	21, // 21: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
+	7,  // 22: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
+	7,  // 23: transaction.TransactionService.GetTransferStatus:input_type -> transaction.GetTransferRequest
+	9,  // 24: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
+	12, // 25: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
+	13, // 26: transaction.TransactionService.GetPaymentRecipient:input_type -> transaction.GetPaymentRecipientRequest
+	14, // 27: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
+	16, // 28: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
+	17, // 29: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
+	58, // 30: transaction.TransactionService.ListSagaLogs:input_type -> transaction.ListSagaLogsRequest
+	22, // 31: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
+	24, // 32: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
+	25, // 33: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
+	26, // 34: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
+	28, // 35: transaction.FeeService.CalculateFee:input_type -> transaction.CalculateFeeRequest
+	34, // 36: transaction.PeerTxService.HandleNewTx:input_type -> transaction.SiTxNewTxRequest
+	37, // 37: transaction.PeerTxService.HandleCommitTx:input_type -> transaction.SiTxCommitRequest
+	38, // 38: transaction.PeerTxService.HandleRollbackTx:input_type -> transaction.SiTxRollbackRequest
+	40, // 39: transaction.PeerTxService.InitiateOutboundTx:input_type -> transaction.SiTxInitiateRequest
+	42, // 40: transaction.PeerTxService.InitiateOutboundTxWithPostings:input_type -> transaction.SiTxInitiateWithPostingsRequest
+	43, // 41: transaction.PeerTxService.GetTxStatus:input_type -> transaction.GetTxStatusRequest
+	46, // 42: transaction.PeerBankAdminService.ListPeerBanks:input_type -> transaction.ListPeerBanksRequest
+	48, // 43: transaction.PeerBankAdminService.GetPeerBank:input_type -> transaction.GetPeerBankRequest
+	49, // 44: transaction.PeerBankAdminService.CreatePeerBank:input_type -> transaction.CreatePeerBankRequest
+	50, // 45: transaction.PeerBankAdminService.UpdatePeerBank:input_type -> transaction.UpdatePeerBankRequest
+	51, // 46: transaction.PeerBankAdminService.DeletePeerBank:input_type -> transaction.DeletePeerBankRequest
+	54, // 47: transaction.PeerBankAdminService.ResolvePeerByAPIToken:input_type -> transaction.ResolvePeerByAPITokenRequest
+	56, // 48: transaction.PeerBankAdminService.ResolvePeerByBankCode:input_type -> transaction.ResolvePeerByBankCodeRequest
+	5,  // 49: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
+	5,  // 50: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
+	5,  // 51: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
+	3,  // 52: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
+	3,  // 53: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
+	11, // 54: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
+	11, // 55: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
+	11, // 56: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
+	8,  // 57: transaction.TransactionService.GetTransferStatus:output_type -> transaction.TransferStatusResponse
+	10, // 58: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
+	19, // 59: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	19, // 60: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	15, // 61: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
+	19, // 62: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	18, // 63: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
+	60, // 64: transaction.TransactionService.ListSagaLogs:output_type -> transaction.ListSagaLogsResponse
+	23, // 65: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
+	31, // 66: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
+	31, // 67: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
+	27, // 68: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
+	29, // 69: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
+	36, // 70: transaction.PeerTxService.HandleNewTx:output_type -> transaction.SiTxVoteResponse
+	39, // 71: transaction.PeerTxService.HandleCommitTx:output_type -> transaction.SiTxAckResponse
+	39, // 72: transaction.PeerTxService.HandleRollbackTx:output_type -> transaction.SiTxAckResponse
+	41, // 73: transaction.PeerTxService.InitiateOutboundTx:output_type -> transaction.SiTxInitiateResponse
+	41, // 74: transaction.PeerTxService.InitiateOutboundTxWithPostings:output_type -> transaction.SiTxInitiateResponse
+	44, // 75: transaction.PeerTxService.GetTxStatus:output_type -> transaction.GetTxStatusResponse
+	47, // 76: transaction.PeerBankAdminService.ListPeerBanks:output_type -> transaction.ListPeerBanksResponse
+	45, // 77: transaction.PeerBankAdminService.GetPeerBank:output_type -> transaction.PeerBank
+	45, // 78: transaction.PeerBankAdminService.CreatePeerBank:output_type -> transaction.PeerBank
+	45, // 79: transaction.PeerBankAdminService.UpdatePeerBank:output_type -> transaction.PeerBank
+	52, // 80: transaction.PeerBankAdminService.DeletePeerBank:output_type -> transaction.DeletePeerBankResponse
+	55, // 81: transaction.PeerBankAdminService.ResolvePeerByAPIToken:output_type -> transaction.ResolvePeerByAPITokenResponse
+	57, // 82: transaction.PeerBankAdminService.ResolvePeerByBankCode:output_type -> transaction.ResolvePeerByBankCodeResponse
+	49, // [49:83] is the sub-list for method output_type
+	15, // [15:49] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_transaction_transaction_proto_init() }
@@ -4337,7 +4675,7 @@ func file_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_transaction_transaction_proto_rawDesc), len(file_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   58,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   4,
 		},

@@ -89,7 +89,96 @@ type SagaRecovery struct {
 	// all recovery retries. Optional: when nil, the step is just logged as
 	// ERROR (same as the pre-A2.3 behaviour).
 	deadLetterProducer *kafkaprod.Producer
-	entry              *cronreg.Entry
+	// exerciseRecoverer auto-resolves stuck OTC exercise sagas by re-driving
+	// them to a terminal state (forward-resume or rollback). Optional: when
+	// nil, exercise steps fall back to logged-for-review. Wired in main.go to
+	// the OTCOfferService. See RecoverExerciseSaga.
+	exerciseRecoverer ExerciseSagaRecoverer
+	// acceptRecoverer auto-resolves stuck OTC accept sagas (forward-resume to a
+	// minted contract, or rollback). Optional: nil → accept steps log-for-review.
+	acceptRecoverer AcceptSagaRecoverer
+	// fundRecoverer auto-resolves stuck fund invest/redeem sagas. Optional: nil
+	// → fund steps log-for-review.
+	fundRecoverer FundSagaRecoverer
+	// placementRecoverer auto-resolves stuck order-placement sagas. Optional:
+	// nil → placement steps log-for-review.
+	placementRecoverer PlacementSagaRecoverer
+	// fillRecoverer + txnGetter auto-resolve stuck fill sagas. fillRecoverer
+	// re-drives the fill; txnGetter loads the fill's OrderTransaction (the fill
+	// saga's recovery anchor alongside the order). Both nil → fill steps
+	// log-for-review.
+	fillRecoverer FillSagaRecoverer
+	txnGetter     OrderTransactionGetter
+	entry         *cronreg.Entry
+}
+
+// FillSagaRecoverer drives a crash-stranded fill saga (stock buy/sell or forex)
+// to a terminal state with no human intervention. Implemented by
+// *PortfolioService. The order + txn are loaded by SagaRecovery and passed in.
+type FillSagaRecoverer interface {
+	RecoverFillSaga(ctx context.Context, sagaID string, order *model.Order, txn *model.OrderTransaction, rollingBack bool) error
+}
+
+// OrderTransactionGetter loads a fill's OrderTransaction by id. Satisfied by
+// *repository.OrderTransactionRepository.
+type OrderTransactionGetter interface {
+	GetByID(id uint64) (*model.OrderTransaction, error)
+}
+
+// WithFillRecoverer wires the fill auto-resolver and the txn loader it needs.
+func (r *SagaRecovery) WithFillRecoverer(rec FillSagaRecoverer, txns OrderTransactionGetter) *SagaRecovery {
+	r.fillRecoverer = rec
+	r.txnGetter = txns
+	return r
+}
+
+// ExerciseSagaRecoverer drives a crash-stranded OTC exercise saga to a terminal
+// state with no human intervention. Implemented by *OTCOfferService.
+type ExerciseSagaRecoverer interface {
+	RecoverExerciseSaga(ctx context.Context, sagaID string, contractID uint64) error
+}
+
+// AcceptSagaRecoverer drives a crash-stranded OTC accept saga to a terminal
+// state with no human intervention. Implemented by *OTCOfferService.
+type AcceptSagaRecoverer interface {
+	RecoverAcceptSaga(ctx context.Context, sagaID string, offerID uint64) error
+}
+
+// FundSagaRecoverer drives a crash-stranded fund invest/redeem saga to a
+// terminal state with no human intervention. Implemented by *FundService.
+type FundSagaRecoverer interface {
+	RecoverFundSaga(ctx context.Context, sagaID string, contribID uint64) error
+}
+
+// PlacementSagaRecoverer drives a crash-stranded order-placement saga to a
+// terminal state with no human intervention. Implemented by *OrderService.
+type PlacementSagaRecoverer interface {
+	RecoverPlacementSaga(ctx context.Context, sagaID string, orderID uint64) error
+}
+
+// WithExerciseRecoverer wires the OTC exercise auto-resolver. Returns the same
+// *SagaRecovery for chaining at construction time in main.go.
+func (r *SagaRecovery) WithExerciseRecoverer(rec ExerciseSagaRecoverer) *SagaRecovery {
+	r.exerciseRecoverer = rec
+	return r
+}
+
+// WithAcceptRecoverer wires the OTC accept auto-resolver.
+func (r *SagaRecovery) WithAcceptRecoverer(rec AcceptSagaRecoverer) *SagaRecovery {
+	r.acceptRecoverer = rec
+	return r
+}
+
+// WithFundRecoverer wires the fund invest/redeem auto-resolver.
+func (r *SagaRecovery) WithFundRecoverer(rec FundSagaRecoverer) *SagaRecovery {
+	r.fundRecoverer = rec
+	return r
+}
+
+// WithPlacementRecoverer wires the order-placement auto-resolver.
+func (r *SagaRecovery) WithPlacementRecoverer(rec PlacementSagaRecoverer) *SagaRecovery {
+	r.placementRecoverer = rec
+	return r
 }
 
 // SagaRecoveryLogRepo is the minimum interface the reconciler needs.
@@ -244,86 +333,65 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
 			"auto-completed by recovery (holding settlement is idempotent)")
 
-	// --- placement / order-construction steps: auto-replay would risk
-	// duplicating the user's order. Leave for human review.
+	// --- order-placement saga steps (assembled by buildPlacementSaga). Auto-
+	// resolved by re-driving the whole saga from the persisted order (idempotent
+	// mint + keyed reservation), to approved/pending or rolled back. No human
+	// review. See reconcilePlacement.
 	case saga.StepPersistOrderPending,
 		saga.StepReserveFunds,
 		saga.StepReserveHolding,
-		saga.StepFinalizeOrder,
-		saga.StepConvertAmount,
-		saga.StepRecordTransaction:
-		log.Printf("WARN: stuck placement saga step %d (order=%d, step=%s) — needs human review",
-			step.ID, step.OrderID, step.StepName)
-		return nil
+		saga.StepFinalizeOrder:
+		return r.reconcilePlacement(ctx, step)
 
-	// --- OTC + Fund money-movement / position steps. These sagas migrated
-	// to shared.Saga without dedicated recovery reconcilers; the safest
-	// behaviour is the same hands-off "log and leave for review" as
-	// placement steps until per-step semantics are wired. Marking them as
-	// auto-completed could double-credit; auto-retrying could double-debit
-	// without an idempotency-key contract.
+	// --- fill-saga early steps (record_transaction / convert_amount, produced
+	// by portfolio_service / forex_fill_service). These are the FIRST steps in
+	// the fill saga, so a crash here left the money/holding legs unrecorded —
+	// the per-step credit_*/settle_* reconcilers can't reach them. Re-drive the
+	// whole fill from the persisted (order, txn) to complete it. No human
+	// review. See reconcileFill.
+	case saga.StepRecordTransaction,
+		saga.StepConvertAmount:
+		return r.reconcileFill(ctx, step)
+
+	// --- Fund invest/redeem saga steps (assembled by buildInvestSaga /
+	// buildRedeemSaga). Auto-resolved by re-driving the whole saga to a terminal
+	// state from the persisted contribution row. No human review. See
+	// reconcileFund.
+	case saga.StepDebitSource,
+		saga.StepCreditFund,
+		saga.StepUpsertPosition,
+		saga.StepDebitFund,
+		saga.StepCreditTarget,
+		saga.StepCreditBankFee:
+		return r.reconcileFund(ctx, step)
+
+	// --- OTC accept saga steps (assembled by buildAcceptSaga). Auto-resolved by
+	// re-driving the whole saga to a terminal state (forward-resume to a minted
+	// ACTIVE contract, or rollback if it was already aborting). No human review.
 	case saga.StepReserveAndContract,
 		saga.StepReservePremium,
-		saga.StepReserveStrike,
 		saga.StepSettlePremiumBuyer,
-		saga.StepSettleStrikeBuyer,
-		saga.StepConsumeSellerHolding,
-		saga.StepDebitSource,
-		saga.StepCreditTarget,
-		saga.StepDebitFund,
-		saga.StepCreditFund,
 		saga.StepCreditPremiumSeller,
+		saga.StepMarkOfferAccepted,
+		saga.StepRecordSellerPremiumGain,
+		saga.StepRecordBuyerPremiumCost,
+		saga.StepPublishOTCAccepted:
+		return r.reconcileAccept(ctx, step)
+
+	// --- OTC exercise saga steps (assembled by buildExerciseSaga). Every
+	// stuck exercise step is auto-resolved by re-driving the whole saga to a
+	// terminal state (forward-resume to EXERCISED, or rollback to ACTIVE if it
+	// was already aborting). No human review. See reconcileExercise.
+	case saga.StepReserveStrike,
+		saga.StepSettleStrikeBuyer,
 		saga.StepCreditStrikeSeller,
-		saga.StepUpsertPosition,
-		saga.StepCreditBankFee:
-		log.Printf("WARN: stuck OTC/Fund saga step %d (order=%d, step=%s) — needs human review",
-			step.ID, step.OrderID, step.StepName)
-		return nil
-
-	// --- OTC accept post-saga steps (moved inside saga by A2.1). These are
-	// idempotent at the storage layer (offer.Save with status=accepted is a
-	// no-op if already accepted; capital-gain Create has no unique key so
-	// retrying could double-write — leave for review). Publish steps are
-	// safe to auto-complete (outbox guarantees delivery; duplicate publish
-	// is idempotent at the consumer).
-	case saga.StepMarkOfferAccepted:
-		log.Printf("WARN: stuck OTC accept mark_offer_accepted step %d (order=%d) — needs human review",
-			step.ID, step.OrderID)
-		return nil
-
-	case saga.StepRecordSellerPremiumGain, saga.StepRecordBuyerPremiumCost:
-		log.Printf("WARN: stuck OTC accept capital-gain step %d (order=%d, step=%s) — needs human review (risk of duplicate CG row on retry)",
-			step.ID, step.OrderID, step.StepName)
-		return nil
-
-	case saga.StepPublishOTCAccepted:
-		// The outbox guarantees delivery; if the outbox enqueue committed,
-		// the event will be published. Mark completed so recovery doesn't
-		// spin on this indefinitely.
-		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
-			"auto-completed by recovery (publish is outbox-backed, idempotent)")
-
-	// --- OTC exercise post-saga steps (moved inside saga by A2.2). Same
-	// rationale as accept steps above.
-	case saga.StepUpsertBuyerHolding:
-		// Upsert is idempotent (weighted-average merge). Safe to auto-complete.
-		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
-			"auto-completed by recovery (holding upsert is idempotent)")
-
-	case saga.StepRecordSellerStrikeGain, saga.StepRecordBuyerExerciseCost:
-		log.Printf("WARN: stuck OTC exercise capital-gain step %d (order=%d, step=%s) — needs human review",
-			step.ID, step.OrderID, step.StepName)
-		return nil
-
-	case saga.StepMarkContractExercised:
-		log.Printf("WARN: stuck OTC exercise mark_contract_exercised step %d (order=%d) — needs human review",
-			step.ID, step.OrderID)
-		return nil
-
-	case saga.StepPublishOTCExercise:
-		// Same as publish_otc_accepted_event: outbox-backed, idempotent.
-		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
-			"auto-completed by recovery (publish is outbox-backed, idempotent)")
+		saga.StepConsumeSellerHolding,
+		saga.StepUpsertBuyerHolding,
+		saga.StepRecordSellerStrikeGain,
+		saga.StepRecordBuyerExerciseCost,
+		saga.StepMarkContractExercised,
+		saga.StepPublishOTCExercise:
+		return r.reconcileExercise(ctx, step)
 
 	// --- Crossbank steps. These ride on InterBankSagaLog (a different table)
 	// in production and have a separate reconciliation cron. They should NOT
@@ -366,6 +434,162 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 			"recovery: unhandled StepKind %q — add case to switch in saga_recovery.go",
 			step.StepName))
 	}
+}
+
+// reconcileExercise auto-resolves a stuck OTC exercise saga step by delegating
+// to the exercise recoverer, which re-drives the WHOLE saga (identified by
+// step.SagaID, contract = step.OrderID) to a terminal state — forward-resume to
+// EXERCISED, or rollback to ACTIVE when it was already aborting. The delegate is
+// idempotent, so it is safe to invoke once per stuck row of the same saga (and
+// across ticks). On success the row is marked completed/compensated so it drops
+// out of the stuck query; the delegate already moved every other row of the
+// saga to terminal too.
+//
+// Falls back to the historical log-and-leave only when no recoverer is wired
+// (e.g. a test SagaRecovery), or when the row lacks the contract id needed to
+// rebuild the saga.
+func (r *SagaRecovery) reconcileExercise(ctx context.Context, step model.SagaLog) error {
+	if r.exerciseRecoverer == nil {
+		log.Printf("WARN: stuck OTC exercise step %d (order=%d, step=%s) — no recoverer wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" || step.OrderID == 0 {
+		log.Printf("WARN: stuck OTC exercise step %d (step=%s) — missing saga_id/order_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	if err := r.exerciseRecoverer.RecoverExerciseSaga(ctx, step.SagaID, step.OrderID); err != nil {
+		return fmt.Errorf("recover exercise saga %s (contract=%d): %w", step.SagaID, step.OrderID, err)
+	}
+	// The delegate drove the saga terminal. Transition this row out of the
+	// stuck set: compensation rows go to compensated, forward rows to completed.
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (saga re-driven to terminal)")
+}
+
+// reconcileAccept auto-resolves a stuck OTC accept saga step by delegating to
+// the accept recoverer, which re-drives the whole saga (identified by
+// step.SagaID, offer = step.OrderID) to a terminal state. Mirrors
+// reconcileExercise. Falls back to log-and-leave when no recoverer is wired or
+// the row lacks identifiers.
+func (r *SagaRecovery) reconcileAccept(ctx context.Context, step model.SagaLog) error {
+	if r.acceptRecoverer == nil {
+		log.Printf("WARN: stuck OTC accept step %d (order=%d, step=%s) — no recoverer wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" {
+		log.Printf("WARN: stuck OTC accept step %d (step=%s) — missing saga_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	if err := r.acceptRecoverer.RecoverAcceptSaga(ctx, step.SagaID, step.OrderID); err != nil {
+		return fmt.Errorf("recover accept saga %s (offer=%d): %w", step.SagaID, step.OrderID, err)
+	}
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (saga re-driven to terminal)")
+}
+
+// reconcileFund auto-resolves a stuck fund invest/redeem saga step by
+// delegating to the fund recoverer, which re-drives the whole saga (identified
+// by step.SagaID, contribution = step.OrderID) to a terminal state. Mirrors
+// reconcileExercise/reconcileAccept.
+func (r *SagaRecovery) reconcileFund(ctx context.Context, step model.SagaLog) error {
+	if r.fundRecoverer == nil {
+		log.Printf("WARN: stuck fund saga step %d (order=%d, step=%s) — no recoverer wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" {
+		log.Printf("WARN: stuck fund saga step %d (step=%s) — missing saga_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	if err := r.fundRecoverer.RecoverFundSaga(ctx, step.SagaID, step.OrderID); err != nil {
+		return fmt.Errorf("recover fund saga %s (contrib=%d): %w", step.SagaID, step.OrderID, err)
+	}
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (saga re-driven to terminal)")
+}
+
+// reconcilePlacement auto-resolves a stuck order-placement saga step by
+// delegating to the placement recoverer, which re-drives the whole saga
+// (identified by step.SagaID, order = step.OrderID) to a terminal state.
+// Mirrors reconcileExercise/reconcileAccept/reconcileFund.
+func (r *SagaRecovery) reconcilePlacement(ctx context.Context, step model.SagaLog) error {
+	if r.placementRecoverer == nil {
+		log.Printf("WARN: stuck placement saga step %d (order=%d, step=%s) — no recoverer wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" {
+		log.Printf("WARN: stuck placement saga step %d (step=%s) — missing saga_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	if err := r.placementRecoverer.RecoverPlacementSaga(ctx, step.SagaID, step.OrderID); err != nil {
+		return fmt.Errorf("recover placement saga %s (order=%d): %w", step.SagaID, step.OrderID, err)
+	}
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (saga re-driven to terminal)")
+}
+
+// reconcileFill auto-resolves a stuck fill saga by loading the (order, txn)
+// anchor and delegating to the fill recoverer, which re-drives the whole fill
+// (stock buy/sell or forex) to a terminal state. Falls back to log-and-leave
+// when the recoverer/txn-loader isn't wired or the row lacks identifiers.
+func (r *SagaRecovery) reconcileFill(ctx context.Context, step model.SagaLog) error {
+	if r.fillRecoverer == nil || r.txnGetter == nil || r.orderRepo == nil {
+		log.Printf("WARN: stuck fill saga step %d (order=%d, step=%s) — recoverer/txn-loader/order-repo not wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" || step.OrderID == 0 || step.OrderTransactionID == nil {
+		log.Printf("WARN: stuck fill saga step %d (step=%s) — missing saga_id/order_id/txn_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	order, err := r.orderRepo.GetByID(step.OrderID)
+	if err != nil {
+		return fmt.Errorf("recover fill saga %s: load order %d: %w", step.SagaID, step.OrderID, err)
+	}
+	txn, err := r.txnGetter.GetByID(*step.OrderTransactionID)
+	if err != nil {
+		return fmt.Errorf("recover fill saga %s: load txn %d: %w", step.SagaID, *step.OrderTransactionID, err)
+	}
+
+	rollingBack := false
+	if chk, ok := r.sagaRepo.(interface {
+		HasCompensations(sagaID string) (bool, error)
+	}); ok {
+		has, herr := chk.HasCompensations(step.SagaID)
+		if herr != nil {
+			return fmt.Errorf("recover fill saga %s: compensation check: %w", step.SagaID, herr)
+		}
+		rollingBack = has
+	}
+
+	if err := r.fillRecoverer.RecoverFillSaga(ctx, step.SagaID, order, txn, rollingBack); err != nil {
+		return fmt.Errorf("recover fill saga %s (order=%d txn=%d): %w", step.SagaID, step.OrderID, *step.OrderTransactionID, err)
+	}
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (fill saga re-driven to terminal)")
 }
 
 // reconcileSettle resolves a stuck settle_reservation / settle_reservation_quote

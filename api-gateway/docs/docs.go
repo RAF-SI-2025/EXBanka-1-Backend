@@ -9097,6 +9097,90 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/admin/audit/saga-logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns transaction-service saga_logs (forward + compensation steps), paginated and filterable. Requires admin.audit.view. Lets an admin review saga execution and compensation history.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AdminAudit"
+                ],
+                "summary": "List transfer/payment saga execution logs (admin audit)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "filter to a single saga",
+                        "name": "saga_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "pending|completed|failed|compensating|dead_letter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "transfer|payment",
+                        "name": "transaction_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "YYYY-MM-DD (created_at \u003e=)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "YYYY-MM-DD (created_at \u003c=)",
+                        "name": "until",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/admin/crons": {
             "get": {
                 "security": [

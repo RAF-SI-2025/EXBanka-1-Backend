@@ -16,6 +16,7 @@ import (
 //	sells stock via market order → waits for fill → verifies order is done.
 func TestWF_StockBuySellCycle(t *testing.T) {
 	adminC := loginAsAdmin(t)
+	enableTestingMode(t, adminC)
 
 	// Step 1: Create agent employee
 	_, agentC, _ := setupAgentEmployee(t, adminC)
@@ -76,11 +77,11 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	}
 	helpers.RequireStatus(t, portfolioResp, 200)
 
-	holdings, ok := portfolioResp.Body["holdings"].([]interface{})
-	if !ok || len(holdings) == 0 {
-		t.Fatal("WF-6: expected at least one stock holding after buy, got none")
+	positions := stockPositions(t, portfolioResp.Body)
+	if len(positions) == 0 {
+		t.Fatal("WF-6: expected at least one stock position after buy, got none")
 	}
-	t.Logf("WF-6: portfolio has %d stock holding(s)", len(holdings))
+	t.Logf("WF-6: portfolio has %d stock position(s)", len(positions))
 
 	// Step 6: Place market sell order for the same listing
 	sellResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{

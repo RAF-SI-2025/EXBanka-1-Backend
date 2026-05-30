@@ -89,6 +89,46 @@ func TestReserveFunds_Idempotent(t *testing.T) {
 	}
 }
 
+// TestReserveFunds_ReactivatesReleased proves the auto-resolve recovery
+// prerequisite: a reservation that was released (e.g. an OTC exercise that
+// failed mid-saga and compensated) can be re-reserved under the same
+// (orderID, orderKind), which re-applies the hold and resets settlements so
+// the contract can be exercised again. Without this the retry's settle failed
+// with "reservation status=released", stranding an otherwise-active contract.
+func TestReserveFunds_ReactivatesReleased(t *testing.T) {
+	svc, accountRepo, _, accountID, _ := newReservationFixture(t)
+	ctx := context.Background()
+
+	r1, err := svc.ReserveFunds(ctx, 700, accountID, decimal.NewFromInt(400), "RSD", "")
+	if err != nil {
+		t.Fatalf("first reserve: %v", err)
+	}
+	if _, err := svc.ReleaseReservation(ctx, 700, ""); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	acc, _ := accountRepo.GetByID(accountID)
+	if !acc.ReservedBalance.IsZero() || !acc.AvailableBalance.Equal(decimal.NewFromInt(1000)) {
+		t.Fatalf("after release expected reserved=0 available=1000, got reserved=%s available=%s",
+			acc.ReservedBalance, acc.AvailableBalance)
+	}
+
+	// Re-reserve the same order — must re-activate the released reservation.
+	r2, err := svc.ReserveFunds(ctx, 700, accountID, decimal.NewFromInt(400), "RSD", "")
+	if err != nil {
+		t.Fatalf("re-reserve: %v", err)
+	}
+	if r1.ReservationID != r2.ReservationID {
+		t.Errorf("re-activation produced a different reservation id (%d vs %d)", r1.ReservationID, r2.ReservationID)
+	}
+	acc, _ = accountRepo.GetByID(accountID)
+	if !acc.ReservedBalance.Equal(decimal.NewFromInt(400)) {
+		t.Errorf("re-activation did not re-apply hold: reserved=%s want 400", acc.ReservedBalance)
+	}
+	if !acc.AvailableBalance.Equal(decimal.NewFromInt(600)) {
+		t.Errorf("re-activation available_balance: got %s want 600", acc.AvailableBalance)
+	}
+}
+
 func TestReserveFunds_InsufficientAvailable(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
 	_, err := svc.ReserveFunds(context.Background(), 500, accountID, decimal.NewFromInt(5000), "RSD", "")

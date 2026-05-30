@@ -48,6 +48,11 @@ func NewRouter() *gin.Engine {
 func SetupV3(r *gin.Engine, h *Handlers) {
 	v3 := r.Group("/api/v3")
 
+	// Forward X-Saga-* fault-injection headers to downstream saga executors.
+	// No-op in production builds (saga.FaultsEnabled == false); active only in
+	// the fault-enabled test image used by the SG-* saga integration suite.
+	v3.Use(middleware.FaultHeaderForwarder())
+
 	// ── Public auth routes (no middleware) ───────────────────────
 	auth := v3.Group("/auth")
 	{
@@ -1008,6 +1013,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			auditAdmin.GET("/loans-changelog", h.AdminAudit.ListLoansChangelog)
 			auditAdmin.GET("/employees-changelog", h.AdminAudit.ListEmployeesChangelog)
 			auditAdmin.GET("/cron-actions", h.AdminAudit.ListCronActions)
+			auditAdmin.GET("/saga-logs", h.AdminAudit.ListSagaLogs)
 		}
 	}
 

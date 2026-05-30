@@ -197,7 +197,7 @@ func main() {
 		recipientSvc,
 		verificationClient,
 		producer,
-	)
+	).WithSagaLogReader(sagaLogRepo)
 
 	feeHandler := handler.NewFeeGRPCHandler(feeSvc)
 

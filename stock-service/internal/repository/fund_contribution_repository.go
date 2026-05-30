@@ -18,6 +18,20 @@ func (r *FundContributionRepository) Create(c *model.FundContribution) error {
 	return r.db.Create(c).Error
 }
 
+// GetBySagaID returns the contribution row a fund invest/redeem saga created
+// up-front, or gorm.ErrRecordNotFound if none. Used by fund-saga crash recovery
+// to rebuild the saga from the persisted contribution.
+func (r *FundContributionRepository) GetBySagaID(sagaID string) (*model.FundContribution, error) {
+	if sagaID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var c model.FundContribution
+	if err := r.db.Where("saga_id = ?", sagaID).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 // UpdateStatus performs a status-only column update by id. Skips GORM hooks
 // because BeforeSave on FundContribution validates (OwnerType, OwnerID),
 // which would fire on the zero-value struct that db.Model(&FundContribution{})

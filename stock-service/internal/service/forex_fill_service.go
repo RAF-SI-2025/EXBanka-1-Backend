@@ -77,9 +77,6 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	if order.SecurityType != "forex" {
 		return fmt.Errorf("forex fill: unexpected security_type %q", order.SecurityType)
 	}
-	if order.BaseAccountID == nil {
-		return fmt.Errorf("forex fill order %d: missing base_account_id", order.ID)
-	}
 
 	// Fresh sagaID per fill — see the comment in
 	// portfolio_service.processBuyFillSaga. Reusing order.SagaID caused
@@ -88,6 +85,55 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	// because those step names were already marked completed.
 	sagaID := uuid.New().String()
 
+	sg, state, quoteAmount, err := s.buildForexBuySaga(ctx, sagaID, order, txn)
+	if err != nil {
+		return err
+	}
+	if err := sg.Execute(ctx, state); err != nil {
+		return err
+	}
+
+	// Best-effort commission credit. Failure here logs but does not unwind
+	// the trade — it's recovered by the background saga recovery loop.
+	commissionAmount := s.computeCommission(quoteAmount)
+	if commissionAmount.Sign() > 0 && s.bankRecipient != nil {
+		commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
+		commSaga := sg.NewSubSaga("commission").
+			Add(saga.Step{
+				Name: saga.StepCreditCommission,
+				Forward: func(ctx context.Context, _ *saga.State) error {
+					bankAcctNo, aerr := s.bankRecipient.BankCommissionAccountNumber(ctx)
+					if aerr != nil {
+						return aerr
+					}
+					_, ferr := s.accountClient.CreditAccount(ctx, bankAcctNo, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
+					return ferr
+				},
+			})
+		commState := saga.NewState()
+		commState.Set("order_id", order.ID)
+		commState.Set("order_transaction_id", txn.ID)
+		commState.Set("step:credit_commission:amount", commissionAmount)
+		commState.Set("step:credit_commission:currency", order.ReservationCurrency)
+		if cerr := commSaga.Execute(ctx, commState); cerr != nil {
+			log.Printf("WARN: forex commission credit failed for order %d fill %d: %v (recovery will retry)",
+				order.ID, txn.ID, cerr)
+		}
+	}
+
+	return nil
+}
+
+// buildForexBuySaga assembles the forex buy-fill saga under sagaID and persists
+// the txn's audit fields (idempotent overwrite). Pure assembly: every value
+// derives from (order, txn), so crash recovery rebuilds the identical saga and
+// forward-resumes it. Steps: record (no-op), settle_reservation_quote (keyed),
+// credit_base (keyed). Returns the quote amount for the post-saga commission.
+func (s *ForexFillService) buildForexBuySaga(ctx context.Context, sagaID string, order *model.Order, txn *model.OrderTransaction) (*saga.Saga, *saga.State, decimal.Decimal, error) {
+	if order.BaseAccountID == nil {
+		return nil, nil, decimal.Zero, fmt.Errorf("forex fill order %d: missing base_account_id", order.ID)
+	}
+
 	contractSize := order.ContractSize
 	if contractSize <= 0 {
 		contractSize = 1
@@ -95,9 +141,9 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	quoteAmount := txn.TotalPrice
 	baseAmount := decimal.NewFromInt(txn.Quantity).Mul(decimal.NewFromInt(contractSize))
 
-	// Persist audit fields on the transaction. No FX rate is recorded because
-	// no exchange-service conversion happened; the effective rate is the
-	// forex listing's own price (txn.PricePerUnit), which is already stored.
+	// Persist audit fields on the transaction (idempotent overwrite). No FX rate
+	// is recorded because no exchange-service conversion happened; the effective
+	// rate is the forex listing's own price (txn.PricePerUnit), already stored.
 	native := quoteAmount
 	txn.NativeAmount = &native
 	txn.NativeCurrency = order.ReservationCurrency
@@ -105,7 +151,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	txn.ConvertedAmount = &converted
 	txn.AccountCurrency = order.ReservationCurrency
 	if err := s.txRepo.Update(txn); err != nil {
-		return fmt.Errorf("persist txn audit fields: %w", err)
+		return nil, nil, decimal.Zero, fmt.Errorf("persist txn audit fields: %w", err)
 	}
 
 	quoteMemo := fmt.Sprintf("Forex buy order #%d fill #%d — debit quote", order.ID, txn.ID)
@@ -162,39 +208,23 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 			// Last money step in the saga. Nothing after, so no Backward.
 		})
 
-	if err := sg.Execute(ctx, state); err != nil {
+	return sg, state, quoteAmount, nil
+}
+
+// RecoverForexBuySaga re-drives a crash-stranded forex buy-fill saga to a
+// terminal state. Rebuilds the saga under the persisted sagaID from (order, txn)
+// and forward-resumes (or rolls back when it was already aborting). All steps
+// are idempotency-keyed, so the replay is safe. Best-effort commission is
+// recovered separately via the credit_commission reconciler.
+func (s *ForexFillService) RecoverForexBuySaga(ctx context.Context, sagaID string, order *model.Order, txn *model.OrderTransaction, rollingBack bool) error {
+	sg, state, _, err := s.buildForexBuySaga(ctx, sagaID, order, txn)
+	if err != nil {
 		return err
 	}
-
-	// Best-effort commission credit. Failure here logs but does not unwind
-	// the trade — it's recovered by the background saga recovery loop.
-	commissionAmount := s.computeCommission(quoteAmount)
-	if commissionAmount.Sign() > 0 && s.bankRecipient != nil {
-		commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
-		commSaga := sg.NewSubSaga("commission").
-			Add(saga.Step{
-				Name: saga.StepCreditCommission,
-				Forward: func(ctx context.Context, _ *saga.State) error {
-					bankAcctNo, aerr := s.bankRecipient.BankCommissionAccountNumber(ctx)
-					if aerr != nil {
-						return aerr
-					}
-					_, ferr := s.accountClient.CreditAccount(ctx, bankAcctNo, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
-					return ferr
-				},
-			})
-		commState := saga.NewState()
-		commState.Set("order_id", order.ID)
-		commState.Set("order_transaction_id", txn.ID)
-		commState.Set("step:credit_commission:amount", commissionAmount)
-		commState.Set("step:credit_commission:currency", order.ReservationCurrency)
-		if cerr := commSaga.Execute(ctx, commState); cerr != nil {
-			log.Printf("WARN: forex commission credit failed for order %d fill %d: %v (recovery will retry)",
-				order.ID, txn.ID, cerr)
-		}
+	if rollingBack {
+		return sg.Compensate(ctx, state)
 	}
-
-	return nil
+	return sg.Execute(ctx, state)
 }
 
 // computeCommission mirrors PortfolioService.computeCommission so forex

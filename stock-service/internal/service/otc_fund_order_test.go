@@ -32,6 +32,10 @@ func (r *recordingFundHoldingUpsert) Upsert(h *model.FundHolding) error {
 	return nil
 }
 
+func (r *recordingFundHoldingUpsert) UpsertIdempotent(h *model.FundHolding, _ string) error {
+	return r.Upsert(h)
+}
+
 // ---- tests -----------------------------------------------------------------
 
 // TestExerciseInput_OnBehalfOfFundID_RoutesToFundHolding verifies that when

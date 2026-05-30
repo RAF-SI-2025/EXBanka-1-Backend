@@ -216,7 +216,7 @@ func NewHandlers(d Deps) *Handlers {
 		PeerUser:         handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
 		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, d.PeerOTCClient, d.AccountClient, ownRouting, d.OwnBankCode),
 		AdminCron:        handler.NewAdminCronHandler(d.AdminCronClients, d.AuditProducer),
-		AdminAudit:       handler.NewAdminAuditHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient, d.NotificationClient),
+		AdminAudit:       handler.NewAdminAuditHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient, d.NotificationClient, d.TxClient),
 		Dividend:         handler.NewDividendHandler(d.FundClient),
 	}
 }

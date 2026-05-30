@@ -34,6 +34,7 @@ const (
 	TransactionService_ListPaymentRecipients_FullMethodName  = "/transaction.TransactionService/ListPaymentRecipients"
 	TransactionService_UpdatePaymentRecipient_FullMethodName = "/transaction.TransactionService/UpdatePaymentRecipient"
 	TransactionService_DeletePaymentRecipient_FullMethodName = "/transaction.TransactionService/DeletePaymentRecipient"
+	TransactionService_ListSagaLogs_FullMethodName           = "/transaction.TransactionService/ListSagaLogs"
 )
 
 // TransactionServiceClient is the client API for TransactionService service.
@@ -55,6 +56,8 @@ type TransactionServiceClient interface {
 	ListPaymentRecipients(ctx context.Context, in *ListPaymentRecipientsRequest, opts ...grpc.CallOption) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(ctx context.Context, in *UpdatePaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(ctx context.Context, in *DeletePaymentRecipientRequest, opts ...grpc.CallOption) (*DeletePaymentRecipientResponse, error)
+	// Admin audit: read transfer/payment saga execution logs.
+	ListSagaLogs(ctx context.Context, in *ListSagaLogsRequest, opts ...grpc.CallOption) (*ListSagaLogsResponse, error)
 }
 
 type transactionServiceClient struct {
@@ -215,6 +218,16 @@ func (c *transactionServiceClient) DeletePaymentRecipient(ctx context.Context, i
 	return out, nil
 }
 
+func (c *transactionServiceClient) ListSagaLogs(ctx context.Context, in *ListSagaLogsRequest, opts ...grpc.CallOption) (*ListSagaLogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSagaLogsResponse)
+	err := c.cc.Invoke(ctx, TransactionService_ListSagaLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TransactionServiceServer is the server API for TransactionService service.
 // All implementations must embed UnimplementedTransactionServiceServer
 // for forward compatibility.
@@ -234,6 +247,8 @@ type TransactionServiceServer interface {
 	ListPaymentRecipients(context.Context, *ListPaymentRecipientsRequest) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(context.Context, *UpdatePaymentRecipientRequest) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error)
+	// Admin audit: read transfer/payment saga execution logs.
+	ListSagaLogs(context.Context, *ListSagaLogsRequest) (*ListSagaLogsResponse, error)
 	mustEmbedUnimplementedTransactionServiceServer()
 }
 
@@ -288,6 +303,9 @@ func (UnimplementedTransactionServiceServer) UpdatePaymentRecipient(context.Cont
 }
 func (UnimplementedTransactionServiceServer) DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeletePaymentRecipient not implemented")
+}
+func (UnimplementedTransactionServiceServer) ListSagaLogs(context.Context, *ListSagaLogsRequest) (*ListSagaLogsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSagaLogs not implemented")
 }
 func (UnimplementedTransactionServiceServer) mustEmbedUnimplementedTransactionServiceServer() {}
 func (UnimplementedTransactionServiceServer) testEmbeddedByValue()                            {}
@@ -580,6 +598,24 @@ func _TransactionService_DeletePaymentRecipient_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TransactionService_ListSagaLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSagaLogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionServiceServer).ListSagaLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TransactionService_ListSagaLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionServiceServer).ListSagaLogs(ctx, req.(*ListSagaLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TransactionService_ServiceDesc is the grpc.ServiceDesc for TransactionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -646,6 +682,10 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeletePaymentRecipient",
 			Handler:    _TransactionService_DeletePaymentRecipient_Handler,
+		},
+		{
+			MethodName: "ListSagaLogs",
+			Handler:    _TransactionService_ListSagaLogs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

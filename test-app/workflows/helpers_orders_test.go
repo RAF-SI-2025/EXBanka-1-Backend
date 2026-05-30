@@ -186,6 +186,9 @@ func getBankRSDAccountID(t *testing.T, c *client.APIClient) uint64 {
 	if !ok {
 		t.Fatalf("getBankRSDAccountID: response missing accounts array")
 	}
+	// Lowest-id RSD bank account = the seeded treasury (fund RSD accounts are
+	// also is_bank_account and pollute this list; see getBankRSDAccount).
+	bestID := -1.0
 	for _, a := range accts {
 		m, ok := a.(map[string]interface{})
 		if !ok {
@@ -195,11 +198,15 @@ func getBankRSDAccountID(t *testing.T, c *client.APIClient) uint64 {
 			continue
 		}
 		if idVal, ok := m["id"].(float64); ok {
-			return uint64(idVal)
+			if bestID < 0 || idVal < bestID {
+				bestID = idVal
+			}
 		}
 	}
-	t.Fatal("getBankRSDAccountID: no bank RSD account found")
-	return 0
+	if bestID < 0 {
+		t.Fatal("getBankRSDAccountID: no bank RSD account found")
+	}
+	return uint64(bestID)
 }
 
 // findForexPairWithCurrencies iterates the forex pair list and returns the id

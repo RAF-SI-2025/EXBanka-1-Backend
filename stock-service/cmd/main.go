@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/contract/shared/outbox"
 	pb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
@@ -42,6 +44,15 @@ import (
 )
 
 func main() {
+	// Defence in depth: a binary built with saga fault injection (-tags
+	// sagafaults) must never run as a real service. The build tag already
+	// keeps the fault code out of production binaries; this refuses to even
+	// start a fault-enabled build unless the SG test harness explicitly opts
+	// in via SAGA_FAULTS_OK=1.
+	if saga.FaultsEnabled && os.Getenv("SAGA_FAULTS_OK") != "1" {
+		log.Fatal("stock-service: built with saga fault injection but SAGA_FAULTS_OK!=1 — refusing to start outside a test environment")
+	}
+
 	cfg := config.Load()
 
 	// --- Database ---
@@ -81,6 +92,10 @@ func main() {
 		&model.Holding{},
 		&model.HoldingReservation{},
 		&model.HoldingReservationSettlement{},
+		// Idempotency marker for holding *credits* (weighted-avg Upsert is not
+		// naturally idempotent). Written by the OTC exercise buyer-credit step
+		// so a saga retry / crash-recovery replay credits shares exactly once.
+		&model.HoldingCreditMarker{},
 		&model.CapitalGain{},
 		&model.TaxCollection{},
 		&model.SagaLog{},
@@ -721,7 +736,8 @@ func main() {
 	// cancelled. Must use the long-lived main ctx so the ticker lives for the
 	// process lifetime and honors graceful shutdown via cancel().
 	sagaRecovery := service.NewSagaRecovery(sagaLogRepo, stockAccountClient, orderRepo, cfg.StateAccountNo, producer, cronRegistry)
-	sagaRecovery.Run(ctx, 60*time.Second)
+	// Run is deferred until after otcOfferSvc is constructed (below) so the
+	// exercise auto-resolver can be wired via WithExerciseRecoverer first.
 
 	// Start tax collection cron
 	taxCronSvc.StartMonthlyCron(ctx)
@@ -781,6 +797,17 @@ func main() {
 		WithStockMeta(&otcStockMetaAdapter{stocks: stockRepo, listings: listingRepo}).
 		WithCapitalGain(capitalGainRepo).
 		WithOutbox(ob, db)
+
+	// Wire the OTC exercise auto-resolver into the saga recovery reconciler and
+	// start it. RecoverExerciseSaga re-drives a crash-stranded exercise saga to
+	// a terminal state with no human intervention. Done here (not at
+	// construction) because otcOfferSvc only exists now.
+	sagaRecovery.WithExerciseRecoverer(otcOfferSvc)
+	sagaRecovery.WithAcceptRecoverer(otcOfferSvc)
+	sagaRecovery.WithFundRecoverer(fundService)
+	sagaRecovery.WithPlacementRecoverer(orderSvc)
+	sagaRecovery.WithFillRecoverer(portfolioSvc, orderTxRepo)
+	sagaRecovery.Run(ctx, 60*time.Second)
 
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---
 	// PeerOTCService backs the api-gateway /api/v3/public-stock and

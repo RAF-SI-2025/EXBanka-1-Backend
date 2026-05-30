@@ -15,6 +15,7 @@ import (
 func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 	t.Parallel()
 	adminC := loginAsAdmin(t)
+	enableTestingMode(t, adminC)
 	clientID, _, clientC, _ := setupActivatedClient(t, adminC)
 
 	// Look up the client's account ID.
@@ -80,7 +81,7 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 	// employee's). is_done flips on the order row in the same instant the
 	// saga's update_holding step commits, so a one-shot read can race the
 	// fill commit; poll for up to 5s.
-	var holdings []interface{}
+	var positions []interface{}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		portResp, err := clientC.GET("/api/v3/me/portfolio")
@@ -88,13 +89,13 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 			t.Fatalf("client portfolio: %v", err)
 		}
 		helpers.RequireStatus(t, portResp, 200)
-		holdings, _ = portResp.Body["holdings"].([]interface{})
-		if len(holdings) > 0 {
+		positions = stockPositions(t, portResp.Body)
+		if len(positions) > 0 {
 			break
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	if len(holdings) == 0 {
+	if len(positions) == 0 {
 		t.Errorf("client %d portfolio is empty after on-behalf buy", clientID)
 	}
 }

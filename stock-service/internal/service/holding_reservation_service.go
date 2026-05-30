@@ -620,6 +620,64 @@ func (s *HoldingReservationService) ConsumeForOTCContract(
 	return out, nil
 }
 
+// RestoreForOTCContract reverses ConsumeForOTCContract: it returns the
+// consumed shares to the seller's holding (restoring both Quantity and
+// ReservedQuantity), deletes the settlement row keyed by syntheticTxnID, and
+// reactivates the reservation if it had been marked settled. This is the
+// backward compensator for the exercise saga's consume_seller_holding step
+// (pivot removal — 2026-05-29): once it exists, a failure in any later step
+// can fully unwind the share transfer instead of being treated as
+// irrecoverable.
+//
+// Idempotent: if no settlement row exists for syntheticTxnID (the consume
+// never ran, or this restore already ran) it is a no-op, so the saga's
+// backward pass can be retried until success per the SAGA spec.
+func (s *HoldingReservationService) RestoreForOTCContract(
+	ctx context.Context,
+	otcContractID uint64,
+	syntheticTxnID uint64,
+) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var settlement model.HoldingReservationSettlement
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("order_transaction_id = ?", syntheticTxnID).
+			First(&settlement).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // nothing consumed under this key — idempotent no-op
+		}
+		if err != nil {
+			return err
+		}
+		res, err := s.resRepo.WithTx(tx).GetByOTCContractIDForUpdate(otcContractID)
+		if err != nil {
+			return err
+		}
+		var holding model.Holding
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+			return err
+		}
+		// Reverse the consume: shares (and their reservation) return to the seller.
+		holding.Quantity += settlement.Quantity
+		holding.ReservedQuantity += settlement.Quantity
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+			return err
+		}
+		if err := tx.Delete(&settlement).Error; err != nil {
+			return err
+		}
+		// A fully-consumed reservation was marked Settled; reactivate it so the
+		// contract can be exercised again after this compensation.
+		if res.Status == model.HoldingReservationStatusSettled {
+			res.Status = model.HoldingReservationStatusActive
+			res.UpdatedAt = time.Now()
+			if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Cross-bank OTC option-contract variants (Celina-5 SI-TX exercise)
 // ---------------------------------------------------------------------------

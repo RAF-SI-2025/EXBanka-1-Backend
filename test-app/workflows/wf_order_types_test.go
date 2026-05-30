@@ -16,6 +16,7 @@ import (
 //	if futures exist, places market buy for futures → verifies holding.
 func TestWF_MultiAssetOrderTypes(t *testing.T) {
 	adminC := loginAsAdmin(t)
+	enableTestingMode(t, adminC)
 
 	// Step 1: Create supervisor (no approval limits)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
@@ -122,10 +123,10 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 			t.Fatalf("WF-7: list portfolio: %v", err)
 		}
 		helpers.RequireStatus(t, portfolioResp, 200)
-		holdings, ok := portfolioResp.Body["holdings"].([]interface{})
-		if !ok || len(holdings) == 0 {
-			t.Errorf("WF-7: expected at least one holding after futures buy")
+		positions := stockPositions(t, portfolioResp.Body)
+		if len(positions) == 0 {
+			t.Errorf("WF-7: expected at least one securities position after futures buy")
 		}
-		t.Logf("WF-7: portfolio has %d holding(s) after futures buy", len(holdings))
+		t.Logf("WF-7: portfolio has %d securities position(s) after futures buy", len(positions))
 	})
 }

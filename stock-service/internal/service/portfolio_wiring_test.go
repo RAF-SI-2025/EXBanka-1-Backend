@@ -12,6 +12,9 @@ import (
 type stubFundHoldingUpserter struct{}
 
 func (stubFundHoldingUpserter) Upsert(_ *model.FundHolding) error { return nil }
+func (stubFundHoldingUpserter) UpsertIdempotent(_ *model.FundHolding, _ string) error {
+	return nil
+}
 
 // stubBankCommissionRecipient returns a fixed account number.
 type stubBankCommissionRecipient struct{}

@@ -30,6 +30,7 @@ type mockHoldingRepo struct {
 	failNextUpsert error // if non-nil, next Upsert call will fail and clear this field
 	failNextUpdate error // if non-nil, next Update call will fail and clear this field
 	failNextDelete error // if non-nil, next Delete call will fail and clear this field
+	upsertMarkers  map[string]bool // UpsertIdempotent applied keys
 	// txDB is a minimal sqlite-backed *gorm.DB returned by DB(). The
 	// in-memory mock data lives in `holdings` above — txDB exists ONLY
 	// so callers can drive db.Transaction (Phase 3B BuyOffer race-fix).
@@ -53,6 +54,23 @@ func holdingOwnerEqual(a, b *model.Holding) bool {
 		return false
 	}
 	return ownerIDEqual(a.OwnerID, b.OwnerID)
+}
+
+// UpsertIdempotent mirrors the holding_credit_markers guard: a replay with the
+// same key is a no-op. Per-instance marker set (lazy-initialised) so tests
+// don't pollute each other.
+func (m *mockHoldingRepo) UpsertIdempotent(ctx context.Context, holding *model.Holding, idemKey string) error {
+	if m.upsertMarkers == nil {
+		m.upsertMarkers = map[string]bool{}
+	}
+	if m.upsertMarkers[idemKey] {
+		return nil
+	}
+	if err := m.Upsert(ctx, holding); err != nil {
+		return err
+	}
+	m.upsertMarkers[idemKey] = true
+	return nil
 }
 
 func (m *mockHoldingRepo) Upsert(_ context.Context, holding *model.Holding) error {

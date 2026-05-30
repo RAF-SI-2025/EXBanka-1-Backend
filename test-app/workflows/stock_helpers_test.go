@@ -313,3 +313,95 @@ func getFirstOptionID(t *testing.T, c *client.APIClient, stockID uint64) uint64 
 	}
 	return uint64(options[0].(map[string]interface{})["id"].(float64))
 }
+
+// stockPositions extracts the securities positions array from a unified
+// /api/v3/me/portfolio (or /api/v3/portfolio/...) response body. The portfolio
+// response groups holdings under securities.positions[] (Phase-8 reorg); the
+// legacy flat "holdings" array no longer exists. Nil-safe: returns nil when the
+// securities group or positions array is absent.
+func stockPositions(t *testing.T, body map[string]interface{}) []interface{} {
+	t.Helper()
+	sec, ok := body["securities"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	positions, _ := sec["positions"].([]interface{})
+	return positions
+}
+
+// firstStockPosition returns the first securities position whose asset_type is
+// "stock", or nil if none. Useful when futures/options positions are mixed in.
+func firstStockPosition(t *testing.T, body map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	for _, p := range stockPositions(t, body) {
+		pm, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if at, _ := pm["asset_type"].(string); at == "stock" {
+			return pm
+		}
+	}
+	return nil
+}
+
+// enableTestingMode turns the stock-exchange "testing mode" ON so market
+// orders fill within the tests' short wait window instead of being treated as
+// after-hours (which adds ~30 min between portion-fills). Must be called by an
+// admin/supervisor client. Other tests (e.g. TestStockExchange_TestingMode_*)
+// may flip it back to false, so fill-dependent tests must call this in their
+// own setup rather than relying on global state.
+func enableTestingMode(t *testing.T, adminC *client.APIClient) {
+	t.Helper()
+	resp, err := adminC.POST("/api/v3/stock-exchanges/testing-mode", map[string]interface{}{
+		"enabled": true,
+	})
+	if err != nil {
+		t.Fatalf("enableTestingMode: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+// firstUSDStock returns the (id, ticker, listingID) of the first seeded stock
+// whose listing is denominated in USD, or listingID=0 if none. Used by OTC
+// stock tests so the buy-offer reserved-cash currency, the seller's proceeds
+// account, and the listing all agree on USD. Retries while the seeder may
+// still be populating listings.
+func firstUSDStock(t *testing.T, c *client.APIClient) (stockID uint64, ticker string, listingID uint64) {
+	t.Helper()
+	for attempt := 0; attempt < 10; attempt++ {
+		resp, err := c.GET("/api/v3/securities/stocks?page=1&page_size=50")
+		if err != nil {
+			t.Fatalf("firstUSDStock: %v", err)
+		}
+		helpers.RequireStatus(t, resp, 200)
+		stocks, ok := resp.Body["stocks"].([]interface{})
+		if !ok || len(stocks) == 0 {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		for _, s := range stocks {
+			sm, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			listing, ok := sm["listing"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			cur, _ := listing["currency"].(string)
+			if cur != "USD" {
+				continue
+			}
+			lid, ok := listing["id"].(float64)
+			if !ok || lid == 0 {
+				continue
+			}
+			id, _ := sm["id"].(float64)
+			tk, _ := sm["ticker"].(string)
+			return uint64(id), tk, uint64(lid)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return 0, "", 0
+}

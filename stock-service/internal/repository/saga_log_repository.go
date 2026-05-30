@@ -123,6 +123,24 @@ func (r *SagaLogRepository) IsForwardCompleted(sagaID, stepName string) (bool, e
 	return count > 0, err
 }
 
+// HasCompensations reports whether any compensation row exists for a saga,
+// i.e. the saga had begun rolling back before the process died. Crash recovery
+// uses this to decide direction: a saga with compensation rows was aborting, so
+// recovery finishes the rollback (Compensate); one without was crashed mid
+// forward, so recovery resumes forward (Execute). Counts any compensation row
+// regardless of status (compensating / compensated / failed) so a rollback that
+// barely started is still detected.
+func (r *SagaLogRepository) HasCompensations(sagaID string) (bool, error) {
+	if sagaID == "" {
+		return false, nil
+	}
+	var count int64
+	err := r.db.Model(&model.SagaLog{}).
+		Where("saga_id = ? AND is_compensation = ?", sagaID, true).
+		Count(&count).Error
+	return count > 0, err
+}
+
 // MarkDeadLetter transitions a saga_log row to "dead_letter" status, indicating
 // it has exhausted all recovery retries and requires manual operator review or
 // out-of-band reconciliation. The status is a terminal state from the recovery

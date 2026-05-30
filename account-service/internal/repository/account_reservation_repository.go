@@ -109,6 +109,14 @@ func (r *AccountReservationRepository) CreateSettlement(s *model.AccountReservat
 	return r.db.Create(s).Error
 }
 
+// DeleteSettlements removes all settlement rows for a reservation. Used when
+// re-activating a released/settled reservation so its settled total resets to
+// zero (a fresh exercise attempt can settle against it again).
+func (r *AccountReservationRepository) DeleteSettlements(reservationID uint64) error {
+	return r.db.Where("reservation_id = ?", reservationID).
+		Delete(&model.AccountReservationSettlement{}).Error
+}
+
 func (r *AccountReservationRepository) ListSettlements(reservationID uint64) ([]model.AccountReservationSettlement, error) {
 	var out []model.AccountReservationSettlement
 	if err := r.db.Where("reservation_id = ?", reservationID).Order("id ASC").Find(&out).Error; err != nil {
