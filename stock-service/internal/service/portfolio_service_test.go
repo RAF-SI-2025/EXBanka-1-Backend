@@ -27,9 +27,9 @@ import (
 type mockHoldingRepo struct {
 	holdings       map[uint64]*model.Holding
 	nextID         uint64
-	failNextUpsert error // if non-nil, next Upsert call will fail and clear this field
-	failNextUpdate error // if non-nil, next Update call will fail and clear this field
-	failNextDelete error // if non-nil, next Delete call will fail and clear this field
+	failNextUpsert error           // if non-nil, next Upsert call will fail and clear this field
+	failNextUpdate error           // if non-nil, next Update call will fail and clear this field
+	failNextDelete error           // if non-nil, next Delete call will fail and clear this field
 	upsertMarkers  map[string]bool // UpsertIdempotent applied keys
 	// txDB is a minimal sqlite-backed *gorm.DB returned by DB(). The
 	// in-memory mock data lives in `holdings` above — txDB exists ONLY

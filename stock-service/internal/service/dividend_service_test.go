@@ -21,9 +21,9 @@ import (
 // ── Fake account client ────────────────────────────────────────────────────
 
 type fakeDividendAccountClient struct {
-	accounts map[uint64]*accountpb.AccountResponse
-	credits  []creditCall
-	getErr   error
+	accounts  map[uint64]*accountpb.AccountResponse
+	credits   []creditCall
+	getErr    error
 	creditErr error
 }
 
@@ -172,17 +172,17 @@ func TestDividendPayout_MixedHolders(t *testing.T) {
 
 	// Create 1 bank holding.
 	bankHolding := model.Holding{
-		OwnerType:    "bank",
-		OwnerID:      nil,
-		Ticker:       "AAPL",
-		SecurityType: "stock",
-		SecurityID:   10,
-		ListingID:    1,
-		Quantity:     500,
-		AccountID:    20,
+		OwnerType:     "bank",
+		OwnerID:       nil,
+		Ticker:        "AAPL",
+		SecurityType:  "stock",
+		SecurityID:    10,
+		ListingID:     1,
+		Quantity:      500,
+		AccountID:     20,
 		UserFirstName: "Bank",
-		UserLastName: "",
-		AveragePrice: decimal.NewFromFloat(100),
+		UserLastName:  "",
+		AveragePrice:  decimal.NewFromFloat(100),
 	}
 	db.Create(&bankHolding)
 	accounts.addAccount(20, "BANK-RSD")

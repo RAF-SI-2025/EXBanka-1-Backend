@@ -117,4 +117,3 @@ func (r *Recorder) buildRow(sagaID string, stepName sharedsaga.StepKind, stepNum
 	}
 	return row
 }
-

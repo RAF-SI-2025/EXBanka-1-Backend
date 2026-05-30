@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-
 // emailSenderFacade is the narrow interface of *sender.EmailSender used by GRPCHandler.
 type emailSenderFacade interface {
 	Send(to, subject, body string) error
@@ -52,10 +51,10 @@ type templateServiceFacade interface {
 
 type GRPCHandler struct {
 	notifpb.UnimplementedNotificationServiceServer
-	emailSender   emailSenderFacade
-	inboxRepo     inboxRepoFacade
-	notifRepo     notifRepoFacade
-	templateSvc   templateServiceFacade
+	emailSender    emailSenderFacade
+	inboxRepo      inboxRepoFacade
+	notifRepo      notifRepoFacade
+	templateSvc    templateServiceFacade
 	adminAuditRepo adminAuditRepoFacade
 }
 

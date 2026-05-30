@@ -83,8 +83,8 @@ type PortfolioGroup struct {
 // PortfolioPosition is one line in a portfolio — either a security holding or a
 // fund position. Fields that don't apply to a given AssetType are zero/empty.
 type PortfolioPosition struct {
-	AssetType         string
-	Symbol            string
+	AssetType string
+	Symbol    string
 	// HoldingID is the underlying holdings-row id for security positions
 	// (stock/option/future). Zero for fund positions, which are keyed by FundID.
 	// Surfaced so clients can call make-public/exercise (which require a

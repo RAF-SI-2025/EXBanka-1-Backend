@@ -11,8 +11,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	adminpb "github.com/exbanka/contract/adminpb"
 	accountpb "github.com/exbanka/contract/accountpb"
+	adminpb "github.com/exbanka/contract/adminpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	pb "github.com/exbanka/contract/creditpb"
 	"github.com/exbanka/contract/cronreg"

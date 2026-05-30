@@ -62,13 +62,13 @@ func TestSagaLogRepo_FindPendingCompensations(t *testing.T) {
 	repo := NewSagaLogRepository(db)
 
 	a := &model.SagaLog{
-		SagaID:        "s1",
-		LoanID:        1,
-		StepNumber:    1,
-		StepName:      "debit_bank",
-		AccountNumber: "111",
-		Amount:        decimal.NewFromInt(1),
-		Status:        "compensating",
+		SagaID:         "s1",
+		LoanID:         1,
+		StepNumber:     1,
+		StepName:       "debit_bank",
+		AccountNumber:  "111",
+		Amount:         decimal.NewFromInt(1),
+		Status:         "compensating",
 		IsCompensation: true,
 	}
 	b := &model.SagaLog{

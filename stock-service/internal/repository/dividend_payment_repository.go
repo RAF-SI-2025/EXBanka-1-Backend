@@ -60,7 +60,7 @@ func (r *DividendPaymentRepository) GetBySecurityAndDate(securityID uint64, date
 func (r *DividendPaymentRepository) MarkPaidOut(id uint64, paidAt time.Time) error {
 	return r.db.Model(&model.DividendPayment{}).Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"status":     "paid_out",
+			"status":      "paid_out",
 			"paid_out_at": paidAt,
 		}).Error
 }

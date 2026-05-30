@@ -96,9 +96,9 @@ func (c *PeerHTTPClient) PostRollbackTx(ctx context.Context, target *PeerHTTPTar
 // CheckStatusResponse is the decoded body of GET /api/v3/interbank/:txID/status.
 type CheckStatusResponse struct {
 	TransactionID string `json:"transaction_id"`
-	State         string `json:"state"`           // "prepared"|"committed"|"rolled_back"|"dead_letter"|"unknown"
-	OurRole       string `json:"our_role"`        // "sender"|"receiver"|""
-	LastActionAt  string `json:"last_action_at"`  // RFC3339
+	State         string `json:"state"`          // "prepared"|"committed"|"rolled_back"|"dead_letter"|"unknown"
+	OurRole       string `json:"our_role"`       // "sender"|"receiver"|""
+	LastActionAt  string `json:"last_action_at"` // RFC3339
 	LastError     string `json:"last_error"`
 }
 

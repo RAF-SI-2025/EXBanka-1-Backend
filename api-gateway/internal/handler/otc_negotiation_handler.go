@@ -155,11 +155,11 @@ func (h *OTCOptionsHandler) CounterMyNegotiation(c *gin.Context) {
 }
 
 type acceptNegotiationRequest struct {
-	AcceptorAccountID  uint64 `json:"acceptor_account_id"`
+	AcceptorAccountID uint64 `json:"acceptor_account_id"`
 	// OnBehalfOfFundID, when non-zero, places this accept on behalf of a fund (E2).
 	// The acceptor_account_id must equal the fund's RSD account.
 	// Caller must be the fund's manager (acting_employee_id enforced in stock-service).
-	OnBehalfOfFundID   uint64 `json:"on_behalf_of_fund_id,omitempty"`
+	OnBehalfOfFundID uint64 `json:"on_behalf_of_fund_id,omitempty"`
 }
 
 // AcceptMyNegotiation godoc

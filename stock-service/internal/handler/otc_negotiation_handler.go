@@ -402,17 +402,17 @@ func (h *OTCOptionsHandler) ListNegotiationRevisions(ctx context.Context, in *st
 	for i := range revs {
 		r := &revs[i]
 		out = append(out, &stockpb.OTCNegotiationRevisionResponse{
-			Id:                   r.ID,
-			NegotiationId:        r.NegotiationID,
-			RevisionNumber:       int32(r.RevisionNumber),
-			Action:               r.Action,
-			Quantity:             r.Quantity.String(),
-			StrikePrice:          r.StrikePrice.String(),
-			Premium:              r.Premium.String(),
-			SettlementDate:       r.SettlementDate.UTC().Format(time.RFC3339),
+			Id:                    r.ID,
+			NegotiationId:         r.NegotiationID,
+			RevisionNumber:        int32(r.RevisionNumber),
+			Action:                r.Action,
+			Quantity:              r.Quantity.String(),
+			StrikePrice:           r.StrikePrice.String(),
+			Premium:               r.Premium.String(),
+			SettlementDate:        r.SettlementDate.UTC().Format(time.RFC3339),
 			ActionByPrincipalType: r.ModifiedByPrincipalType,
-			ActionByPrincipalId:  r.ModifiedByPrincipalID,
-			CreatedAt:            r.CreatedAt.UTC().Format(time.RFC3339),
+			ActionByPrincipalId:   r.ModifiedByPrincipalID,
+			CreatedAt:             r.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return &stockpb.ListNegotiationRevisionsResponse{Revisions: out}, nil
