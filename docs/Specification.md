@@ -3020,6 +3020,11 @@ The unified OTC offer view (local + cross-bank) is served by `stock-service`'s `
    - On COMMIT_TX, `materialiseOptions` calls `PeerOTCService.RecordOptionContract` per option leg → writes `peer_option_contracts` row + (DEBIT side) calls `HoldingReservationService.ReserveForPeerOptionContract` to lock seller's shares. If the seller-side lock fails (reservation error or unparseable `seller_id`), `RecordOptionContract` **returns an error** rather than reporting success — leaving an `active` contract with no holding reservation behind it (silent over-promise) is not allowed. The COMMIT then does not ack and retries; both the contract row (idempotent on `crossbank_tx_id, posting_index`) and the reservation (idempotent on `peer_option_contract_id`) are replay-safe, so the lock heals once shares are available.
 6. Negotiation status transitions to `accepted`.
 
+> **Concurrency & ownership guards (2026-05-30, found by adversarial testing).**
+> - **Accept and exercise are claimed atomically.** `AcceptNegotiation` does a compare-and-set `ongoing → accepted` on the negotiation, and `InitiateOptionExercise` does `active → exercising` on the contract, BEFORE dispatching the SI-TX; a concurrent second call loses the CAS and is rejected (409). Without this, two simultaneous accepts/exercises each charged the buyer (premium / strike) and reserved shares / minted contracts twice — the share legs are row-locked-idempotent but the money legs were not. On a synchronous dispatch failure the claim reverts (so the action stays retryable); the commit-side `recordOptionExercise`/`ExerciseBuyerCreditForPeerOption` accept the transient `exercising` state.
+> - **Sender/strike account ownership is enforced gateway-side.** `/me/payments` (cross-bank branch) and `/me/otc/contracts/peer/:id/exercise` resolve the caller-supplied account and call `enforceOwnership` before dispatch — a client cannot debit another client's account via a cross-bank payment or an exercise strike. (Negotiation bidder_account_id was already checked.)
+> - Business rejections from the dispatch (insufficient seller shares / insufficient buyer funds) preserve their gRPC code → the gateway returns 409, not 500.
+
 #### Exercise (`/me/otc/contracts/peer/:id/exercise`)
 
 `PeerOTCGRPCHandler.InitiateOptionExercise` →
