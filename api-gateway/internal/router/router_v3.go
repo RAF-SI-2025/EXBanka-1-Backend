@@ -338,11 +338,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Public trader profile — aggregate rating + recent comments.
 		// Visible to all authenticated callers; useful for OTC discovery.
 		otcRead.GET("/traders/:owner_type/:owner_id/rating", h.OTCOptions.GetTraderProfile)
-		// Phase 2 marketplace: every chain against a parent listing.
-		// Visible to all authenticated callers — used by the listing's
-		// poster to see incoming bids, and by bidders to see what
-		// counter-bids competitors have placed.
-		otcRead.GET("/options/:id/negotiations", h.OTCOptions.ListNegotiationsOnListing)
+		// Phase 2 marketplace: every chain against a parent listing, plus
+		// the cross-chain interaction timeline. Restricted to the listing's
+		// poster (a client matching the initiator) or an employee holding
+		// otc.read.all — RequirePermissionOrClient lets clients through (the
+		// poster check runs service-side) and gates employees on the
+		// permission. Competing bidders get 403 and use their own-chain view
+		// at /me/otc/options/negotiations instead.
+		otcReadAll := middleware.RequirePermissionOrClient(middleware.PermAny, perms.Otc.Read.All)
+		otcRead.GET("/options/:id/negotiations", otcReadAll, h.OTCOptions.ListNegotiationsOnListing)
+		otcRead.GET("/options/:id/timeline", otcReadAll, h.OTCOptions.GetOfferTimeline)
 		// Phase 6 marketplace: unified local + cross-bank discovery
 		// of open option listings.
 		otcRead.GET("/options", h.Portfolio.ListOTCOptions)

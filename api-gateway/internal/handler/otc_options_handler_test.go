@@ -37,7 +37,8 @@ func (s *otcStubSecurityClient) GetStockByTicker(_ context.Context, in *stockpb.
 // GetAccount is exercised by the ownership checks.
 type otcStubAccountClient struct {
 	accountpb.AccountServiceClient
-	getFn func(*accountpb.GetAccountRequest) (*accountpb.AccountResponse, error)
+	getFn      func(*accountpb.GetAccountRequest) (*accountpb.AccountResponse, error)
+	getByNumFn func(*accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error)
 }
 
 func (s *otcStubAccountClient) GetAccount(_ context.Context, in *accountpb.GetAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
@@ -46,6 +47,14 @@ func (s *otcStubAccountClient) GetAccount(_ context.Context, in *accountpb.GetAc
 	}
 	// Default: account owned by the test client principal (42), non-bank.
 	return &accountpb.AccountResponse{Id: in.Id, OwnerId: 42, AccountKind: "current"}, nil
+}
+
+func (s *otcStubAccountClient) GetAccountByNumber(_ context.Context, in *accountpb.GetAccountByNumberRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+	if s.getByNumFn != nil {
+		return s.getByNumFn(in)
+	}
+	// Default: account owned by the test client principal (42), non-bank.
+	return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, OwnerId: 42, AccountKind: "current"}, nil
 }
 
 // otcHandler builds an OTCOptionsHandler with permissive default security +
@@ -72,6 +81,8 @@ type stubOTCOptionsClient struct {
 	listReceivedRatingsFn    func(*stockpb.ListReceivedRatingsRequest) (*stockpb.ListOTCRatingsResponse, error)
 	cancelListingFn          func(*stockpb.CancelListingRequest) (*stockpb.CancelListingResponse, error)
 	listRevisionsFn          func(*stockpb.ListNegotiationRevisionsRequest) (*stockpb.ListNegotiationRevisionsResponse, error)
+	listByListingFn          func(*stockpb.ListNegotiationsByListingRequest) (*stockpb.ListNegotiationsResponse, error)
+	getTimelineFn            func(*stockpb.GetOfferTimelineRequest) (*stockpb.GetOfferTimelineResponse, error)
 }
 
 func (s *stubOTCOptionsClient) CreateOffer(_ context.Context, in *stockpb.CreateOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
@@ -180,14 +191,26 @@ func (s *stubOTCOptionsClient) CancelListing(_ context.Context, in *stockpb.Canc
 func (s *stubOTCOptionsClient) ListMyNegotiations(_ context.Context, _ *stockpb.ListMyNegotiationsRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
 	return &stockpb.ListNegotiationsResponse{}, nil
 }
-func (s *stubOTCOptionsClient) ListNegotiationsByListing(_ context.Context, _ *stockpb.ListNegotiationsByListingRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
+func (s *stubOTCOptionsClient) ListNegotiationsByListing(_ context.Context, in *stockpb.ListNegotiationsByListingRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
+	if s.listByListingFn != nil {
+		return s.listByListingFn(in)
+	}
 	return &stockpb.ListNegotiationsResponse{}, nil
+}
+func (s *stubOTCOptionsClient) GetOfferTimeline(_ context.Context, in *stockpb.GetOfferTimelineRequest, _ ...grpc.CallOption) (*stockpb.GetOfferTimelineResponse, error) {
+	if s.getTimelineFn != nil {
+		return s.getTimelineFn(in)
+	}
+	return &stockpb.GetOfferTimelineResponse{}, nil
 }
 func (s *stubOTCOptionsClient) ListNegotiationRevisions(_ context.Context, in *stockpb.ListNegotiationRevisionsRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationRevisionsResponse, error) {
 	if s.listRevisionsFn != nil {
 		return s.listRevisionsFn(in)
 	}
 	return &stockpb.ListNegotiationRevisionsResponse{}, nil
+}
+func (s *stubOTCOptionsClient) GetOfferTimeline(_ context.Context, _ *stockpb.GetOfferTimelineRequest, _ ...grpc.CallOption) (*stockpb.GetOfferTimelineResponse, error) {
+	return &stockpb.GetOfferTimelineResponse{}, nil
 }
 
 var _ stockpb.OTCOptionsServiceClient = (*stubOTCOptionsClient)(nil)
@@ -527,6 +550,29 @@ func TestOTCOpt_ExercisePeerContract_Success(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/otc/contracts/peer/8/exercise", strings.NewReader(body)))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "tx-1")
+}
+
+// TestOTCOpt_ExercisePeerContract_StrikeAccountNotOwned is the regression test
+// for the exercise theft vector: a client must NOT be able to pay the strike from
+// an account they don't own. The strike account's owner (999) differs from the
+// caller (42) → 404, and the exercise must NOT be dispatched (no money moves).
+func TestOTCOpt_ExercisePeerContract_StrikeAccountNotOwned(t *testing.T) {
+	dispatched := false
+	peer := &stubPeerOTCExerciseClient{
+		initiateFn: func(*stockpb.InitiateOptionExerciseRequest) (*stockpb.InitiateOptionExerciseResponse, error) {
+			dispatched = true
+			return &stockpb.InitiateOptionExerciseResponse{TransactionId: "tx-should-not-happen"}, nil
+		},
+	}
+	acct := &otcStubAccountClient{getByNumFn: func(in *accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error) {
+		return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, OwnerId: 999, AccountKind: "current"}, nil // not the caller (42)
+	}}
+	h := handler.NewOTCOptionsHandler(&stubOTCOptionsClient{}, peer, &otcStubSecurityClient{}, acct)
+	r := otcOptionsRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/otc/contracts/peer/8/exercise", strings.NewReader(`{"buyer_account_number":"111000130146666611"}`)))
+	require.Equal(t, http.StatusNotFound, rec.Code, "expected 404 for strike paid from a non-owned account; body=%s", rec.Body.String())
+	require.False(t, dispatched, "exercise must NOT dispatch when the strike account is not owned by the caller (theft vector)")
 }
 
 func TestOTCOpt_ExercisePeerContract_BadID(t *testing.T) {

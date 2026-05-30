@@ -416,12 +416,13 @@ func (h *OTCOptionsHandler) ListMyNegotiationRevisions(c *gin.Context) {
 
 // ListNegotiationsOnListing godoc
 // @Summary      List every negotiation chain against a given OTC option listing
-// @Description  Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal).
+// @Description  Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal). Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403 and see only their own chain via GET /api/v3/me/otc/options/negotiations.
 // @Tags         OTCOptions
 // @Security     BearerAuth
 // @Produce      json
 // @Param        id path int true "parent OTCOffer listing id"
 // @Success      200 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{} "caller is neither the poster nor a permission-gated employee"
 // @Router       /api/v3/otc/options/{id}/negotiations [get]
 func (h *OTCOptionsHandler) ListNegotiationsOnListing(c *gin.Context) {
 	parentID, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -429,8 +430,11 @@ func (h *OTCOptionsHandler) ListNegotiationsOnListing(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.ListNegotiationsByListing(c.Request.Context(), &stockpb.ListNegotiationsByListingRequest{
-		ParentOfferId: parentID,
+		ParentOfferId:   parentID,
+		CallerOwnerType: identity.OwnerType,
+		CallerOwnerId:   derefU64(identity.OwnerID),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -439,6 +443,39 @@ func (h *OTCOptionsHandler) ListNegotiationsOnListing(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"negotiations": resp.GetNegotiations(),
 		"total":        resp.GetTotal(),
+	})
+}
+
+// GetOfferTimeline godoc
+// @Summary      Cross-chain interaction timeline for an OTC option offer
+// @Description  Returns the offer plus every negotiation chain's revisions merged into one chronological stream (oldest first). Each entry carries its chain's negotiation_id and bidder identity so the frontend can render a single timeline or regroup into per-bidder swimlanes. Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path int true "parent OTCOffer listing id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{} "caller is neither the poster nor a permission-gated employee"
+// @Failure      404 {object} map[string]interface{} "offer not found"
+// @Router       /api/v3/otc/options/{id}/timeline [get]
+func (h *OTCOptionsHandler) GetOfferTimeline(c *gin.Context) {
+	parentID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || parentID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	resp, err := h.client.GetOfferTimeline(c.Request.Context(), &stockpb.GetOfferTimelineRequest{
+		ParentOfferId:   parentID,
+		CallerOwnerType: identity.OwnerType,
+		CallerOwnerId:   derefU64(identity.OwnerID),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"offer":    resp.GetOffer(),
+		"timeline": resp.GetTimeline(),
 	})
 }
 
