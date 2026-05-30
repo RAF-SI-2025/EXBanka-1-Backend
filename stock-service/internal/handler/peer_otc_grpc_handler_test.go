@@ -9,6 +9,7 @@ import (
 	"github.com/exbanka/stock-service/internal/handler"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -332,5 +333,60 @@ func TestPeerOTC_AcceptNegotiation_DispatchesViaPeerTx(t *testing.T) {
 	}
 	if peerTx.gotReq != nil {
 		t.Errorf("second accept must NOT dispatch a second option-formation TX")
+	}
+}
+
+// TestValidatePeerOptionMoneyLeg_ForgedStrike is the receiver-side guard against
+// the forged-strike theft: an exercise whose money differs from the stored
+// contract's StrikePrice*Quantity must be denied, while the honest amount passes
+// and accept-intent legs are not (yet) enforced.
+func TestValidatePeerOptionMoneyLeg_ForgedStrike(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t) // ownRouting 111
+	// Stored seller-side contract: 2 MA @ strike 250 RSD → honest exercise pays 500.
+	if err := db.Create(&model.PeerOptionContract{
+		CrossbankTxID: "seed:1", PostingIndex: 0,
+		NegotiationRoutingNumber: 111, NegotiationID: "neg-1",
+		BuyerRoutingNumber: 222, BuyerID: "client-9",
+		SellerRoutingNumber: 111, SellerID: "client-1",
+		Ticker: "MA", Quantity: 2, StrikePrice: decimal.NewFromInt(250),
+		Currency: "RSD", SettlementDate: "2028-06-30T00:00:00Z",
+		Direction: "DEBIT", Status: "active",
+	}).Error; err != nil {
+		t.Fatalf("seed contract: %v", err)
+	}
+	base := func(money string) *stockpb.ValidatePeerOptionMoneyLegRequest {
+		return &stockpb.ValidatePeerOptionMoneyLegRequest{
+			NegotiationRouting: 111, NegotiationId: "neg-1", Direction: "DEBIT",
+			Intent: "exercise", Ticker: "MA", Quantity: 2, StrikePrice: "250",
+			MoneyAmount: money, Currency: "RSD",
+		}
+	}
+	ctx := context.Background()
+
+	// Forged low strike → DENY.
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, base("1")); err != nil || r.GetOk() {
+		t.Errorf("forged strike (1 vs 500) must be denied; got ok=%v reason=%q err=%v", r.GetOk(), r.GetReason(), err)
+	}
+	// Honest strike 250*2=500 → OK.
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, base("500")); err != nil || !r.GetOk() {
+		t.Errorf("honest strike (500) must pass; got ok=%v reason=%q err=%v", r.GetOk(), r.GetReason(), err)
+	}
+	// Quantity mismatch → DENY (claim 5 shares against a 2-share contract).
+	q := base("500")
+	q.Quantity = 5
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, q); r.GetOk() {
+		t.Errorf("quantity mismatch must be denied; got ok with reason=%q", r.GetReason())
+	}
+	// No stored contract for this negotiation → DENY.
+	nf := base("500")
+	nf.NegotiationId = "does-not-exist"
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, nf); r.GetOk() {
+		t.Errorf("missing contract must be denied; got ok")
+	}
+	// Accept intent → not enforced (ok=true), behaviour unchanged.
+	ac := base("1")
+	ac.Intent = "accept"
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, ac); err != nil || !r.GetOk() {
+		t.Errorf("accept intent should not be blocked here; got ok=%v err=%v", r.GetOk(), err)
 	}
 }

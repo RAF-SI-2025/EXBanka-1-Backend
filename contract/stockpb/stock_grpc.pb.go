@@ -3848,6 +3848,7 @@ const (
 	PeerOTCService_CheckSellerCanDeliver_FullMethodName       = "/stock.PeerOTCService/CheckSellerCanDeliver"
 	PeerOTCService_ReserveSellerSharesForNewTx_FullMethodName = "/stock.PeerOTCService/ReserveSellerSharesForNewTx"
 	PeerOTCService_ReleaseSellerSharesForNewTx_FullMethodName = "/stock.PeerOTCService/ReleaseSellerSharesForNewTx"
+	PeerOTCService_ValidatePeerOptionMoneyLeg_FullMethodName  = "/stock.PeerOTCService/ValidatePeerOptionMoneyLeg"
 	PeerOTCService_InitiateOptionExercise_FullMethodName      = "/stock.PeerOTCService/InitiateOptionExercise"
 	PeerOTCService_RecordOutboundNegotiation_FullMethodName   = "/stock.PeerOTCService/RecordOutboundNegotiation"
 	PeerOTCService_ListMyPeerNegotiations_FullMethodName      = "/stock.PeerOTCService/ListMyPeerNegotiations"
@@ -3900,6 +3901,16 @@ type PeerOTCServiceClient interface {
 	// ReleaseSellerSharesForNewTx releases a vote-time share hold on ROLLBACK_TX
 	// (or a partial NO mid-NEW_TX) when no contract was minted. Idempotent.
 	ReleaseSellerSharesForNewTx(ctx context.Context, in *ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*ReleaseSellerSharesResponse, error)
+	// ValidatePeerOptionMoneyLeg is called by transaction-service at NEW_TX
+	// (vote) time for each option-asset posting on this bank's routing. It
+	// verifies that the paired MONEY leg the sender proposes equals THIS bank's
+	// own stored terms — never trusting the posting amount. For an exercise leg
+	// it looks up the stored peer_option_contract by (negotiation_id, direction)
+	// and requires money_amount == StrikePrice * Quantity (same currency, ticker,
+	// quantity, strike). ok=false → the receiver votes NO so no money/shares move.
+	// Closes the forged-strike theft (a peer crafting an exercise that delivers
+	// full shares for an under-stated strike). Idempotent / read-only.
+	ValidatePeerOptionMoneyLeg(ctx context.Context, in *ValidatePeerOptionMoneyLegRequest, opts ...grpc.CallOption) (*ValidatePeerOptionMoneyLegResponse, error)
 	InitiateOptionExercise(ctx context.Context, in *InitiateOptionExerciseRequest, opts ...grpc.CallOption) (*InitiateOptionExerciseResponse, error)
 	// Buyer-side mirror persistence so the buyer's bank also has a local
 	// row to surface in /me/peer-otc/negotiations. Called by the gateway
@@ -4050,6 +4061,16 @@ func (c *peerOTCServiceClient) ReleaseSellerSharesForNewTx(ctx context.Context, 
 	return out, nil
 }
 
+func (c *peerOTCServiceClient) ValidatePeerOptionMoneyLeg(ctx context.Context, in *ValidatePeerOptionMoneyLegRequest, opts ...grpc.CallOption) (*ValidatePeerOptionMoneyLegResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ValidatePeerOptionMoneyLegResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_ValidatePeerOptionMoneyLeg_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *peerOTCServiceClient) InitiateOptionExercise(ctx context.Context, in *InitiateOptionExerciseRequest, opts ...grpc.CallOption) (*InitiateOptionExerciseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(InitiateOptionExerciseResponse)
@@ -4145,6 +4166,16 @@ type PeerOTCServiceServer interface {
 	// ReleaseSellerSharesForNewTx releases a vote-time share hold on ROLLBACK_TX
 	// (or a partial NO mid-NEW_TX) when no contract was minted. Idempotent.
 	ReleaseSellerSharesForNewTx(context.Context, *ReleaseSellerSharesRequest) (*ReleaseSellerSharesResponse, error)
+	// ValidatePeerOptionMoneyLeg is called by transaction-service at NEW_TX
+	// (vote) time for each option-asset posting on this bank's routing. It
+	// verifies that the paired MONEY leg the sender proposes equals THIS bank's
+	// own stored terms — never trusting the posting amount. For an exercise leg
+	// it looks up the stored peer_option_contract by (negotiation_id, direction)
+	// and requires money_amount == StrikePrice * Quantity (same currency, ticker,
+	// quantity, strike). ok=false → the receiver votes NO so no money/shares move.
+	// Closes the forged-strike theft (a peer crafting an exercise that delivers
+	// full shares for an under-stated strike). Idempotent / read-only.
+	ValidatePeerOptionMoneyLeg(context.Context, *ValidatePeerOptionMoneyLegRequest) (*ValidatePeerOptionMoneyLegResponse, error)
 	InitiateOptionExercise(context.Context, *InitiateOptionExerciseRequest) (*InitiateOptionExerciseResponse, error)
 	// Buyer-side mirror persistence so the buyer's bank also has a local
 	// row to surface in /me/peer-otc/negotiations. Called by the gateway
@@ -4217,6 +4248,9 @@ func (UnimplementedPeerOTCServiceServer) ReserveSellerSharesForNewTx(context.Con
 }
 func (UnimplementedPeerOTCServiceServer) ReleaseSellerSharesForNewTx(context.Context, *ReleaseSellerSharesRequest) (*ReleaseSellerSharesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseSellerSharesForNewTx not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) ValidatePeerOptionMoneyLeg(context.Context, *ValidatePeerOptionMoneyLegRequest) (*ValidatePeerOptionMoneyLegResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ValidatePeerOptionMoneyLeg not implemented")
 }
 func (UnimplementedPeerOTCServiceServer) InitiateOptionExercise(context.Context, *InitiateOptionExerciseRequest) (*InitiateOptionExerciseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitiateOptionExercise not implemented")
@@ -4452,6 +4486,24 @@ func _PeerOTCService_ReleaseSellerSharesForNewTx_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerOTCService_ValidatePeerOptionMoneyLeg_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidatePeerOptionMoneyLegRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).ValidatePeerOptionMoneyLeg(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_ValidatePeerOptionMoneyLeg_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).ValidatePeerOptionMoneyLeg(ctx, req.(*ValidatePeerOptionMoneyLegRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PeerOTCService_InitiateOptionExercise_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InitiateOptionExerciseRequest)
 	if err := dec(in); err != nil {
@@ -4592,6 +4644,10 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseSellerSharesForNewTx",
 			Handler:    _PeerOTCService_ReleaseSellerSharesForNewTx_Handler,
+		},
+		{
+			MethodName: "ValidatePeerOptionMoneyLeg",
+			Handler:    _PeerOTCService_ValidatePeerOptionMoneyLeg_Handler,
 		},
 		{
 			MethodName: "InitiateOptionExercise",

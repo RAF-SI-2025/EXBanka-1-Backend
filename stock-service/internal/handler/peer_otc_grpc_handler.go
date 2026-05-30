@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -1044,6 +1045,67 @@ func (h *PeerOTCGRPCHandler) CheckSellerCanDeliver(ctx context.Context, req *sto
 		Ok:                available >= req.GetQuantity(),
 		AvailableQuantity: available,
 	}, nil
+}
+
+// ValidatePeerOptionMoneyLeg verifies, at NEW_TX (vote) time, that the money a
+// sender proposes for an option leg equals THIS bank's own stored terms — never
+// trusting the posting amount. For an exercise leg it loads the stored
+// peer_option_contract by (negotiation_id, direction) and requires the paired
+// money to equal StrikePrice*Quantity (and ticker/quantity/strike to match).
+// Closes the forged-strike theft: a peer crafting an exercise that delivers the
+// full (trusted) contract.Quantity of shares while crediting the seller an
+// under-stated strike. ok=false → the caller (posting executor) votes NO.
+//
+// Accept-intent legs are not yet enforced here (premium validation against the
+// stored negotiation is a follow-up of the same class, lower severity); they
+// return ok=true so accept behaviour is unchanged.
+func (h *PeerOTCGRPCHandler) ValidatePeerOptionMoneyLeg(ctx context.Context, req *stockpb.ValidatePeerOptionMoneyLegRequest) (*stockpb.ValidatePeerOptionMoneyLegResponse, error) {
+	if req.GetNegotiationId() == "" || req.GetDirection() == "" {
+		return nil, status.Error(codes.InvalidArgument, "negotiation_id and direction are required")
+	}
+	deny := func(reason string) (*stockpb.ValidatePeerOptionMoneyLegResponse, error) {
+		log.Printf("ValidatePeerOptionMoneyLeg DENY (neg=%d/%s dir=%s intent=%s): %s",
+			req.GetNegotiationRouting(), req.GetNegotiationId(), req.GetDirection(), req.GetIntent(), reason)
+		return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: false, Reason: reason}, nil
+	}
+
+	if !strings.EqualFold(req.GetIntent(), "exercise") {
+		// Accept/empty intent — premium-vs-negotiation validation not yet enforced.
+		return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: true, Reason: "accept money-leg validation not enforced"}, nil
+	}
+
+	money, err := decimal.NewFromString(req.GetMoneyAmount())
+	if err != nil {
+		return deny("unparseable money_amount: " + req.GetMoneyAmount())
+	}
+	contract, err := h.peerOptionRepo.GetByNegotiationAndDirection(req.GetNegotiationRouting(), req.GetNegotiationId(), req.GetDirection())
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return deny("no stored contract for negotiation/direction")
+		}
+		return nil, status.Errorf(codes.Internal, "lookup contract: %v", err)
+	}
+	if req.GetQuantity() != contract.Quantity {
+		return deny(fmt.Sprintf("quantity %d != stored %d", req.GetQuantity(), contract.Quantity))
+	}
+	if req.GetTicker() != "" && !strings.EqualFold(req.GetTicker(), contract.Ticker) {
+		return deny(fmt.Sprintf("ticker %q != stored %q", req.GetTicker(), contract.Ticker))
+	}
+	if req.GetCurrency() != "" && !strings.EqualFold(req.GetCurrency(), contract.Currency) {
+		return deny(fmt.Sprintf("currency %q != stored %q", req.GetCurrency(), contract.Currency))
+	}
+	if req.GetStrikePrice() != "" {
+		if sp, e := decimal.NewFromString(req.GetStrikePrice()); e == nil && !sp.Equal(contract.StrikePrice) {
+			return deny(fmt.Sprintf("per-unit strike %s != stored %s", sp, contract.StrikePrice))
+		}
+	}
+	// The crux: the money moved for an exercise MUST equal the agreed
+	// StrikePrice * Quantity from THIS bank's stored contract.
+	expected := contract.StrikePrice.Mul(decimal.NewFromInt(contract.Quantity))
+	if !money.Equal(expected) {
+		return deny(fmt.Sprintf("strike money %s != stored %s (%s x %d)", money, expected, contract.StrikePrice, contract.Quantity))
+	}
+	return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: true}, nil
 }
 
 // ReserveSellerSharesForNewTx places a real HOLD on the seller's shares at

@@ -10,6 +10,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -82,6 +83,10 @@ type SellerHoldingChecker interface {
 	CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error)
 	ReserveSellerSharesForNewTx(ctx context.Context, in *stockpb.ReserveSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReserveSellerSharesResponse, error)
 	ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error)
+	// ValidatePeerOptionMoneyLeg checks an option leg's paired money against the
+	// receiver's OWN stored terms (forged-strike defense — see the RPC doc). The
+	// executor calls it for seller-side (DEBIT) option legs on this bank's routing.
+	ValidatePeerOptionMoneyLeg(ctx context.Context, in *stockpb.ValidatePeerOptionMoneyLegRequest, opts ...grpc.CallOption) (*stockpb.ValidatePeerOptionMoneyLegResponse, error)
 }
 
 // optionDescriptionForCheck mirrors the fields of contract.sitx.OptionDescription
@@ -200,6 +205,35 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 			if p.Direction == contractsitx.DirectionDebit {
 				var od optionDescriptionForCheck
 				_ = json.Unmarshal([]byte(p.AssetID), &od)
+				// Forged-strike defense: validate the SELLER's paired money leg
+				// against THIS bank's own stored terms before voting YES. The
+				// seller (this DEBIT option leg) RECEIVES the strike as a money
+				// CREDIT to the same participant on our routing; a malicious/buggy
+				// peer can otherwise under-state that CREDIT while still consuming
+				// the trusted contract.Quantity of shares at COMMIT (seller delivers
+				// shares for too little money). On exercise the validator requires
+				// money == StrikePrice*Quantity; mismatch / transient validator
+				// error → NO vote so no money or shares move. Skipped only when the
+				// checker isn't wired (tests / misconfig); production always wires it.
+				if e.holdingChecker != nil {
+					var full contractsitx.OptionDescription
+					_ = json.Unmarshal([]byte(p.AssetID), &full)
+					sellerMoney := sumMoneyCreditForParticipant(postings, e.ownRouting, p.AccountID, full.Currency)
+					vresp, verr := e.holdingChecker.ValidatePeerOptionMoneyLeg(ctx, &stockpb.ValidatePeerOptionMoneyLegRequest{
+						NegotiationRouting: full.NegotiationID.RoutingNumber,
+						NegotiationId:      full.NegotiationID.ID,
+						Direction:          string(p.Direction),
+						Intent:             full.Intent,
+						Ticker:             full.Ticker,
+						Quantity:           full.Amount,
+						StrikePrice:        full.StrikePrice.String(),
+						MoneyAmount:        sellerMoney.String(),
+						Currency:           full.Currency,
+					})
+					if verr != nil || vresp == nil || !vresp.GetOk() {
+						return noVote(contractsitx.NoVoteReasonUnacceptableAsset, i)
+					}
+				}
 				// Reserve the seller's shares ONLY for accept-intent option
 				// formation. On EXERCISE (intent="exercise") the shares were
 				// already held at accept and are consumed/transferred at COMMIT
@@ -453,6 +487,29 @@ func (e *PostingExecutor) resolveAccountForPosting(ctx context.Context, accountI
 		}
 	}
 	return "", fmt.Errorf("client %d has no active %s account", clientID, currency)
+}
+
+// sumMoneyCreditForParticipant totals the CREDIT money postings on the given
+// routing that pay the given participant (accountId) in the given currency —
+// i.e. the strike/premium a seller participant RECEIVES on this bank. Option-
+// asset legs (AssetID is a JSON blob) are skipped; only matching-currency money
+// legs count. Used to validate an option leg's money against stored terms.
+func sumMoneyCreditForParticipant(postings []contractsitx.Posting, ownRouting int64, participantID, currency string) decimal.Decimal {
+	total := decimal.Zero
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber != ownRouting || p.Direction != contractsitx.DirectionCredit {
+			continue
+		}
+		if strings.HasPrefix(p.AssetID, "{") { // option-asset leg, not money
+			continue
+		}
+		if p.AccountID != participantID || p.AssetID != currency {
+			continue
+		}
+		total = total.Add(p.Amount)
+	}
+	return total
 }
 
 // hasOwnDebitOptionLeg reports whether the postings contain a DEBIT

@@ -1846,6 +1846,16 @@ service PeerOTCService {
   // ReleaseSellerSharesForNewTx releases a vote-time share hold on ROLLBACK_TX
   // (or a partial NO mid-NEW_TX) when no contract was minted. Idempotent.
   rpc ReleaseSellerSharesForNewTx(ReleaseSellerSharesRequest) returns (ReleaseSellerSharesResponse);
+  // ValidatePeerOptionMoneyLeg is called by transaction-service at NEW_TX
+  // (vote) time for each option-asset posting on this bank's routing. It
+  // verifies that the paired MONEY leg the sender proposes equals THIS bank's
+  // own stored terms — never trusting the posting amount. For an exercise leg
+  // it looks up the stored peer_option_contract by (negotiation_id, direction)
+  // and requires money_amount == StrikePrice * Quantity (same currency, ticker,
+  // quantity, strike). ok=false → the receiver votes NO so no money/shares move.
+  // Closes the forged-strike theft (a peer crafting an exercise that delivers
+  // full shares for an under-stated strike). Idempotent / read-only.
+  rpc ValidatePeerOptionMoneyLeg(ValidatePeerOptionMoneyLegRequest) returns (ValidatePeerOptionMoneyLegResponse);
   rpc InitiateOptionExercise(InitiateOptionExerciseRequest) returns (InitiateOptionExerciseResponse);
 
   // Buyer-side mirror persistence so the buyer's bank also has a local
@@ -2166,6 +2176,26 @@ message ReserveSellerSharesResponse {
   bool ok = 1;                  // false → insufficient/none; caller votes NO
   int64 reserved_quantity = 2;  // holding's total reserved after the hold
   int64 available_quantity = 3; // holding's available after the hold
+}
+
+// ValidatePeerOptionMoneyLegRequest carries one option-asset leg plus the
+// total money the sender proposes to move for the same participant on this
+// bank, so the receiver can reject any mismatch against its OWN stored terms.
+message ValidatePeerOptionMoneyLegRequest {
+  int64 negotiation_routing = 1;   // negotiationId.routingNumber from the option description
+  string negotiation_id = 2;       // negotiationId.id
+  string direction = 3;            // this leg's direction on this bank: DEBIT (seller) or CREDIT (buyer)
+  string intent = 4;               // "exercise" or "accept"/""
+  string ticker = 5;               // claimed ticker (cross-checked vs stored)
+  int64 quantity = 6;              // claimed option quantity (cross-checked vs stored)
+  string strike_price = 7;         // claimed per-unit strike (cross-checked vs stored)
+  string money_amount = 8;         // total paired money for this participant on this bank (decimal string)
+  string currency = 9;             // money leg currency
+}
+
+message ValidatePeerOptionMoneyLegResponse {
+  bool ok = 1;        // false → receiver votes NO (UNACCEPTABLE_ASSET)
+  string reason = 2;  // human-readable mismatch detail for logs
 }
 
 message ReleaseSellerSharesRequest {

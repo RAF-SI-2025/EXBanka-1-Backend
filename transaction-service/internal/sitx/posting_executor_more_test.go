@@ -36,6 +36,12 @@ type stubHoldingChecker struct {
 	releaseCalls    int
 	lastReserveTxID string
 	lastReleaseTxID string
+	// money-leg validation (forged-strike defense). validateOK defaults to true
+	// (nil) so existing tests keep voting YES; set validateDeny to force a NO.
+	validateCalls int
+	lastValidate  *stockpb.ValidatePeerOptionMoneyLegRequest
+	validateDeny  bool
+	validateErr   error
 }
 
 func (s *stubHoldingChecker) CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error) {
@@ -59,6 +65,15 @@ func (s *stubHoldingChecker) ReleaseSellerSharesForNewTx(ctx context.Context, in
 	s.releaseCalls++
 	s.lastReleaseTxID = in.GetCrossbankTxId()
 	return &stockpb.ReleaseSellerSharesResponse{}, nil
+}
+
+func (s *stubHoldingChecker) ValidatePeerOptionMoneyLeg(ctx context.Context, in *stockpb.ValidatePeerOptionMoneyLegRequest, opts ...grpc.CallOption) (*stockpb.ValidatePeerOptionMoneyLegResponse, error) {
+	s.validateCalls++
+	s.lastValidate = in
+	if s.validateErr != nil {
+		return nil, s.validateErr
+	}
+	return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: !s.validateDeny}, nil
 }
 
 // TestPostingExecutor_AccountInactive_Unacceptable verifies that an inactive
@@ -271,6 +286,81 @@ func TestPostingExecutor_OptionItem_ReservesSharesAtVote(t *testing.T) {
 	}
 	if chk.lastReserveTxID != "222:idem-RS" {
 		t.Errorf("reserve keyed on %q, want 222:idem-RS", chk.lastReserveTxID)
+	}
+}
+
+// TestPostingExecutor_ExerciseForgedStrike_NoVote is the forged-strike theft
+// regression: a seller-side (DEBIT) exercise option leg whose paired money
+// CREDIT to the seller does NOT match the receiver's stored terms must produce
+// a NO vote (the validator denies), so no shares are delivered for too little
+// money. The option leg is ordered first so the deny short-circuits before the
+// money leg is even reserved.
+func TestPostingExecutor_ExerciseForgedStrike_NoVote(t *testing.T) {
+	stub := &stubAccountClient{}
+	exec := sitx.NewPostingExecutor(stub, 222)
+	chk := &stubHoldingChecker{validateDeny: true} // receiver's terms don't match → deny
+	exec.SetHoldingChecker(chk)
+	od := `{"ticker":"MA","amount":2,"strikePrice":"250","currency":"RSD","negotiationId":{"routingNumber":222,"id":"neg-1"},"intent":"exercise"}`
+	postings := []contractsitx.Posting{
+		{RoutingNumber: 222, AccountID: "client-1", AssetID: od, Amount: decimal.NewFromInt(2), Direction: contractsitx.DirectionDebit},     // seller option leg (own routing)
+		{RoutingNumber: 222, AccountID: "client-1", AssetID: "RSD", Amount: decimal.NewFromInt(1), Direction: contractsitx.DirectionCredit}, // forged strike = 1 (should be 500)
+		{RoutingNumber: 111, AccountID: "111-BUY", AssetID: "RSD", Amount: decimal.NewFromInt(1), Direction: contractsitx.DirectionDebit},
+	}
+	res := exec.Reserve(context.Background(), postings, "111", "idem-FORGE")
+	if res.Vote.Type != contractsitx.VoteNo {
+		t.Fatalf("expected NO vote on forged-strike exercise, got %+v", res.Vote)
+	}
+	if chk.validateCalls != 1 {
+		t.Fatalf("expected exactly 1 money-leg validation, got %d", chk.validateCalls)
+	}
+	// The validator must have been handed the SELLER's paired money (the forged 1)
+	// and the exercise intent + negotiation identity, so it can compare to stored terms.
+	if got := chk.lastValidate.GetMoneyAmount(); got != "1" {
+		t.Errorf("validator money_amount = %q, want 1 (the forged seller credit)", got)
+	}
+	if chk.lastValidate.GetIntent() != "exercise" {
+		t.Errorf("validator intent = %q, want exercise", chk.lastValidate.GetIntent())
+	}
+	if chk.lastValidate.GetNegotiationId() != "neg-1" || chk.lastValidate.GetDirection() != "DEBIT" {
+		t.Errorf("validator neg/dir = %q/%q, want neg-1/DEBIT", chk.lastValidate.GetNegotiationId(), chk.lastValidate.GetDirection())
+	}
+}
+
+// TestPostingExecutor_ExerciseHonestStrike_Yes verifies the happy path: when the
+// seller's paired money CREDIT matches stored terms the validator approves and
+// the vote is YES, and the validator received the correctly-summed seller money.
+func TestPostingExecutor_ExerciseHonestStrike_Yes(t *testing.T) {
+	stub := &stubAccountClientList{
+		stubAccountClient: stubAccountClient{
+			getAccountFn: func(ctx context.Context, in *accountpb.GetAccountByNumberRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+				return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", Status: "active"}, nil
+			},
+			reserveFn: func(ctx context.Context, in *accountpb.ReserveIncomingRequest, opts ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+				return &accountpb.ReserveIncomingResponse{}, nil
+			},
+		},
+		listFn: func(ctx context.Context, in *accountpb.ListAccountsByClientRequest, opts ...grpc.CallOption) (*accountpb.ListAccountsResponse, error) {
+			return &accountpb.ListAccountsResponse{Accounts: []*accountpb.AccountResponse{{AccountNumber: "222000000000000001", CurrencyCode: "RSD", Status: "active"}}}, nil
+		},
+	}
+	exec := sitx.NewPostingExecutor(stub, 222)
+	chk := &stubHoldingChecker{} // validateDeny false → approve
+	exec.SetHoldingChecker(chk)
+	od := `{"ticker":"MA","amount":2,"strikePrice":"250","currency":"RSD","negotiationId":{"routingNumber":222,"id":"neg-2"},"intent":"exercise"}`
+	postings := []contractsitx.Posting{
+		{RoutingNumber: 222, AccountID: "client-1", AssetID: "RSD", Amount: decimal.NewFromInt(500), Direction: contractsitx.DirectionCredit}, // honest strike 250*2
+		{RoutingNumber: 222, AccountID: "client-1", AssetID: od, Amount: decimal.NewFromInt(2), Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: 111, AccountID: "111-BUY", AssetID: "RSD", Amount: decimal.NewFromInt(500), Direction: contractsitx.DirectionDebit},
+	}
+	res := exec.Reserve(context.Background(), postings, "111", "idem-HONEST")
+	if res.Vote.Type != contractsitx.VoteYes {
+		t.Fatalf("expected YES on honest-strike exercise, got %+v", res.Vote)
+	}
+	if chk.validateCalls != 1 {
+		t.Fatalf("expected 1 validation call, got %d", chk.validateCalls)
+	}
+	if got := chk.lastValidate.GetMoneyAmount(); got != "500" {
+		t.Errorf("validator money_amount = %q, want 500 (summed seller credit)", got)
 	}
 }
 
