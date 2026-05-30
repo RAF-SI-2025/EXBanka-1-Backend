@@ -422,13 +422,69 @@ func (h *OTCOptionsHandler) ListNegotiationsByListing(ctx context.Context, in *s
 	if h.negotiations == nil {
 		return nil, status.Error(codes.Unimplemented, "OTCNegotiationService not wired")
 	}
-	rows, err := h.negotiations.ListByParentOffer(ctx, in.GetParentOfferId())
+	ot, err := ownerTypeFromProto(in.GetCallerOwnerType())
+	if err != nil {
+		return nil, err
+	}
+	oid, err := resolveOwnerID(ot, in.GetCallerOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := h.negotiations.ListByParentOffer(ctx, in.GetParentOfferId(), ot, oid)
 	if err != nil {
 		return nil, err
 	}
 	return &stockpb.ListNegotiationsResponse{
 		Negotiations: negsToProto(rows),
 		Total:        int64(len(rows)),
+	}, nil
+}
+
+// GetOfferTimeline returns the parent offer plus every chain's revisions
+// merged and sorted by created_at — the poster's cross-chain audit view.
+// Audience authorization is enforced in the service layer.
+func (h *OTCOptionsHandler) GetOfferTimeline(ctx context.Context, in *stockpb.GetOfferTimelineRequest) (*stockpb.GetOfferTimelineResponse, error) {
+	if h.negotiations == nil {
+		return nil, status.Error(codes.Unimplemented, "OTCNegotiationService not wired")
+	}
+	ot, err := ownerTypeFromProto(in.GetCallerOwnerType())
+	if err != nil {
+		return nil, err
+	}
+	oid, err := resolveOwnerID(ot, in.GetCallerOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	offer, items, err := h.negotiations.OfferTimeline(ctx, in.GetParentOfferId(), ot, oid)
+	if err != nil {
+		return nil, err
+	}
+	timeline := make([]*stockpb.OTCTimelineEntry, 0, len(items))
+	for i := range items {
+		neg := items[i].Negotiation
+		r := items[i].Revision
+		bidderID := uint64(0)
+		if neg.BidderOwnerID != nil {
+			bidderID = *neg.BidderOwnerID
+		}
+		timeline = append(timeline, &stockpb.OTCTimelineEntry{
+			NegotiationId:         neg.ID,
+			BidderOwnerType:       string(neg.BidderOwnerType),
+			BidderOwnerId:         bidderID,
+			RevisionNumber:        int32(r.RevisionNumber),
+			Action:                r.Action,
+			Quantity:              r.Quantity.String(),
+			StrikePrice:           r.StrikePrice.String(),
+			Premium:               r.Premium.String(),
+			SettlementDate:        r.SettlementDate.UTC().Format(time.RFC3339),
+			ActionByPrincipalType: r.ModifiedByPrincipalType,
+			ActionByPrincipalId:   r.ModifiedByPrincipalID,
+			CreatedAt:             r.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return &stockpb.GetOfferTimelineResponse{
+		Offer:    toOTCOfferProto(offer, false),
+		Timeline: timeline,
 	}, nil
 }
 

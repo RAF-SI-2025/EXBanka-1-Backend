@@ -14242,7 +14242,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal).",
+                "description": "Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal). Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403 and see only their own chain via GET /api/v3/me/otc/options/negotiations.",
                 "produces": [
                     "application/json"
                 ],
@@ -14262,6 +14262,62 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "caller is neither the poster nor a permission-gated employee",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/otc/options/{id}/timeline": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the offer plus every negotiation chain's revisions merged into one chronological stream (oldest first). Each entry carries its chain's negotiation_id and bidder identity so the frontend can render a single timeline or regroup into per-bidder swimlanes. Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Cross-chain interaction timeline for an OTC option offer",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent OTCOffer listing id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "caller is neither the poster nor a permission-gated employee",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "offer not found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

@@ -2656,6 +2656,7 @@ const (
 	OTCOptionsService_ListMyNegotiations_FullMethodName        = "/stock.OTCOptionsService/ListMyNegotiations"
 	OTCOptionsService_ListNegotiationsByListing_FullMethodName = "/stock.OTCOptionsService/ListNegotiationsByListing"
 	OTCOptionsService_ListNegotiationRevisions_FullMethodName  = "/stock.OTCOptionsService/ListNegotiationRevisions"
+	OTCOptionsService_GetOfferTimeline_FullMethodName          = "/stock.OTCOptionsService/GetOfferTimeline"
 )
 
 // OTCOptionsServiceClient is the client API for OTCOptionsService service.
@@ -2692,6 +2693,10 @@ type OTCOptionsServiceClient interface {
 	ListMyNegotiations(ctx context.Context, in *ListMyNegotiationsRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
 	ListNegotiationsByListing(ctx context.Context, in *ListNegotiationsByListingRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
 	ListNegotiationRevisions(ctx context.Context, in *ListNegotiationRevisionsRequest, opts ...grpc.CallOption) (*ListNegotiationRevisionsResponse, error)
+	// GetOfferTimeline returns the offer plus every chain's revisions merged
+	// and sorted by created_at — the poster's cross-chain audit view. Same
+	// audience authorization as ListNegotiationsByListing.
+	GetOfferTimeline(ctx context.Context, in *GetOfferTimelineRequest, opts ...grpc.CallOption) (*GetOfferTimelineResponse, error)
 }
 
 type oTCOptionsServiceClient struct {
@@ -2922,6 +2927,16 @@ func (c *oTCOptionsServiceClient) ListNegotiationRevisions(ctx context.Context, 
 	return out, nil
 }
 
+func (c *oTCOptionsServiceClient) GetOfferTimeline(ctx context.Context, in *GetOfferTimelineRequest, opts ...grpc.CallOption) (*GetOfferTimelineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetOfferTimelineResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_GetOfferTimeline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OTCOptionsServiceServer is the server API for OTCOptionsService service.
 // All implementations must embed UnimplementedOTCOptionsServiceServer
 // for forward compatibility.
@@ -2956,6 +2971,10 @@ type OTCOptionsServiceServer interface {
 	ListMyNegotiations(context.Context, *ListMyNegotiationsRequest) (*ListNegotiationsResponse, error)
 	ListNegotiationsByListing(context.Context, *ListNegotiationsByListingRequest) (*ListNegotiationsResponse, error)
 	ListNegotiationRevisions(context.Context, *ListNegotiationRevisionsRequest) (*ListNegotiationRevisionsResponse, error)
+	// GetOfferTimeline returns the offer plus every chain's revisions merged
+	// and sorted by created_at — the poster's cross-chain audit view. Same
+	// audience authorization as ListNegotiationsByListing.
+	GetOfferTimeline(context.Context, *GetOfferTimelineRequest) (*GetOfferTimelineResponse, error)
 	mustEmbedUnimplementedOTCOptionsServiceServer()
 }
 
@@ -3031,6 +3050,9 @@ func (UnimplementedOTCOptionsServiceServer) ListNegotiationsByListing(context.Co
 }
 func (UnimplementedOTCOptionsServiceServer) ListNegotiationRevisions(context.Context, *ListNegotiationRevisionsRequest) (*ListNegotiationRevisionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListNegotiationRevisions not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) GetOfferTimeline(context.Context, *GetOfferTimelineRequest) (*GetOfferTimelineResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOfferTimeline not implemented")
 }
 func (UnimplementedOTCOptionsServiceServer) mustEmbedUnimplementedOTCOptionsServiceServer() {}
 func (UnimplementedOTCOptionsServiceServer) testEmbeddedByValue()                           {}
@@ -3449,6 +3471,24 @@ func _OTCOptionsService_ListNegotiationRevisions_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCOptionsService_GetOfferTimeline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOfferTimelineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).GetOfferTimeline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_GetOfferTimeline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).GetOfferTimeline(ctx, req.(*GetOfferTimelineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OTCOptionsService_ServiceDesc is the grpc.ServiceDesc for OTCOptionsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3543,6 +3583,10 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNegotiationRevisions",
 			Handler:    _OTCOptionsService_ListNegotiationRevisions_Handler,
+		},
+		{
+			MethodName: "GetOfferTimeline",
+			Handler:    _OTCOptionsService_GetOfferTimeline_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

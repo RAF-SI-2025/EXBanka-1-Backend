@@ -1223,6 +1223,10 @@ service OTCOptionsService {
   rpc ListMyNegotiations(ListMyNegotiationsRequest)   returns (ListNegotiationsResponse);
   rpc ListNegotiationsByListing(ListNegotiationsByListingRequest) returns (ListNegotiationsResponse);
   rpc ListNegotiationRevisions(ListNegotiationRevisionsRequest) returns (ListNegotiationRevisionsResponse);
+  // GetOfferTimeline returns the offer plus every chain's revisions merged
+  // and sorted by created_at — the poster's cross-chain audit view. Same
+  // audience authorization as ListNegotiationsByListing.
+  rpc GetOfferTimeline(GetOfferTimelineRequest) returns (GetOfferTimelineResponse);
 }
 
 // OTCNegotiationResponse is the wire-form projection of an
@@ -1407,7 +1411,43 @@ message ListMyNegotiationsRequest {
 }
 
 message ListNegotiationsByListingRequest {
-  uint64 parent_offer_id = 1;
+  uint64 parent_offer_id   = 1;
+  // Caller identity for audience authorization. The poster of the parent
+  // listing may see every chain; an employee (owner_type="bank") reaches
+  // this RPC only after the gateway's otc.read.all permission gate. Any
+  // other client (e.g. a competing bidder) receives PermissionDenied.
+  string caller_owner_type = 2;  // "client" | "bank"
+  uint64 caller_owner_id   = 3;  // 0 when owner_type=="bank"
+}
+
+message GetOfferTimelineRequest {
+  uint64 parent_offer_id   = 1;
+  string caller_owner_type = 2;  // "client" | "bank"
+  uint64 caller_owner_id   = 3;  // 0 when owner_type=="bank"
+}
+
+// OTCTimelineEntry is one revision across any chain on a listing, enriched
+// with its chain's bidder identity. The full timeline is every chain's
+// revisions merged and sorted by created_at — the offer poster's
+// cross-chain audit view.
+message OTCTimelineEntry {
+  uint64 negotiation_id           = 1;
+  string bidder_owner_type        = 2;  // "client" | "bank"
+  uint64 bidder_owner_id          = 3;  // 0 when owner_type=="bank"
+  int32  revision_number          = 4;
+  string action                   = 5;  // BID|COUNTER|ACCEPT|REJECT
+  string quantity                 = 6;
+  string strike_price             = 7;
+  string premium                  = 8;
+  string settlement_date          = 9;  // ISO-8601
+  string action_by_principal_type = 10; // "client" | "employee"
+  uint64 action_by_principal_id   = 11;
+  string created_at               = 12; // ISO-8601
+}
+
+message GetOfferTimelineResponse {
+  OTCOfferResponse          offer    = 1;
+  repeated OTCTimelineEntry timeline = 2;
 }
 
 message ListNegotiationsResponse {

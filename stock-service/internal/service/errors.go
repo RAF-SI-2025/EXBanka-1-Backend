@@ -308,6 +308,12 @@ var (
 	// parent listing's poster so may not view the revision chain.
 	ErrOTCRevisionsUnauthorized = svcerr.New(codes.PermissionDenied, "only the negotiation's participants may view its revision history")
 
+	// ErrOTCListingAudienceForbidden — caller is neither the listing's
+	// poster nor a permission-gated employee, so may not see every chain
+	// (or the cross-chain timeline) on the listing. Competing bidders hit
+	// this; they retain their own-chain view via ListMyNegotiations.
+	ErrOTCListingAudienceForbidden = svcerr.New(codes.PermissionDenied, "only the listing's poster may view all chains on this offer")
+
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---
 
