@@ -13,18 +13,23 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	accountpb "github.com/exbanka/contract/accountpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
 // peerTxDispatcherRouter wires a fresh gin router with a PeerTxDispatcherHandler
-// that embeds the supplied stubs. ownBankCode is "111" to match the tests'
-// intra-bank vs foreign-prefix expectations.
-func peerTxDispatcherRouter(t *testing.T, tx *stubTransactionClient, peerTx transactionpb.PeerTxServiceClient, ownBankCode string) *gin.Engine {
+// (now serving /api/v3/me/payments) that embeds the supplied stubs. ownBankCode
+// is "111" to match the tests' intra-bank vs foreign-prefix expectations. acct
+// may be nil (a default stub is used).
+func peerTxDispatcherRouter(t *testing.T, tx *stubTransactionClient, peerTx transactionpb.PeerTxServiceClient, ownBankCode string, acct *accountFullStub) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
-	txHandler := handler.NewTransactionHandler(tx, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	if acct == nil {
+		acct = &accountFullStub{}
+	}
+	txHandler := handler.NewTransactionHandler(tx, &stubFeeClient{}, acct, &stubExchangeClient{})
 	pd := handler.NewPeerTxDispatcherHandler(txHandler, peerTx, ownBankCode)
 
 	withCtx := func(c *gin.Context) {
@@ -32,8 +37,10 @@ func peerTxDispatcherRouter(t *testing.T, tx *stubTransactionClient, peerTx tran
 		c.Set("principal_type", "client")
 		c.Set("email", "x@y.com")
 	}
-	r.POST("/api/v3/me/transfers", withCtx, pd.CreateTransfer)
-	r.GET("/api/v3/me/transfers/:id", withCtx, pd.GetTransferByID)
+	r.POST("/api/v3/me/payments", withCtx, pd.CreatePayment)
+	r.GET("/api/v3/me/payments/:id", withCtx, pd.GetPaymentByID)
+	r.GET("/api/v3/me/payments/:id/status", withCtx, pd.GetPaymentStatusByID)
+	r.GET("/api/v3/me/otc/transactions/:txid/status", withCtx, pd.GetCrossBankTxStatus)
 	return r
 }
 
@@ -50,7 +57,7 @@ func decodeAPIError(t *testing.T, body []byte) (code, message string) {
 	return resp.Error.Code, resp.Error.Message
 }
 
-func TestPeerTxDispatcher_CreateTransfer(t *testing.T) {
+func TestPeerTxDispatcher_CreatePayment(t *testing.T) {
 	// Standard inter-bank stub: returns a deterministic SiTxInitiateResponse so
 	// tests can assert on transaction_id + poll_url. Tests that delegate to
 	// the intra-bank handler don't reach this stub.
@@ -58,22 +65,19 @@ func TestPeerTxDispatcher_CreateTransfer(t *testing.T) {
 		initiateFn: func(_ context.Context, _ *transactionpb.SiTxInitiateRequest, _ ...grpc.CallOption) (*transactionpb.SiTxInitiateResponse, error) {
 			return &transactionpb.SiTxInitiateResponse{
 				TransactionId: "tx-test-1",
-				PollUrl:       "/api/v3/me/transfers/tx-test-1",
+				PollUrl:       "/api/v3/me/payments/tx-test-1",
 				Status:        "pending",
 			}, nil
 		},
 	}
 
 	tests := []struct {
-		name              string
-		body              string
-		expectStatus      int
-		expectDelegated   bool
-		expectErrorCode   string
-		expectErrorSubstr string
-		// expectAccepted asserts the 202-with-poll-url body shape from the
-		// inter-bank dispatch path.
-		expectAccepted bool
+		name            string
+		body            string
+		expectStatus    int
+		expectDelegated bool
+		expectErrorCode string
+		expectAccepted  bool
 	}{
 		{
 			name:            "intra-bank to_account_number delegates",
@@ -89,15 +93,11 @@ func TestPeerTxDispatcher_CreateTransfer(t *testing.T) {
 			expectAccepted:  true,
 		},
 		{
-			name: "intra-bank receiverAccount field falls through (peek detects own prefix)",
-			body: `{"senderAccount":"111000000000000001","receiverAccount":"111000000000000002","amount":100}`,
-			// receiverAccount field is recognised by the dispatcher (own
-			// prefix detected), so we fall through to tx.CreateTransfer. The
-			// downstream handler binds the snake_case shape only, so it
-			// returns a 400 validation_error — but importantly NOT a 202.
-			// This proves the dispatcher supports both body shapes.
-			expectStatus:    http.StatusBadRequest,
-			expectDelegated: true,
+			name:            "foreign without currency dispatches (currency auto-resolved from sender account)",
+			body:            `{"from_account_number":"111000000000000001","to_account_number":"222999999999999999","amount":"100"}`,
+			expectStatus:    http.StatusAccepted,
+			expectDelegated: false,
+			expectAccepted:  true,
 		},
 		{
 			name:            "foreign receiverAccount field dispatches to PeerTxService",
@@ -107,31 +107,21 @@ func TestPeerTxDispatcher_CreateTransfer(t *testing.T) {
 			expectAccepted:  true,
 		},
 		{
-			name: "malformed JSON returns 400 validation_error",
-			body: `{not valid`,
-			// The dispatcher itself json.Unmarshals the body for receiver
-			// detection, so malformed JSON is rejected at the dispatcher
-			// layer with a 400.
+			name:            "malformed JSON returns 400 validation_error",
+			body:            `{not valid`,
 			expectStatus:    http.StatusBadRequest,
 			expectDelegated: false,
 			expectErrorCode: "validation_error",
 		},
 		{
-			name: "body missing both fields falls through",
-			body: `{"amount":100}`,
-			// receiver=="", len<3, so we fall through to tx.CreateTransfer.
-			// The downstream handler requires from/to account numbers via
-			// binding tags; it'll respond with 400.
+			name:            "body missing both fields falls through",
+			body:            `{"amount":100}`,
 			expectStatus:    http.StatusBadRequest,
 			expectDelegated: true,
 		},
 		{
-			name: "account number shorter than 3 chars falls through, not dispatched",
-			body: `{"from_account_number":"12","to_account_number":"34","amount":100}`,
-			// receiver="34" (len<3), so we cannot identify a foreign-bank
-			// prefix. Routing must fall through to tx.CreateTransfer so the
-			// stub gRPC client is reached (it returns 201 here). Crucially
-			// we are NOT dispatching to PeerTxService.
+			name:            "account number shorter than 3 chars falls through, not dispatched",
+			body:            `{"from_account_number":"12","to_account_number":"34","amount":100}`,
 			expectStatus:    http.StatusCreated,
 			expectDelegated: true,
 		},
@@ -141,14 +131,19 @@ func TestPeerTxDispatcher_CreateTransfer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			delegated := false
 			tx := &stubTransactionClient{
-				createTransferFn: func(*transactionpb.CreateTransferRequest) (*transactionpb.TransferResponse, error) {
+				createPaymentFn: func(*transactionpb.CreatePaymentRequest) (*transactionpb.PaymentResponse, error) {
 					delegated = true
-					return &transactionpb.TransferResponse{Id: 1}, nil
+					return &transactionpb.PaymentResponse{Id: 1}, nil
 				},
 			}
+			// Account stub returns a currency so the auto-resolve (no-currency)
+			// foreign case can stamp the SI-TX posting currency.
+			acct := &accountFullStub{getByNumFn: func(in *accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error) {
+				return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", OwnerId: 1}, nil
+			}}
 
-			r := peerTxDispatcherRouter(t, tx, stubPeerTx, "111")
-			req := httptest.NewRequest("POST", "/api/v3/me/transfers", strings.NewReader(tc.body))
+			r := peerTxDispatcherRouter(t, tx, stubPeerTx, "111", acct)
+			req := httptest.NewRequest("POST", "/api/v3/me/payments", strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			r.ServeHTTP(rec, req)
@@ -156,11 +151,8 @@ func TestPeerTxDispatcher_CreateTransfer(t *testing.T) {
 			require.Equal(t, tc.expectStatus, rec.Code, "body=%s response=%s", tc.body, rec.Body.String())
 
 			if tc.expectErrorCode != "" {
-				code, message := decodeAPIError(t, rec.Body.Bytes())
+				code, _ := decodeAPIError(t, rec.Body.Bytes())
 				require.Equal(t, tc.expectErrorCode, code)
-				if tc.expectErrorSubstr != "" {
-					require.Contains(t, message, tc.expectErrorSubstr)
-				}
 			}
 
 			if tc.expectAccepted {
@@ -171,45 +163,115 @@ func TestPeerTxDispatcher_CreateTransfer(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				require.Equal(t, "tx-test-1", resp.TransactionID)
-				require.Equal(t, "/api/v3/me/transfers/tx-test-1", resp.PollURL)
+				require.Equal(t, "/api/v3/me/payments/tx-test-1", resp.PollURL)
 				require.Equal(t, "pending", resp.Status)
 			}
 
 			if tc.expectDelegated {
-				// Either the gRPC stub was called (success path) or
-				// CreateTransfer ran far enough to fail validation
-				// itself (not the inter-bank branch). Both signal delegation.
 				if !delegated {
-					// validation-error path: assert it's a 4xx from
-					// the downstream handler (not a 202 dispatch).
 					require.NotEqual(t, http.StatusAccepted, rec.Code,
-						"expected fall-through to tx.CreateTransfer, got 202")
+						"expected fall-through to tx.CreatePayment, got 202")
 				}
 			} else {
-				require.False(t, delegated, "expected NOT to delegate to tx.CreateTransfer")
+				require.False(t, delegated, "expected NOT to delegate to tx.CreatePayment")
 			}
 		})
 	}
 }
 
-func TestPeerTxDispatcher_GetTransferByID_Delegates(t *testing.T) {
+func TestPeerTxDispatcher_GetPaymentByID_Delegates(t *testing.T) {
 	delegated := false
 	tx := &stubTransactionClient{
-		getTransferFn: func(req *transactionpb.GetTransferRequest) (*transactionpb.TransferResponse, error) {
+		getPaymentFn: func(req *transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error) {
 			delegated = true
 			require.Equal(t, uint64(42), req.Id)
 			// ClientId must match the principal_id set by peerTxDispatcherRouter
-			// (7), otherwise GetMyTransfer's enforceOwnership check returns
-			// 404. The router below sets principal_type=client.
-			return &transactionpb.TransferResponse{Id: 42, ClientId: 7}, nil
+			// (7), otherwise GetMyPayment's ownership check returns 404.
+			return &transactionpb.PaymentResponse{Id: 42, ClientId: 7}, nil
 		},
 	}
 
-	r := peerTxDispatcherRouter(t, tx, &stubPeerTxClient{}, "111")
-	req := httptest.NewRequest("GET", "/api/v3/me/transfers/42", nil)
+	r := peerTxDispatcherRouter(t, tx, &stubPeerTxClient{}, "111", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/payments/42", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
-	require.True(t, delegated, "expected GetTransferByID to delegate to tx.GetMyTransfer")
+	require.True(t, delegated, "expected GetPaymentByID to delegate to tx.GetMyPayment")
+}
+
+// A UUID-style id (cross-bank SI-TX poll url) resolves via GetTxStatus instead
+// of the intra-bank payment lookup — for both the by-id and the /status routes.
+func TestPeerTxDispatcher_UUIDResolvesViaGetTxStatus(t *testing.T) {
+	const uuid = "11111111-2222-3333-4444-555555555555"
+	for _, route := range []string{"/api/v3/me/payments/" + uuid, "/api/v3/me/payments/" + uuid + "/status"} {
+		t.Run(route, func(t *testing.T) {
+			called := false
+			peerTx := &stubPeerTxClient{
+				getTxStatusFn: func(_ context.Context, in *transactionpb.GetTxStatusRequest, _ ...grpc.CallOption) (*transactionpb.GetTxStatusResponse, error) {
+					called = true
+					require.Equal(t, uuid, in.GetTransactionId())
+					return &transactionpb.GetTxStatusResponse{State: "committed", OurRole: "sender", LastActionAt: "2026-05-30T00:00:00Z"}, nil
+				},
+			}
+			// tx delegate must NOT be reached for a UUID id.
+			tx := &stubTransactionClient{
+				getPaymentFn: func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error) {
+					t.Fatal("intra-bank GetPayment must not be called for a UUID id")
+					return nil, nil
+				},
+			}
+			r := peerTxDispatcherRouter(t, tx, peerTx, "111", nil)
+			req := httptest.NewRequest("GET", route, nil)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.True(t, called, "expected GetTxStatus to be called")
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, uuid, resp["transaction_id"])
+			require.Equal(t, "committed", resp["status"])
+			require.Equal(t, "sender", resp["role"])
+		})
+	}
+}
+
+// The cross-bank OTC status endpoint (poll target for cross-bank OTC trades)
+// resolves the SI-TX transaction id via GetTxStatus. It accepts both the bare
+// idem (poll_url) and the contract's "peerCode:idem" crossbank_tx_id, splitting
+// the latter into (caller_peer_bank_code, transaction_id) so it resolves on
+// both the sender and receiver banks.
+func TestPeerTxDispatcher_OTCCrossBankStatus(t *testing.T) {
+	const uuid = "aaaa1111-2222-3333-4444-555566667777"
+	cases := []struct {
+		name           string
+		pathID         string
+		wantTxnID      string
+		wantCallerCode string
+	}{
+		{name: "bare idem (poll_url)", pathID: uuid, wantTxnID: uuid, wantCallerCode: ""},
+		{name: "composite peerCode:idem (contract crossbank_tx_id)", pathID: "222:" + uuid, wantTxnID: uuid, wantCallerCode: "222"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			peerTx := &stubPeerTxClient{
+				getTxStatusFn: func(_ context.Context, in *transactionpb.GetTxStatusRequest, _ ...grpc.CallOption) (*transactionpb.GetTxStatusResponse, error) {
+					require.Equal(t, tc.wantTxnID, in.GetTransactionId())
+					require.Equal(t, tc.wantCallerCode, in.GetCallerPeerBankCode())
+					return &transactionpb.GetTxStatusResponse{State: "committed", OurRole: "sender"}, nil
+				},
+			}
+			r := peerTxDispatcherRouter(t, &stubTransactionClient{}, peerTx, "111", nil)
+			req := httptest.NewRequest("GET", "/api/v3/me/otc/transactions/"+tc.pathID+"/status", nil)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, tc.pathID, resp["transaction_id"])
+			require.Equal(t, "committed", resp["status"])
+		})
+	}
 }

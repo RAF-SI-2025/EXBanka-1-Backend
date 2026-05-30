@@ -69,6 +69,7 @@ type AccountGRPCHandler struct {
 	ledgerService       ledgerSvcFacade
 	reservation         *ReservationHandler
 	incomingReservation *service.IncomingReservationService
+	outgoingReservation *service.OutgoingReservationService
 	producer            accountProducer
 	clientClient        clientpb.ClientServiceClient
 	changelogService    *service.ChangelogService
@@ -86,6 +87,7 @@ func NewAccountGRPCHandler(
 	ledgerService *service.LedgerService,
 	reservation *ReservationHandler,
 	incomingReservation *service.IncomingReservationService,
+	outgoingReservation *service.OutgoingReservationService,
 	producer *kafkaprod.Producer,
 	clientClient clientpb.ClientServiceClient,
 	db *gorm.DB,
@@ -99,6 +101,7 @@ func NewAccountGRPCHandler(
 		ledgerService:       ledgerService,
 		reservation:         reservation,
 		incomingReservation: incomingReservation,
+		outgoingReservation: outgoingReservation,
 		producer:            producer,
 		clientClient:        clientClient,
 		changelogService:    changelogService,
@@ -307,6 +310,130 @@ func (h *AccountGRPCHandler) executeReleaseIncoming(ctx context.Context, req *pb
 		return nil, err
 	}
 	return &pb.ReleaseIncomingResponse{Released: true}, nil
+}
+
+// ReserveOutgoing places a debit-side hold for a cross-bank money DEBIT leg:
+// reduces AvailableBalance (not Balance) and writes a pending row. Wrapped in
+// the saga-step idempotency contract; the service is also idempotent on
+// reservation_key.
+func (h *AccountGRPCHandler) ReserveOutgoing(ctx context.Context, req *pb.ReserveOutgoingRequest) (*pb.ReserveOutgoingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReserveOutgoingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReserveOutgoingResponse { return &pb.ReserveOutgoingResponse{} },
+			func() (*pb.ReserveOutgoingResponse, error) {
+				return h.executeReserveOutgoing(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReserveOutgoing(ctx context.Context, req *pb.ReserveOutgoingRequest) (*pb.ReserveOutgoingResponse, error) {
+	amt, err := decimal.NewFromString(req.Amount)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "amount: %v", err)
+	}
+	res, err := h.outgoingReservation.ReserveOutgoing(ctx, req.AccountNumber, amt, req.Currency, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	acct, _ := h.accountService.GetAccountByNumber(res.AccountNumber)
+	availableAfter := ""
+	if acct != nil {
+		availableAfter = acct.AvailableBalance.StringFixed(4)
+	}
+	return &pb.ReserveOutgoingResponse{ReservationKey: res.ReservationKey, AvailableAfter: availableAfter}, nil
+}
+
+// SettleOutgoing finalizes a pending debit hold: Balance -= amount, writes the
+// debit ledger entry, marks settled. Wrapped in the saga-step idempotency
+// contract.
+func (h *AccountGRPCHandler) SettleOutgoing(ctx context.Context, req *pb.SettleOutgoingRequest) (*pb.SettleOutgoingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.SettleOutgoingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.SettleOutgoingResponse { return &pb.SettleOutgoingResponse{} },
+			func() (*pb.SettleOutgoingResponse, error) {
+				return h.executeSettleOutgoing(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeSettleOutgoing(ctx context.Context, req *pb.SettleOutgoingRequest) (*pb.SettleOutgoingResponse, error) {
+	acct, err := h.outgoingReservation.SettleOutgoing(ctx, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	balanceAfter := ""
+	if acct != nil {
+		balanceAfter = acct.Balance.StringFixed(4)
+	}
+	return &pb.SettleOutgoingResponse{BalanceAfter: balanceAfter}, nil
+}
+
+// ReleaseOutgoing cancels a pending debit hold (NO vote / ROLLBACK_TX /
+// timeout): AvailableBalance += amount, marks released. Wrapped in the
+// saga-step idempotency contract.
+func (h *AccountGRPCHandler) ReleaseOutgoing(ctx context.Context, req *pb.ReleaseOutgoingRequest) (*pb.ReleaseOutgoingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReleaseOutgoingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReleaseOutgoingResponse { return &pb.ReleaseOutgoingResponse{} },
+			func() (*pb.ReleaseOutgoingResponse, error) {
+				return h.executeReleaseOutgoing(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReleaseOutgoing(ctx context.Context, req *pb.ReleaseOutgoingRequest) (*pb.ReleaseOutgoingResponse, error) {
+	if err := h.outgoingReservation.ReleaseOutgoing(ctx, req.ReservationKey); err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	return &pb.ReleaseOutgoingResponse{Released: true}, nil
 }
 
 func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.AccountResponse, error) {

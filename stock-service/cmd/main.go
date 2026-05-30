@@ -206,15 +206,19 @@ func main() {
 	// unique indexes by default.
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_owner_security ON holdings(owner_type, COALESCE(owner_id, 0), security_type, security_id)")
 
-	// Celina-4 + Celina-5 OTC: enforce "exactly one of order_id /
-	// otc_contract_id / peer_option_contract_id" at DB level. The model's
-	// BeforeCreate hook does the same check application-side, but the
-	// constraint is defense-in-depth against raw SQL inserts.
+	// Celina-4 + Celina-5 OTC: enforce "exactly one owner group" at DB level.
+	// Groups: order_id (legacy sell), otc_contract_id (intra-bank OTC), or the
+	// cross-bank group (peer_option_contract_id and/or crossbank_tx_id). The
+	// cross-bank pair counts as ONE group because a vote-time crossbank_tx_id
+	// hold gains a peer_option_contract_id at COMMIT (attach), so a settled
+	// cross-bank row legitimately carries both. The model's BeforeCreate hook
+	// enforces strictly-one at create time; this constraint is defense-in-depth
+	// against raw SQL inserts while permitting the attach update.
 	db.Exec(`ALTER TABLE holding_reservations DROP CONSTRAINT IF EXISTS holding_reservation_owner_chk`)
 	db.Exec(`ALTER TABLE holding_reservations ADD CONSTRAINT holding_reservation_owner_chk CHECK (
 		(CASE WHEN order_id IS NOT NULL THEN 1 ELSE 0 END
 		 + CASE WHEN otc_contract_id IS NOT NULL THEN 1 ELSE 0 END
-		 + CASE WHEN peer_option_contract_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+		 + CASE WHEN (peer_option_contract_id IS NOT NULL OR crossbank_tx_id IS NOT NULL) THEN 1 ELSE 0 END) = 1
 	)`)
 
 	// Durable data-normalization: exchange-service only accepts 8 ISO currency

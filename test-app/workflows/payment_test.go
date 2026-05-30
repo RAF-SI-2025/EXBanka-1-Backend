@@ -530,3 +530,57 @@ func TestPayment_InsufficientBalance(t *testing.T) {
 		t.Logf("insufficient balance correctly blocked at creation: %d", payResp.StatusCode)
 	}
 }
+
+// TestPayment_PreviewAndStatus live-tests the two routes added in the
+// transfer/payment rework: POST /me/payments/preview (fee preview) and
+// GET /me/payments/:id/status (separate payment status route).
+func TestPayment_PreviewAndStatus(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	_, senderAcct, senderC, _ := setupActivatedClient(t, adminC)
+	_, receiverAcct, _, _ := setupActivatedClient(t, adminC)
+	// setupActivatedClient already funds the account with 100000 RSD.
+
+	// 1. Preview — fee + total_debit + amount_received, no payment created.
+	prev, err := senderC.POST("/api/v3/me/payments/preview", map[string]interface{}{
+		"from_account_number": senderAcct,
+		"to_account_number":   receiverAcct,
+		"amount":              5000.0,
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	helpers.RequireStatus(t, prev, 200)
+	for _, k := range []string{"currency", "input_amount", "total_fee", "total_debit", "amount_received"} {
+		if _, ok := prev.Body[k]; !ok {
+			t.Fatalf("preview missing field %q: %+v", k, prev.Body)
+		}
+	}
+	t.Logf("preview: fee=%v total_debit=%v amount_received=%v",
+		prev.Body["total_fee"], prev.Body["total_debit"], prev.Body["amount_received"])
+
+	// 2. Create a payment, then poll its status via the dedicated status route.
+	pay, err := senderC.POST("/api/v3/me/payments", map[string]interface{}{
+		"from_account_number": senderAcct,
+		"to_account_number":   receiverAcct,
+		"amount":              5000.0,
+		"payment_code":        "289",
+	})
+	if err != nil {
+		t.Fatalf("create payment: %v", err)
+	}
+	helpers.RequireStatus(t, pay, 201)
+	paymentID := int(pay.Body["id"].(float64))
+
+	st, err := senderC.GET(fmt.Sprintf("/api/v3/me/payments/%d/status", paymentID))
+	if err != nil {
+		t.Fatalf("payment status: %v", err)
+	}
+	helpers.RequireStatus(t, st, 200)
+	if _, ok := st.Body["status"]; !ok {
+		t.Fatalf("status route missing 'status': %+v", st.Body)
+	}
+	if int(st.Body["payment_id"].(float64)) != paymentID {
+		t.Fatalf("status payment_id mismatch: %+v", st.Body)
+	}
+	t.Logf("payment %d status=%v", paymentID, st.Body["status"])
+}

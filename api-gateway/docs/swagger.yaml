@@ -799,6 +799,19 @@ definitions:
       ticker:
         type: string
     type: object
+  handler.previewPaymentRequest:
+    properties:
+      amount:
+        type: number
+      from_account_number:
+        type: string
+      to_account_number:
+        type: string
+    required:
+    - amount
+    - from_account_number
+    - to_account_number
+    type: object
   handler.previewTransferRequest:
     properties:
       amount:
@@ -8662,6 +8675,36 @@ paths:
       summary: List my card requests
       tags:
       - card-requests
+  /api/v3/me/cards/requests/{id}:
+    get:
+      description: Returns a single card request owned by the authenticated client.
+        The /me self-version of GET /api/v3/cards/requests/{id} (which is employee-permissioned);
+        ownership is enforced from the JWT, so a client can track a request they submitted
+        without an employee route.
+      parameters:
+      - description: card request id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one of the caller's own card requests
+      tags:
+      - card-requests
   /api/v3/me/dividends:
     get:
       description: Returns paginated dividend_payouts for the caller's holdings, most-recent
@@ -8733,6 +8776,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Submit loan application
+      tags:
+      - loans
+  /api/v3/me/loan-requests/{id}:
+    get:
+      description: Returns a single loan request owned by the authenticated client.
+        The /me self-version of GET /api/v3/loan-requests/{id} (which is employee-permissioned);
+        ownership is enforced from the JWT, so a client can track a request they submitted
+        without an employee route.
+      parameters:
+      - description: loan request id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one of the caller's own loan requests
       tags:
       - loans
   /api/v3/me/otc/contracts:
@@ -9358,6 +9431,178 @@ paths:
       summary: Cancel your own OTC stock sell or buy offer
       tags:
       - OTCStocks
+  /api/v3/me/otc/transactions/{txid}/status:
+    get:
+      description: Resolves a cross-bank OTC trade's transaction id (bare idem, or
+        the contract's "peerCode:idem" crossbank_tx_id) to {transaction_id, status,
+        role, last_action_at, last_error}.
+      parameters:
+      - description: SI-TX transaction id (bare idem or 'peerCode:idem')
+        in: path
+        name: txid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cross-bank OTC transaction status (SI-TX)
+      tags:
+      - otc
+  /api/v3/me/payments:
+    post:
+      consumes:
+      - application/json
+      description: Intra-bank receivers (own 3-digit prefix) run the standard payment
+        flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx
+        and return 202 Accepted with {transaction_id, poll_url, status}. An unregistered
+        destination bank code returns 404 before any debit. Currency is resolved from
+        the sender's account unless an explicit "currency" is supplied.
+      parameters:
+      - description: Payment request — see TransactionHandler.CreatePayment; optional
+          'currency' override for cross-bank
+        in: body
+        name: body
+        required: true
+        schema: {}
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a payment (dispatches intra-bank or inter-bank SI-TX)
+      tags:
+      - payments
+  /api/v3/me/payments/{id}:
+    get:
+      description: Numeric id → intra-bank payment. UUID id (from a cross-bank payment's
+        poll_url) → SI-TX status {transaction_id, status, role, last_action_at, last_error}.
+      parameters:
+      - description: Payment ID (numeric) or SI-TX transaction id (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a payment by ID (or cross-bank SI-TX status by UUID)
+      tags:
+      - payments
+  /api/v3/me/payments/{id}/status:
+    get:
+      description: Lightweight status of a payment the caller owns. Mirrors the transfer
+        status route so the frontend can poll payments and transfers separately.
+      parameters:
+      - description: payment id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the status of one of the caller's payments
+      tags:
+      - payments
+  /api/v3/me/payments/preview:
+    post:
+      consumes:
+      - application/json
+      description: Returns the commission fee and total debit for a payment without
+        creating it. Payments are single-currency (no exchange).
+      parameters:
+      - description: Payment preview data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.previewPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Preview payment costs
+      tags:
+      - payments
   /api/v3/me/peer-otc/negotiations:
     get:
       description: Returns rows from this bank's peer_otc_negotiations where the caller
@@ -9933,75 +10178,6 @@ paths:
       summary: Revoke a specific session
       tags:
       - sessions
-  /api/v3/me/transfers:
-    post:
-      consumes:
-      - application/json
-      description: Intra-bank receivers (own 3-digit prefix) delegate to the standard
-        transfer flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx
-        and return 202 Accepted with {transaction_id, poll_url, status}.
-      parameters:
-      - description: Transfer request — see TransactionHandler.CreateTransfer
-        in: body
-        name: body
-        required: true
-        schema: {}
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "202":
-          description: Accepted
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create a transfer (dispatches intra-bank or inter-bank SI-TX)
-      tags:
-      - transfers
-  /api/v3/me/transfers/{id}:
-    get:
-      description: Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction
-        IDs return 404 since the inter-bank lookup path is not yet wired.
-      parameters:
-      - description: Transfer ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get a transfer by ID
-      tags:
-      - transfers
   /api/v3/me/transfers/{id}/status:
     get:
       description: Maps the internal transfer lifecycle (pending/processing/completed/failed)

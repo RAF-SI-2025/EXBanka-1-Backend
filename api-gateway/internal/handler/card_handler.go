@@ -737,6 +737,33 @@ func (h *CardHandler) GetCardRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, cardRequestToJSON(resp))
 }
 
+// GetMyCardRequest godoc
+// @Summary      Get one of the caller's own card requests
+// @Description  Returns a single card request owned by the authenticated client. The /me self-version of GET /api/v3/cards/requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.
+// @Tags         card-requests
+// @Produce      json
+// @Param        id path int true "card request id"
+// @Security     BearerAuth
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/cards/requests/{id} [get]
+func (h *CardHandler) GetMyCardRequest(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.cardRequestClient.GetCardRequest(c.Request.Context(), &cardpb.GetCardRequestRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if ownErr := enforceOwnership(c, resp.GetClientId()); ownErr != nil {
+		return
+	}
+	c.JSON(http.StatusOK, cardRequestToJSON(resp))
+}
+
 // ApproveCardRequest godoc
 // @Summary      Approve a card request
 // @Description  Employee approves a pending card request, which creates the card. Requires cards.approve permission.

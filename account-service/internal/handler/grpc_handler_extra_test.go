@@ -306,6 +306,129 @@ func TestAccountHandler_ReleaseIncoming_NotFound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Outgoing reservation handlers (cross-bank money DEBIT, reserve-then-settle).
+// ---------------------------------------------------------------------------
+
+// newAccountHandlerWithOutgoing wires AccountGRPCHandler with a real
+// OutgoingReservationService over a dedicated SQLite database and a funded
+// source account.
+func newAccountHandlerWithOutgoing(t *testing.T) (*AccountGRPCHandler, *model.Account) {
+	t.Helper()
+
+	idemDB := newHandlerTestDB(t)
+	idem := repository.NewIdempotencyRepository(idemDB)
+
+	dsn := "file:outgoing_" + t.Name() + "?mode=memory&cache=shared"
+	innerDB, err := openSQLite(t, dsn, 0)
+	require.NoError(t, err)
+	require.NoError(t, innerDB.AutoMigrate(
+		&model.Account{},
+		&model.LedgerEntry{},
+		&model.OutgoingReservation{},
+	))
+
+	accountRepo := repository.NewAccountRepository(innerDB)
+	resRepo := repository.NewOutgoingReservationRepository(innerDB)
+	outSvc := service.NewOutgoingReservationService(innerDB, accountRepo, resRepo)
+
+	acct := &model.Account{
+		AccountNumber:    "111000100000888022",
+		OwnerID:          11,
+		CurrencyCode:     "RSD",
+		AccountKind:      "current",
+		AccountType:      "standard",
+		Status:           "active",
+		Balance:          decimal.NewFromInt(1000),
+		AvailableBalance: decimal.NewFromInt(1000),
+		IsBankAccount:    false,
+		Version:          1,
+	}
+	require.NoError(t, accountRepo.Create(acct))
+
+	mockSvc := &mockAccountSvc{
+		getAccountByNumberFn: func(num string) (*model.Account, error) {
+			return accountRepo.GetByNumber(num)
+		},
+	}
+	h := &AccountGRPCHandler{
+		accountService:      mockSvc,
+		outgoingReservation: outSvc,
+		db:                  idemDB,
+		idem:                idem,
+	}
+	return h, acct
+}
+
+func TestAccountHandler_ReserveOutgoing_RequiresKey(t *testing.T) {
+	h, acct := newAccountHandlerWithOutgoing(t)
+	_, err := h.ReserveOutgoing(context.Background(), &pb.ReserveOutgoingRequest{
+		AccountNumber: acct.AccountNumber, Amount: "100", Currency: "RSD", ReservationKey: "k1",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestAccountHandler_ReserveOutgoing_Success(t *testing.T) {
+	h, acct := newAccountHandlerWithOutgoing(t)
+	resp, err := h.ReserveOutgoing(context.Background(), &pb.ReserveOutgoingRequest{
+		AccountNumber: acct.AccountNumber, Amount: "300", Currency: "RSD",
+		ReservationKey: "ok-1", IdempotencyKey: "iok-1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ok-1", resp.ReservationKey)
+	assert.Equal(t, "700.0000", resp.AvailableAfter)
+}
+
+func TestAccountHandler_ReserveOutgoing_Insufficient(t *testing.T) {
+	h, acct := newAccountHandlerWithOutgoing(t)
+	_, err := h.ReserveOutgoing(context.Background(), &pb.ReserveOutgoingRequest{
+		AccountNumber: acct.AccountNumber, Amount: "5000", Currency: "RSD",
+		ReservationKey: "ok-x", IdempotencyKey: "iok-x",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+func TestAccountHandler_SettleOutgoing_Success(t *testing.T) {
+	h, acct := newAccountHandlerWithOutgoing(t)
+	_, err := h.ReserveOutgoing(context.Background(), &pb.ReserveOutgoingRequest{
+		AccountNumber: acct.AccountNumber, Amount: "300", Currency: "RSD",
+		ReservationKey: "os-1", IdempotencyKey: "ios-1",
+	})
+	require.NoError(t, err)
+
+	resp, err := h.SettleOutgoing(context.Background(), &pb.SettleOutgoingRequest{
+		ReservationKey: "os-1", IdempotencyKey: "iss-1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "700.0000", resp.BalanceAfter)
+}
+
+func TestAccountHandler_SettleOutgoing_NotFound(t *testing.T) {
+	h, _ := newAccountHandlerWithOutgoing(t)
+	_, err := h.SettleOutgoing(context.Background(), &pb.SettleOutgoingRequest{
+		ReservationKey: "missing", IdempotencyKey: "iss-missing",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestAccountHandler_ReleaseOutgoing_Success(t *testing.T) {
+	h, acct := newAccountHandlerWithOutgoing(t)
+	_, err := h.ReserveOutgoing(context.Background(), &pb.ReserveOutgoingRequest{
+		AccountNumber: acct.AccountNumber, Amount: "300", Currency: "RSD",
+		ReservationKey: "or-1", IdempotencyKey: "ior-1",
+	})
+	require.NoError(t, err)
+
+	resp, err := h.ReleaseOutgoing(context.Background(), &pb.ReleaseOutgoingRequest{
+		ReservationKey: "or-1", IdempotencyKey: "irr-1",
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Released)
+}
+
+// ---------------------------------------------------------------------------
 // ListChangelog — drive the real ChangelogService over a sqlite-friendly
 // changelogs table.
 // ---------------------------------------------------------------------------
@@ -365,7 +488,7 @@ func TestAccountHandler_ListChangelog_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewAccountGRPCHandler_Constructs(t *testing.T) {
-	h := NewAccountGRPCHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewAccountGRPCHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NotNil(t, h)
 }
 

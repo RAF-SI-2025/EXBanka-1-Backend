@@ -25,10 +25,12 @@ import (
 
 // PeerOptionRecorder is the subset of stockpb.PeerOTCServiceClient
 // that this handler depends on, to record option contracts at
-// COMMIT_TX time. Decoupled for testability — production wiring uses
-// the real gRPC client; tests can supply a stub.
+// COMMIT_TX time and release vote-time seller-share holds at ROLLBACK_TX.
+// Decoupled for testability — production wiring uses the real gRPC client;
+// tests can supply a stub.
 type PeerOptionRecorder interface {
 	RecordOptionContract(ctx context.Context, in *stockpb.RecordOptionContractRequest, opts ...grpc.CallOption) (*stockpb.RecordOptionContractResponse, error)
+	ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error)
 }
 
 // PeerTxGRPCHandler implements transactionpb.PeerTxServiceServer.
@@ -195,6 +197,27 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 			return nil, status.Errorf(codes.Internal, "commit: %v", cerr)
 		}
 	}
+	// Settle DEBIT-side outgoing holds (reserve-then-settle): the money now
+	// actually leaves the debited accounts. Each hold is keyed by its
+	// per-posting idempotency tag, persisted in DebitsJSON at NEW_TX time.
+	// SettleOutgoing is idempotent; NotFound is benign (no DEBIT legs on this
+	// bank, or the hold was already settled on a prior COMMIT replay).
+	var debits []sitx.DebitedItem
+	if rec.DebitsJSON != "" && rec.DebitsJSON != "[]" {
+		if jerr := json.Unmarshal([]byte(rec.DebitsJSON), &debits); jerr != nil {
+			return nil, status.Errorf(codes.Internal, "decode debits: %v", jerr)
+		}
+	}
+	for _, d := range debits {
+		if _, serr := h.client.SettleOutgoing(ctx, &accountpb.SettleOutgoingRequest{
+			ReservationKey: d.IdempotencyTag,
+			IdempotencyKey: "sitx-settle-out-" + d.IdempotencyTag,
+		}); serr != nil {
+			if status.Code(serr) != codes.NotFound {
+				return nil, status.Errorf(codes.Internal, "settle %s: %v", d.IdempotencyTag, serr)
+			}
+		}
+	}
 	// Materialise any option-asset legs into peer_option_contracts via
 	// stock-service. The list was captured at NEW_TX time and persisted
 	// in OptionsJSON so we don't depend on the original postings list,
@@ -217,6 +240,25 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 // in principle (today they're homogeneous per-TX).
 //
 // No-op when optionRecorder is nil or list is empty/`[]`.
+// optionsJSONHasDebitLeg reports whether the persisted NEW_TX OptionsJSON
+// contains a DEBIT option leg — i.e. this bank held the seller and placed a
+// vote-time share hold that ROLLBACK_TX must release.
+func optionsJSONHasDebitLeg(optionsJSON string) bool {
+	if optionsJSON == "" || optionsJSON == "[]" {
+		return false
+	}
+	var items []sitx.OptionItem
+	if err := json.Unmarshal([]byte(optionsJSON), &items); err != nil {
+		return false
+	}
+	for _, it := range items {
+		if it.Direction == contractsitx.DirectionDebit {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *PeerTxGRPCHandler) materialiseOptions(ctx context.Context, optionsJSON, crossbankTxID string) error {
 	if h.optionRecorder == nil || optionsJSON == "" || optionsJSON == "[]" {
 		return nil
@@ -271,8 +313,21 @@ func (h *PeerTxGRPCHandler) HandleRollbackTx(ctx context.Context, req *transacti
 			return nil, status.Errorf(codes.Internal, "release: %v", rerr)
 		}
 	}
-	// Credit-back DEBIT-side immediate-debits performed during NEW_TX.
-	// Each entry is keyed by its own idempotency tag so retries are safe.
+	// Release any vote-time seller-share hold this bank placed at NEW_TX (a
+	// DEBIT option leg on our routing). The hold is keyed on the SI-TX identity
+	// (key = "<peerCode>:<idem>"), so one release covers the TX. Idempotent +
+	// no-op when absent. OptionsJSON was persisted at NEW_TX so we don't need
+	// the original postings list.
+	if h.optionRecorder != nil && optionsJSONHasDebitLeg(rec.OptionsJSON) {
+		if _, rerr := h.optionRecorder.ReleaseSellerSharesForNewTx(ctx, &stockpb.ReleaseSellerSharesRequest{CrossbankTxId: key}); rerr != nil {
+			return nil, status.Errorf(codes.Internal, "release shares: %v", rerr)
+		}
+	}
+	// Release DEBIT-side outgoing holds placed during NEW_TX (reserve-then-
+	// settle): the money never left, so releasing returns AvailableBalance
+	// with no Balance movement. Each hold is keyed by its own per-posting
+	// idempotency tag so retries are safe. NotFound is benign (no DEBIT legs
+	// on this bank, or already released by the timeout cron).
 	var debits []sitx.DebitedItem
 	if rec.DebitsJSON != "" && rec.DebitsJSON != "[]" {
 		if jerr := json.Unmarshal([]byte(rec.DebitsJSON), &debits); jerr != nil {
@@ -280,13 +335,13 @@ func (h *PeerTxGRPCHandler) HandleRollbackTx(ctx context.Context, req *transacti
 		}
 	}
 	for _, d := range debits {
-		if _, cerr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-			AccountNumber:   d.AccountNumber,
-			Amount:          d.Amount,
-			UpdateAvailable: true,
-			IdempotencyKey:  "sitx-creditback-" + d.IdempotencyTag,
-		}); cerr != nil {
-			return nil, status.Errorf(codes.Internal, "creditback %s: %v", d.IdempotencyTag, cerr)
+		if _, rerr := h.client.ReleaseOutgoing(ctx, &accountpb.ReleaseOutgoingRequest{
+			ReservationKey: d.IdempotencyTag,
+			IdempotencyKey: "sitx-release-out-" + d.IdempotencyTag,
+		}); rerr != nil {
+			if status.Code(rerr) != codes.NotFound {
+				return nil, status.Errorf(codes.Internal, "release %s: %v", d.IdempotencyTag, rerr)
+			}
 		}
 	}
 	return &transactionpb.SiTxAckResponse{}, nil
@@ -322,24 +377,40 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 	row := &model.OutboundPeerTx{
 		IdempotenceKey: idem,
 		PeerBankCode:   peerCode,
-		TxKind:         "transfer",
-		PostingsJSON:   string(postingsJSON),
-		Status:         "pending",
+		// Cross-bank client money sends are dispatched from /api/v3/me/payments
+		// (a payment to another person at another bank); transfers are
+		// intra-bank/same-client only.
+		TxKind:       "payment",
+		PostingsJSON: string(postingsJSON),
+		Status:       "pending",
 	}
 	if err := h.outRepo.Create(row); err != nil {
 		return nil, status.Errorf(codes.Internal, "outbound row: %v", err)
 	}
 
-	// Sender-debit-immediate: take the money from the sender now; credit
-	// it back on rollback. Idempotency key keeps the debit safe under
-	// retry/replay (account-service rejects requests without one).
-	if _, err := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-		AccountNumber:   req.GetFromAccountNumber(),
-		Amount:          "-" + req.GetAmount(),
-		UpdateAvailable: true,
-		IdempotencyKey:  "peer-out-debit-" + idem,
+	// Reserve-then-settle: HOLD the sender's money now (AvailableBalance -=
+	// amount, Balance untouched), settle it at COMMIT and release it on a NO
+	// vote / rollback / timeout. The hold can't be spent elsewhere while the
+	// peer decides, but the money hasn't left yet — money-safe and time-safe
+	// (account-service's timeout cron releases the hold if the peer never
+	// answers). Reservation key "peer-out:<idem>"; idempotent on the key.
+	outKey := "peer-out:" + idem
+	if _, err := h.client.ReserveOutgoing(ctx, &accountpb.ReserveOutgoingRequest{
+		AccountNumber:  req.GetFromAccountNumber(),
+		Amount:         req.GetAmount(),
+		Currency:       req.GetCurrency(),
+		ReservationKey: outKey,
+		IdempotencyKey: "peer-out-reserve-" + idem,
 	}); err != nil {
-		return nil, status.Errorf(codes.Internal, "debit: %v", err)
+		// The hold never landed, so this TX can never settle. Terminate the row
+		// (rolled_back) before returning so OutboundReplayCron doesn't resume it
+		// and commit a transfer whose money was never held. No reversal needed —
+		// nothing was applied.
+		_ = h.outRepo.MarkRolledBack(idem, "reserve failed: "+err.Error())
+		if status.Code(err) == codes.FailedPrecondition {
+			return nil, status.Errorf(codes.FailedPrecondition, "reserve: %v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "reserve: %v", err)
 	}
 
 	// Best-effort dispatch. On any error, the row stays pending and the
@@ -360,26 +431,34 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 		if err := h.httpClient.PostCommitTx(ctx, target, commitEnvelope); err != nil {
 			_ = h.outRepo.MarkAttempt(idem, "commit: "+err.Error())
 		} else {
-			_ = h.outRepo.MarkCommitted(idem)
+			// Peer committed → settle the hold (Balance -= amount, money leaves).
+			// If settle fails, keep the row pending so OutboundReplayCron retries;
+			// SettleOutgoing is idempotent on the key.
+			if _, serr := h.client.SettleOutgoing(ctx, &accountpb.SettleOutgoingRequest{
+				ReservationKey: outKey,
+				IdempotencyKey: "peer-out-settle-" + idem,
+			}); serr != nil && status.Code(serr) != codes.NotFound {
+				_ = h.outRepo.MarkAttempt(idem, "settle: "+serr.Error())
+			} else {
+				_ = h.outRepo.MarkCommitted(idem)
+			}
 		}
 	} else {
 		reason := "peer voted NO"
 		if len(vote.NoVotes) > 0 {
 			reason = "peer voted NO: " + vote.NoVotes[0].Reason
 		}
-		// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): credit the
-		// sender back on a NO vote, since we already debited them above. If
-		// the credit-back fails, keep the row pending (MarkAttempt) so
-		// OutboundReplayCron retries the reversal — marking it rolled_back
-		// here would strand the debited money in a terminal row nothing
-		// revisits. The credit-back key is idempotent, so the retry nets out.
-		if _, cbErr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-			AccountNumber:   req.GetFromAccountNumber(),
-			Amount:          req.GetAmount(),
-			UpdateAvailable: true,
-			IdempotencyKey:  "peer-out-creditback-" + idem,
-		}); cbErr != nil {
-			_ = h.outRepo.MarkAttempt(idem, reason+" (creditback failed, will retry: "+cbErr.Error()+")")
+		// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): release the
+		// sender's hold on a NO vote (no Balance ever moved — only the hold is
+		// lifted). If the release fails, keep the row pending (MarkAttempt) so
+		// OutboundReplayCron retries the reversal — marking it rolled_back here
+		// would strand the held money in a terminal row nothing revisits. The
+		// release key is idempotent, so the retry nets out.
+		if _, rErr := h.client.ReleaseOutgoing(ctx, &accountpb.ReleaseOutgoingRequest{
+			ReservationKey: outKey,
+			IdempotencyKey: "peer-out-release-" + idem,
+		}); rErr != nil && status.Code(rErr) != codes.NotFound {
+			_ = h.outRepo.MarkAttempt(idem, reason+" (release failed, will retry: "+rErr.Error()+")")
 		} else {
 			_ = h.outRepo.MarkRolledBack(idem, reason)
 		}
@@ -387,7 +466,7 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 
 	return &transactionpb.SiTxInitiateResponse{
 		TransactionId: idem,
-		PollUrl:       "/api/v3/me/transfers/" + idem,
+		PollUrl:       "/api/v3/me/payments/" + idem,
 		Status:        "pending",
 	}, nil
 }
@@ -478,6 +557,11 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		}); cerr != nil && status.Code(cerr) != codes.NotFound {
 			_ = h.outRepo.MarkAttempt(idem, "local commit: "+cerr.Error())
 		}
+		// Settle our local DEBIT-side outgoing holds (e.g. buyer premium money):
+		// the held amount now actually leaves. Idempotent on the per-posting key.
+		if serr := h.executor.SettleLocal(ctx, postings, ownPeerCode, idem); serr != nil {
+			_ = h.outRepo.MarkAttempt(idem, "local settle: "+serr.Error())
+		}
 		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
 			IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
 			MessageType:    contractsitx.MessageTypeCommitTx,
@@ -537,9 +621,12 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		}
 	}
 
+	// OTC variant: postings come from a cross-bank OTC accept/exercise, so the
+	// poll URL points at the OTC transaction-status endpoint (resolves this
+	// idem via PeerTxService.GetTxStatus), not the payment endpoint.
 	return &transactionpb.SiTxInitiateResponse{
 		TransactionId: idem,
-		PollUrl:       "/api/v3/me/transfers/" + idem,
+		PollUrl:       "/api/v3/me/otc/transactions/" + idem + "/status",
 		Status:        "pending",
 	}, nil
 }
@@ -550,15 +637,15 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 // into the cron as its LocalReversalFunc so the cron — which has no account
 // client of its own — can credit the sender back.
 //
-// Dispatch mirrors the two initiation paths so the credit-back idempotency
-// keys match, making the reversal idempotent and safe to interleave with the
-// inline NO-vote rollback:
-//   - "transfer" (InitiateOutboundTx): a single sender debit was applied with
-//     key "peer-out-debit-<idem>"; credit the local DEBIT leg back with
-//     "peer-out-creditback-<idem>".
+// Dispatch mirrors the two initiation paths so the reversal idempotency keys
+// match, making the reversal idempotent and safe to interleave with the inline
+// NO-vote rollback:
+//   - "transfer" (InitiateOutboundTx): a single sender hold was placed with
+//     reservation key "peer-out:<idem>"; release it (the money never left —
+//     only the hold is lifted). No Balance movement.
 //   - otherwise (InitiateOutboundTxWithPostings OTC legs): reservations +
-//     debits were applied via the posting executor with peerCode = our own
-//     routing; reverse them via the executor's matching keys.
+//     outgoing holds were applied via the posting executor with peerCode = our
+//     own routing; reverse them via the executor's matching keys.
 func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
 	var postings []contractsitx.Posting
 	if err := json.Unmarshal([]byte(row.PostingsJSON), &postings); err != nil {
@@ -567,19 +654,11 @@ func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model
 	idem := row.IdempotenceKey
 	switch row.TxKind {
 	case "", "transfer":
-		for i := range postings {
-			p := postings[i]
-			if p.RoutingNumber != h.ownRouting || p.Direction != contractsitx.DirectionDebit {
-				continue
-			}
-			if _, err := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber:   p.AccountID,
-				Amount:          p.Amount.String(),
-				UpdateAvailable: true,
-				IdempotencyKey:  "peer-out-creditback-" + idem,
-			}); err != nil {
-				return err
-			}
+		if _, err := h.client.ReleaseOutgoing(ctx, &accountpb.ReleaseOutgoingRequest{
+			ReservationKey: "peer-out:" + idem,
+			IdempotencyKey: "peer-out-release-" + idem,
+		}); err != nil && status.Code(err) != codes.NotFound {
+			return err
 		}
 		return nil
 	default:
@@ -588,21 +667,28 @@ func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model
 	}
 }
 
-// CommitOutboundLocal finalises the local CREDIT-leg reservations applied at
-// initiation time. Wired into OutboundReplayCron as its LocalCommitFunc so the
-// cron — which has no account client of its own — can complete the local
-// side of an OTC cross-bank commit after a crash between the inline Reserve()
-// and the inline CommitIncoming() call.
+// CommitOutboundLocal finalises this bank's local legs applied at initiation
+// time. Wired into OutboundReplayCron as its LocalCommitFunc so the cron —
+// which has no account client of its own — can complete the local side of a
+// cross-bank commit after a crash between the inline reserve and the inline
+// commit/settle calls.
 //
-// Skipped for "transfer" rows: those have no local CREDIT leg (the sender's
-// account was debited directly in InitiateOutboundTx, not reserved).
+//   - "transfer" rows (InitiateOutboundTx): settle the single sender HOLD keyed
+//     "peer-out:<idem>" (the money leaves). No CREDIT leg.
+//   - OTC rows (InitiateOutboundTxWithPostings): commit local CREDIT-leg
+//     reservations AND settle local DEBIT-side outgoing holds via the executor.
 //
-// Idempotency: uses key "sitx-localcommit-<localKey>" where localKey =
-// "<ownRouting>:<idem>", identical to the inline path's key. NotFound at
-// account-service is benign — means no CREDIT legs landed on this bank.
-// Safe to call multiple times.
+// Idempotency: every step reuses the inline path's keys, so this is safe to
+// call multiple times. NotFound at account-service is benign — means no
+// matching leg landed on this bank.
 func (h *PeerTxGRPCHandler) CommitOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
 	if row.TxKind == "" || row.TxKind == "transfer" {
+		if _, err := h.client.SettleOutgoing(ctx, &accountpb.SettleOutgoingRequest{
+			ReservationKey: "peer-out:" + row.IdempotenceKey,
+			IdempotencyKey: "peer-out-settle-" + row.IdempotenceKey,
+		}); err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
 		return nil
 	}
 	ownPeerCode := strconv.FormatInt(h.ownRouting, 10)
@@ -613,7 +699,11 @@ func (h *PeerTxGRPCHandler) CommitOutboundLocal(ctx context.Context, row *model.
 	}); err != nil && status.Code(err) != codes.NotFound {
 		return err
 	}
-	return nil
+	var postings []contractsitx.Posting
+	if err := json.Unmarshal([]byte(row.PostingsJSON), &postings); err != nil {
+		return err
+	}
+	return h.executor.SettleLocal(ctx, postings, ownPeerCode, row.IdempotenceKey)
 }
 
 // GetTxStatus implements the Celina-5 CHECK_STATUS mechanism. A peer bank

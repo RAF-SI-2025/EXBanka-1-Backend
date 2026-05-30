@@ -85,6 +85,11 @@ type PortfolioGroup struct {
 type PortfolioPosition struct {
 	AssetType         string
 	Symbol            string
+	// HoldingID is the underlying holdings-row id for security positions
+	// (stock/option/future). Zero for fund positions, which are keyed by FundID.
+	// Surfaced so clients can call make-public/exercise (which require a
+	// holding_id) directly from the unified portfolio.
+	HoldingID         uint64
 	FundID            uint64
 	FundName          string
 	FundStatus        string // for investment_fund positions — passthrough from FundStatus
@@ -339,6 +344,7 @@ func composeHoldingPosition(h model.Holding, prices map[uint64]decimal.Decimal) 
 	return PortfolioPosition{
 		AssetType:       mapSecurityType(h.SecurityType),
 		Symbol:          h.Ticker,
+		HoldingID:       h.ID,
 		Quantity:        h.Quantity,
 		AvgCostRSD:      h.AveragePrice,
 		CurrentPriceRSD: currentPrice,

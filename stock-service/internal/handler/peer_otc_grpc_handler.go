@@ -65,6 +65,21 @@ type HoldingReserver interface {
 		peerOptionContractID uint64,
 		qty int64,
 	) (*service.ReserveHoldingResult, error)
+	// ReserveForCrossBankNewTx holds shares at NEW_TX time keyed on the SI-TX
+	// identity (crossbank_tx_id), before the contract row exists.
+	ReserveForCrossBankNewTx(
+		ctx context.Context,
+		sellerOwnerType model.OwnerType,
+		sellerOwnerID *uint64,
+		securityType, ticker, crossbankTxID string,
+		qty int64,
+	) (*service.ReserveHoldingResult, error)
+	// AttachCrossBankReservationToContract links the vote-time hold to the
+	// contract minted at COMMIT_TX. Returns NotFound if no vote-time hold
+	// exists (caller falls back to ReserveForPeerOptionContract).
+	AttachCrossBankReservationToContract(ctx context.Context, crossbankTxID string, peerOptionContractID uint64) error
+	// ReleaseForCrossBankNewTx releases a vote-time hold on ROLLBACK.
+	ReleaseForCrossBankNewTx(ctx context.Context, crossbankTxID string) (*service.ReleaseHoldingResult, error)
 	ConsumeForPeerOptionContract(
 		ctx context.Context,
 		peerOptionContractID uint64,
@@ -909,24 +924,44 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 				"peer-option contract %d: seller_id %q not parseable, cannot lock shares: %v",
 				row.ID, row.SellerID, parseErr)
 		}
-		if _, err := h.holdingReserver.ReserveForPeerOptionContract(
-			ctx, ownerType, ownerID, "stock", row.Ticker, row.ID, row.Quantity,
-		); err != nil {
-			// Reservation failed — e.g. the seller traded the shares away in
-			// the window between the NEW_TX vote and this COMMIT-time lock.
-			// Returning success here would leave an "active" contract with no
-			// share reservation: a silent over-promise that only surfaces at
-			// exercise/settlement (Bug 2). Surface the failure so the SI-TX
-			// COMMIT does not ack. Both the contract row (idempotent on
-			// crossbank_tx_id, posting_index) and the reservation (idempotent
-			// on peer_option_contract_id) are replay-safe, so a COMMIT retry
-			// re-attempts the lock and heals once shares are available.
-			if st, ok := status.FromError(err); ok {
-				return nil, st.Err()
+		// Spec-aligned path (Celina-5 OTC SAGA): the shares were already RESERVED
+		// at NEW_TX time (vote-YES) keyed on crossbank_tx_id. At COMMIT we simply
+		// ATTACH that hold to the freshly-minted contract row — no re-check that
+		// could fail because the seller sold in the meantime (they couldn't: the
+		// shares were held). The existing consume/release-by-contract-id paths
+		// then operate unchanged.
+		attached := false
+		if cbTx := req.GetCrossbankTxId(); cbTx != "" {
+			err := h.holdingReserver.AttachCrossBankReservationToContract(ctx, cbTx, row.ID)
+			if err == nil {
+				attached = true
+			} else if status.Code(err) != codes.NotFound {
+				return nil, status.Errorf(codes.Internal,
+					"peer-option contract %d: attach vote-time share hold (tx %s): %v", row.ID, cbTx, err)
 			}
-			return nil, status.Errorf(codes.Internal,
-				"peer-option contract %d: lock seller %s ticker %s qty %d: %v",
-				row.ID, row.SellerID, row.Ticker, row.Quantity, err)
+			// NotFound → no vote-time hold (older NEW_TX before this change, or a
+			// transaction-service that didn't reserve) → fall through to the
+			// legacy reserve-at-commit below for backward compatibility.
+		}
+		if !attached {
+			if _, err := h.holdingReserver.ReserveForPeerOptionContract(
+				ctx, ownerType, ownerID, "stock", row.Ticker, row.ID, row.Quantity,
+			); err != nil {
+				// Legacy fallback. Reservation failed — e.g. the seller traded the
+				// shares away in the window between the NEW_TX vote and this
+				// COMMIT-time lock (the very gap the NEW_TX reservation closes).
+				// Surface the failure so the SI-TX COMMIT does not ack; both the
+				// contract row (idempotent on crossbank_tx_id, posting_index) and
+				// the reservation (idempotent on peer_option_contract_id) are
+				// replay-safe, so a COMMIT retry re-attempts and heals once shares
+				// are available.
+				if st, ok := status.FromError(err); ok {
+					return nil, st.Err()
+				}
+				return nil, status.Errorf(codes.Internal,
+					"peer-option contract %d: lock seller %s ticker %s qty %d: %v",
+					row.ID, row.SellerID, row.Ticker, row.Quantity, err)
+			}
 		}
 	}
 
@@ -977,6 +1012,65 @@ func (h *PeerOTCGRPCHandler) CheckSellerCanDeliver(ctx context.Context, req *sto
 		Ok:                available >= req.GetQuantity(),
 		AvailableQuantity: available,
 	}, nil
+}
+
+// ReserveSellerSharesForNewTx places a real HOLD on the seller's shares at
+// SI-TX NEW_TX (vote) time, keyed on crossbank_tx_id. Unlike
+// CheckSellerCanDeliver this increments reserved_quantity so the shares cannot
+// be sold before COMMIT_TX (Celina-5 OTC SAGA step 2). Same routing/seller
+// validation as CheckSellerCanDeliver; ok=false on insufficient/missing so the
+// caller votes NO with INSUFFICIENT_ASSET. Idempotent on crossbank_tx_id.
+func (h *PeerOTCGRPCHandler) ReserveSellerSharesForNewTx(ctx context.Context, req *stockpb.ReserveSellerSharesRequest) (*stockpb.ReserveSellerSharesResponse, error) {
+	if req.GetSellerId() == nil || req.GetTicker() == "" || req.GetQuantity() <= 0 || req.GetCrossbankTxId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "seller_id, ticker, positive quantity, and crossbank_tx_id are required")
+	}
+	if h.holdingReserver == nil {
+		// No reserver wired — cannot hold shares, so we must not vote YES.
+		return &stockpb.ReserveSellerSharesResponse{Ok: false}, nil
+	}
+	// Must be a seller on THIS bank's routing (mirror of CheckSellerCanDeliver
+	// Fix #8 defense — never reserve a local client's shares against a foreign
+	// seller's request).
+	if req.GetSellerId().GetRoutingNumber() != h.ownRouting {
+		return &stockpb.ReserveSellerSharesResponse{Ok: false}, nil
+	}
+	ownerType, ownerID, parseErr := parseSellerOwner(req.GetSellerId().GetId())
+	if parseErr != nil {
+		return &stockpb.ReserveSellerSharesResponse{Ok: false}, nil
+	}
+	res, err := h.holdingReserver.ReserveForCrossBankNewTx(
+		ctx, ownerType, ownerID, "stock", req.GetTicker(), req.GetCrossbankTxId(), req.GetQuantity(),
+	)
+	if err != nil {
+		// FailedPrecondition (holding not found / insufficient) → ok=false so the
+		// caller votes NO. Other errors propagate.
+		if status.Code(err) == codes.FailedPrecondition {
+			return &stockpb.ReserveSellerSharesResponse{Ok: false}, nil
+		}
+		return nil, status.Errorf(codes.Internal, "reserve seller shares: %v", err)
+	}
+	return &stockpb.ReserveSellerSharesResponse{
+		Ok:                true,
+		ReservedQuantity:  res.ReservedQuantity,
+		AvailableQuantity: res.AvailableQuantity,
+	}, nil
+}
+
+// ReleaseSellerSharesForNewTx releases a vote-time share hold by crossbank_tx_id
+// on ROLLBACK_TX (or a partial NO mid-NEW_TX). Idempotent: missing/non-active
+// reservation → released_quantity=0.
+func (h *PeerOTCGRPCHandler) ReleaseSellerSharesForNewTx(ctx context.Context, req *stockpb.ReleaseSellerSharesRequest) (*stockpb.ReleaseSellerSharesResponse, error) {
+	if req.GetCrossbankTxId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "crossbank_tx_id is required")
+	}
+	if h.holdingReserver == nil {
+		return &stockpb.ReleaseSellerSharesResponse{ReleasedQuantity: 0}, nil
+	}
+	res, err := h.holdingReserver.ReleaseForCrossBankNewTx(ctx, req.GetCrossbankTxId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "release seller shares: %v", err)
+	}
+	return &stockpb.ReleaseSellerSharesResponse{ReleasedQuantity: res.ReleasedQuantity}, nil
 }
 
 // parseSellerOwner maps an SI-TX participant id ("client-<n>",

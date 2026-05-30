@@ -353,6 +353,7 @@ func mapGroupToProto(g service.PortfolioGroup) *pb.PortfolioGroup {
 		pos := &pb.PortfolioPosition{
 			AssetType:            p.AssetType,
 			Symbol:               p.Symbol,
+			HoldingId:            p.HoldingID,
 			FundId:               p.FundID,
 			FundName:             p.FundName,
 			FundStatus:           p.FundStatus,

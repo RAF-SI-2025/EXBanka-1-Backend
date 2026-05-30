@@ -46,6 +46,7 @@ func cardRouter(h *handler.CardHandler) *gin.Engine {
 	r.GET("/cards/requests/me", withClient, h.ListMyCardRequests)
 	r.GET("/cards/requests", withCtx, h.ListCardRequests)
 	r.GET("/cards/requests/:id", withCtx, h.GetCardRequest)
+	r.GET("/me/cards/requests/:id", withClient, h.GetMyCardRequest)
 	r.POST("/cards/requests/:id/approve", withCtx, h.ApproveCardRequest)
 	r.POST("/cards/requests/:id/reject", withCtx, h.RejectCardRequest)
 	r.GET("/me/cards", withClient, h.ListMyCards)
@@ -569,4 +570,34 @@ func TestCard_BlockCard_GRPCError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// The /me self-version returns the caller's own card request and enforces
+// ownership from the JWT (withClient sets principal_id=1).
+func TestCard_GetMyCardRequest_OwnerOK(t *testing.T) {
+	crc := &stubCardRequestClient{
+		getFn: func(in *cardpb.GetCardRequestRequest) (*cardpb.CardRequestResponse, error) {
+			return &cardpb.CardRequestResponse{Id: in.Id, ClientId: 1}, nil
+		},
+	}
+	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, crc, &accountFullStub{})
+	r := cardRouter(h)
+	req := httptest.NewRequest("GET", "/me/cards/requests/5", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+func TestCard_GetMyCardRequest_NotOwner404(t *testing.T) {
+	crc := &stubCardRequestClient{
+		getFn: func(in *cardpb.GetCardRequestRequest) (*cardpb.CardRequestResponse, error) {
+			return &cardpb.CardRequestResponse{Id: in.Id, ClientId: 999}, nil // owned by someone else
+		},
+	}
+	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, crc, &accountFullStub{})
+	r := cardRouter(h)
+	req := httptest.NewRequest("GET", "/me/cards/requests/5", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 }

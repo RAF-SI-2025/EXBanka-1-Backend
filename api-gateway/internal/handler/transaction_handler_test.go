@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -38,6 +39,7 @@ func transactionRouter(h *handler.TransactionHandler, sysType string, uid int64)
 	r.DELETE("/api/v2/payment-recipients/:id", withCtx, h.DeletePaymentRecipient)
 	r.GET("/api/v2/me/payments", withCtx, h.ListMyPayments)
 	r.GET("/api/v2/me/payments/:id", withCtx, h.GetMyPayment)
+	r.GET("/api/v2/me/payments/:id/status", withCtx, h.GetMyPaymentStatus)
 	r.GET("/api/v2/me/transfers", withCtx, h.ListMyTransfers)
 	r.GET("/api/v2/me/transfers/:id", withCtx, h.GetMyTransfer)
 	r.GET("/api/v2/me/payment-recipients", withCtx, h.ListMyPaymentRecipients)
@@ -51,6 +53,7 @@ func transactionRouter(h *handler.TransactionHandler, sysType string, uid int64)
 	r.PUT("/api/v2/fees/:id", withCtx, h.UpdateFee)
 	r.DELETE("/api/v2/fees/:id", withCtx, h.DeleteFee)
 	r.POST("/api/v2/transfers/preview", withCtx, h.PreviewTransfer)
+	r.POST("/api/v2/payments/preview", withCtx, h.PreviewPayment)
 	return r
 }
 
@@ -842,6 +845,85 @@ func TestTx_UpdateFee_BadTxType(t *testing.T) {
 	r := transactionRouter(h, "employee", 1)
 	body := `{"fee_type":"percentage","transaction_type":"bogus","active":true}`
 	req := httptest.NewRequest("PUT", "/api/v2/fees/5", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ── GetMyPaymentStatus ────────────────────────────────────────────────────────
+
+func TestTx_GetMyPaymentStatus_Success(t *testing.T) {
+	tx := &stubTransactionClient{
+		getPaymentFn: func(req *transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error) {
+			require.Equal(t, uint64(99), req.Id)
+			return &transactionpb.PaymentResponse{Id: 99, ClientId: 7, Status: "completed"}, nil
+		},
+	}
+	h := newTxHandler(tx, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	r := transactionRouter(h, "client", 7)
+	req := httptest.NewRequest("GET", "/api/v2/me/payments/99/status", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "completed", resp["status"])
+	require.EqualValues(t, 99, resp["payment_id"])
+}
+
+func TestTx_GetMyPaymentStatus_NotOwner_404(t *testing.T) {
+	tx := &stubTransactionClient{
+		getPaymentFn: func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error) {
+			return &transactionpb.PaymentResponse{Id: 99, ClientId: 999, Status: "completed"}, nil
+		},
+	}
+	h := newTxHandler(tx, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	r := transactionRouter(h, "client", 7) // caller is client 7, payment owned by 999
+	req := httptest.NewRequest("GET", "/api/v2/me/payments/99/status", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+}
+
+// ── PreviewPayment ────────────────────────────────────────────────────────────
+
+func TestTx_PreviewPayment_ReturnsFeeAndTotalDebit(t *testing.T) {
+	acct := &accountFullStub{
+		getByNumFn: func(in *accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error) {
+			return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD"}, nil
+		},
+	}
+	fee := &stubFeeClient{
+		calculateFn: func(req *transactionpb.CalculateFeeRequest) (*transactionpb.CalculateFeeResponse, error) {
+			require.Equal(t, "payment", req.TransactionType)
+			require.Equal(t, "RSD", req.CurrencyCode)
+			return &transactionpb.CalculateFeeResponse{TotalFee: "10.0000"}, nil
+		},
+	}
+	h := newTxHandler(&stubTransactionClient{}, fee, acct, &stubExchangeClient{})
+	r := transactionRouter(h, "client", 7)
+	body := `{"from_account_number":"265-1-00","to_account_number":"222-9-00","amount":1000}`
+	req := httptest.NewRequest("POST", "/api/v2/payments/preview", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "RSD", resp["currency"])
+	require.Equal(t, "1000.0000", resp["input_amount"])
+	require.Equal(t, "10.0000", resp["total_fee"])
+	require.Equal(t, "1010.0000", resp["total_debit"])     // amount + fee leaves the sender
+	require.Equal(t, "1000.0000", resp["amount_received"]) // recipient gets the amount (no FX)
+}
+
+func TestTx_PreviewPayment_NegativeAmount(t *testing.T) {
+	h := newTxHandler(&stubTransactionClient{}, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	r := transactionRouter(h, "client", 7)
+	body := `{"from_account_number":"1","to_account_number":"2","amount":-5}`
+	req := httptest.NewRequest("POST", "/api/v2/payments/preview", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
