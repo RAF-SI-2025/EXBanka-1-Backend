@@ -384,6 +384,47 @@ func (e *PostingExecutor) SettleLocal(ctx context.Context, postings []contractsi
 	return nil
 }
 
+// ExtractOwnOptionItems deterministically derives the OptionItems for option-
+// asset legs on THIS bank's routing, mirroring the option-collection pass inside
+// Reserve (no side effects). The buyer/seller maps are built from ALL postings
+// (CREDIT = buyer side, DEBIT = seller side, paired by OptionDescription JSON),
+// then items are emitted only for own-routing legs. Used by the replay cron's
+// CommitOutboundLocal so a sender-side option contract can still be materialised
+// after a crash between the inline Reserve() and the inline materialise — the
+// cron has only the persisted postings, not the in-memory ReserveResult.
+func (e *PostingExecutor) ExtractOwnOptionItems(postings []contractsitx.Posting) []OptionItem {
+	buyerByDesc := map[string]contractsitx.ForeignBankId{}
+	sellerByDesc := map[string]contractsitx.ForeignBankId{}
+	for i := range postings {
+		p := postings[i]
+		if !strings.HasPrefix(p.AssetID, "{") {
+			continue
+		}
+		party := contractsitx.ForeignBankId{RoutingNumber: p.RoutingNumber, ID: p.AccountID}
+		switch p.Direction {
+		case contractsitx.DirectionCredit:
+			buyerByDesc[p.AssetID] = party
+		case contractsitx.DirectionDebit:
+			sellerByDesc[p.AssetID] = party
+		}
+	}
+	var items []OptionItem
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber != e.ownRouting || !strings.HasPrefix(p.AssetID, "{") {
+			continue
+		}
+		items = append(items, OptionItem{
+			PostingIndex:          i,
+			Direction:             p.Direction,
+			OptionDescriptionJSON: p.AssetID,
+			Buyer:                 buyerByDesc[p.AssetID],
+			Seller:                sellerByDesc[p.AssetID],
+		})
+	}
+	return items
+}
+
 // resolveAccountForPosting maps an accountId string to a concrete bank
 // account number. Participant-ID strings ("client-<n>") are resolved
 // via account-service to the participant's first active account in the

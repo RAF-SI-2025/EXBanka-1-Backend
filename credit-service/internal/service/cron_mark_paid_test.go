@@ -165,3 +165,13 @@ func TestProcessInstallment_MarkPaidFailure_Compensates(t *testing.T) {
 	assert.Equal(t, "1000.0000", accountClient.calls[3].amount,
 		"client reversal amount must be positive installment amount")
 }
+
+func (*mockCronAccountClient) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockCronAccountClient) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockCronAccountClient) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}

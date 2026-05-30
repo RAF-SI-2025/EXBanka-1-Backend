@@ -551,41 +551,51 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 	if vote, err := h.httpClient.PostNewTx(ctx, target, envelope); err != nil {
 		_ = h.outRepo.MarkAttempt(idem, err.Error())
 	} else if vote.Type == contractsitx.VoteYes {
-		// Peer voted YES → finalise our local CREDIT-leg reservations
-		// before sending COMMIT_TX. NotFound is benign (no CREDIT legs
-		// landed locally on this bank).
+		// Peer voted YES → finalise ALL local legs, then tell the peer to commit,
+		// then mark committed — but ONLY if every step succeeds. Any local failure
+		// leaves the row `pending` (via MarkAttempt) so OutboundReplayCron retries
+		// the full sequence via CommitOutboundLocal (which redoes commit + settle +
+		// option materialisation, all idempotent). Previously a local failure was
+		// MarkAttempt'd but then unconditionally overwritten by MarkCommitted,
+		// silently stranding an un-settled hold or an un-materialised contract.
+		localOK := true
+		// 1. Finalise local CREDIT-leg reservations. NotFound is benign.
 		if _, cerr := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{
 			ReservationKey: localKey,
 			IdempotencyKey: "sitx-localcommit-" + localKey,
 		}); cerr != nil && status.Code(cerr) != codes.NotFound {
 			_ = h.outRepo.MarkAttempt(idem, "local commit: "+cerr.Error())
+			localOK = false
 		}
-		// Settle our local DEBIT-side outgoing holds (e.g. buyer premium money):
-		// the held amount now actually leaves. Idempotent on the per-posting key.
-		if serr := h.executor.SettleLocal(ctx, postings, ownPeerCode, idem); serr != nil {
-			_ = h.outRepo.MarkAttempt(idem, "local settle: "+serr.Error())
+		// 2. Settle local DEBIT-side outgoing holds (e.g. buyer premium money).
+		if localOK {
+			if serr := h.executor.SettleLocal(ctx, postings, ownPeerCode, idem); serr != nil {
+				_ = h.outRepo.MarkAttempt(idem, "local settle: "+serr.Error())
+				localOK = false
+			}
 		}
-		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
-			IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
-			MessageType:    contractsitx.MessageTypeCommitTx,
-			Message:        contractsitx.CommitTransaction{TransactionID: idem},
-		}
-		if err := h.httpClient.PostCommitTx(ctx, target, commitEnvelope); err != nil {
-			_ = h.outRepo.MarkAttempt(idem, "commit: "+err.Error())
-		} else {
-			// Materialise sender-side option contract rows now that
-			// both banks have committed. Receiver-side rows are
-			// written by the peer's HandleCommitTx; sender-side rows
-			// are written here by us, since our local Reserve was
-			// run with peerCode=ownRouting and stays in our
-			// idempotence-record cache for free, but the option list
-			// is not pulled from idem store on this path — we use
-			// the localResult directly. crossbankTxID is consistently
-			// "<ownRouting>:<idem>" so the sender's row is keyed by
-			// the same UUID that flows on the wire.
+		// 3. Materialise sender-side option contract rows (seller DEBIT on accept;
+		// buyer CREDIT transition + share credit on exercise). crossbankTxID is the
+		// local key "<ownRouting>:<idem>", consistent with the wire UUID.
+		if localOK {
 			if merr := h.materialiseOptions(ctx, optionItemsJSON(localResult.OptionItems), localKey); merr != nil {
 				_ = h.outRepo.MarkAttempt(idem, "local option-record: "+merr.Error())
+				localOK = false
 			}
+		}
+		// 4. Tell the peer to commit.
+		if localOK {
+			commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
+				IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
+				MessageType:    contractsitx.MessageTypeCommitTx,
+				Message:        contractsitx.CommitTransaction{TransactionID: idem},
+			}
+			if err := h.httpClient.PostCommitTx(ctx, target, commitEnvelope); err != nil {
+				_ = h.outRepo.MarkAttempt(idem, "commit: "+err.Error())
+				localOK = false
+			}
+		}
+		if localOK {
 			_ = h.outRepo.MarkCommitted(idem)
 		}
 	} else {
@@ -697,7 +707,17 @@ func (h *PeerTxGRPCHandler) CommitOutboundLocal(ctx context.Context, row *model.
 	if err := json.Unmarshal([]byte(row.PostingsJSON), &postings); err != nil {
 		return err
 	}
-	return h.executor.SettleLocal(ctx, postings, ownPeerCode, row.IdempotenceKey)
+	if serr := h.executor.SettleLocal(ctx, postings, ownPeerCode, row.IdempotenceKey); serr != nil {
+		return serr
+	}
+	// Re-materialise this bank's option legs (sender-side contract: a DEBIT
+	// seller row on accept, or the CREDIT buyer transition+share-credit on
+	// exercise). The inline path does this too, but if it crashed/failed after
+	// settling money the cron must redo it — option materialisation is otherwise
+	// absent from the recovery path. Idempotent on (crossbank_tx_id, posting_index)
+	// and on the exercise contract-status guard. crossbankTxID is the local key
+	// "<ownRouting>:<idem>", matching the inline materialise.
+	return h.materialiseOptions(ctx, optionItemsJSON(h.executor.ExtractOwnOptionItems(postings)), localKey)
 }
 
 // rollbackPeer sends a best-effort, idempotent ROLLBACK_TX to the peer for a

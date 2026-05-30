@@ -242,9 +242,13 @@ func TestPeerOTC_AcceptNegotiation_DispatchesViaPeerTx(t *testing.T) {
 			PricePerStock: "150.00", Currency: "USD",
 			Premium: "10.00", PremiumCurrency: "USD",
 			SettlementDate: "2026-12-31",
+			// Pinned buyer account number (money leg) — DISTINCT from the buyer
+			// participant id (option leg) so the test verifies each leg carries
+			// the right identifier.
+			BuyerAccountNumber: "111000000000000999",
 		},
-		BuyerId:  &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "buyer-acct"},
-		SellerId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "seller-acct"},
+		BuyerId:  &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-7"},
+		SellerId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-9"},
 	})
 
 	peerTx.resp = &transactionpb.SiTxInitiateResponse{TransactionId: "tx-99", Status: "initiated"}
@@ -277,21 +281,24 @@ func TestPeerOTC_AcceptNegotiation_DispatchesViaPeerTx(t *testing.T) {
 	}
 
 	postings := peerTx.gotReq.GetPostings()
-	// Posting 0: buyer DEBIT premium currency
-	if postings[0].GetDirection() != "DEBIT" || postings[0].GetAccountId() != "buyer-acct" || postings[0].GetAssetId() != "USD" {
+	// Posting 0: buyer DEBIT premium currency — MONEY leg carries the pinned
+	// buyer ACCOUNT NUMBER (so the executor debits the exact account).
+	if postings[0].GetDirection() != "DEBIT" || postings[0].GetAccountId() != "111000000000000999" || postings[0].GetAssetId() != "USD" {
 		t.Errorf("posting 0 mismatch: %+v", postings[0])
 	}
 	// Posting 1: seller CREDIT premium currency
-	if postings[1].GetDirection() != "CREDIT" || postings[1].GetAccountId() != "seller-acct" || postings[1].GetAssetId() != "USD" {
+	if postings[1].GetDirection() != "CREDIT" || postings[1].GetAccountId() != "client-9" || postings[1].GetAssetId() != "USD" {
 		t.Errorf("posting 1 mismatch: %+v", postings[1])
 	}
-	// Posting 2: seller DEBIT 1× option
-	if postings[2].GetDirection() != "DEBIT" || postings[2].GetAccountId() != "seller-acct" || postings[2].GetAmount() != "1" {
+	// Posting 2: seller DEBIT 1× option — OPTION leg carries the seller PARTICIPANT id.
+	if postings[2].GetDirection() != "DEBIT" || postings[2].GetAccountId() != "client-9" || postings[2].GetAmount() != "1" {
 		t.Errorf("posting 2 mismatch: %+v", postings[2])
 	}
-	// Posting 3: buyer CREDIT 1× option
-	if postings[3].GetDirection() != "CREDIT" || postings[3].GetAccountId() != "buyer-acct" || postings[3].GetAmount() != "1" {
-		t.Errorf("posting 3 mismatch: %+v", postings[3])
+	// Posting 3: buyer CREDIT 1× option — OPTION leg carries the buyer PARTICIPANT
+	// id ("client-7"), NOT the account number. This is the buyer_id that the
+	// contract stores and that the exercise share-credit + /me listing rely on.
+	if postings[3].GetDirection() != "CREDIT" || postings[3].GetAccountId() != "client-7" || postings[3].GetAmount() != "1" {
+		t.Errorf("posting 3 mismatch (option leg must carry buyer participant id, not account number): %+v", postings[3])
 	}
 	// Both option postings share the same asset_id (the JSON-encoded
 	// OptionDescription), distinct from the premium asset.

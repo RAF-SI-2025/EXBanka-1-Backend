@@ -746,11 +746,21 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 	if offer.BuyerAccountNumber != "" {
 		buyerAccountID = offer.BuyerAccountNumber
 	}
+	// Money legs (premium) carry account numbers — the buyer's pinned account
+	// for the DEBIT (so the executor debits the exact account), and the seller's
+	// participant id for the CREDIT (executor resolves to any active currency
+	// account). Option-asset legs carry PARTICIPANT ids ("client-<n>") on BOTH
+	// sides: that id becomes the peer_option_contract's buyer_id/seller_id, which
+	// must be parseable as a participant for the exercise share-credit and for
+	// the /me/otc/contracts listing (ListByLocalParticipant matches buyer_id =
+	// "client-<principal>"). Using the buyer account number on the option leg
+	// (the old bug) left an unparseable buyer_id — exercise couldn't credit the
+	// buyer and the contract was invisible in their listing.
 	postings := []*transactionpb.SiTxPosting{
 		{RoutingNumber: row.BuyerRoutingNumber, AccountId: buyerAccountID, AssetId: offer.PremiumCurrency, Amount: premium, Direction: contractsitx.DirectionDebit},
 		{RoutingNumber: row.SellerRoutingNumber, AccountId: row.SellerID, AssetId: offer.PremiumCurrency, Amount: premium, Direction: contractsitx.DirectionCredit},
 		{RoutingNumber: row.SellerRoutingNumber, AccountId: row.SellerID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionDebit},
-		{RoutingNumber: row.BuyerRoutingNumber, AccountId: buyerAccountID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionCredit},
+		{RoutingNumber: row.BuyerRoutingNumber, AccountId: row.BuyerID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionCredit},
 	}
 
 	resp, err := h.peerTx.InitiateOutboundTxWithPostings(ctx, &transactionpb.SiTxInitiateWithPostingsRequest{

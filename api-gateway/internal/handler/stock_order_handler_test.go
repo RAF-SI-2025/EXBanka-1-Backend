@@ -313,3 +313,13 @@ func TestListMyOrders_ForwardsClientIdentity(t *testing.T) {
 	require.Equal(t, uint64(7), ord.lastListReq.UserId)
 	require.Equal(t, "client", ord.lastListReq.SystemType)
 }
+
+func (*stubAccountClient) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*stubAccountClient) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*stubAccountClient) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}
