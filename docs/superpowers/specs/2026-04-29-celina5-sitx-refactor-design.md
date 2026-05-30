@@ -326,6 +326,31 @@ These were settled during brainstorming and are not open questions:
 - **NoVote semantics:** all hard-fail. Sender does not retry NO votes regardless of reason.
 - **Peer-bank admin CRUD:** runtime-editable via 5 REST routes under `/api/v3/peer-banks`, gated by new `peer_banks.manage` permission (EmployeeAdmin). Seed file `seeder/peer_banks.sql` provides initial registrations; admins can add/update/remove peers without redeploy.
 
+## Amendment 2026-05-30 — cross-bank OTC seller shares reserved at NEW_TX (vote)
+
+The Celina-5 spec (`docs/Celina-5(Nova).md`, OTC accept SAGA step 2 "Provera i
+rezervacija hartija – Banka B") requires the seller's bank to **reserve** the
+shares (`rezervisaneHartije += zahtevaniBroj`) when it processes the
+prepare/NEW_TX — symmetric with the buyer-funds reservation in step 1 — with
+ownership transfer deferred to the commit step. The original implementation only
+*checked* shares at NEW_TX (`CheckSellerCanDeliver`, read-only) and reserved at
+COMMIT (`RecordOptionContract → ReserveForPeerOptionContract`), leaving a window
+where the seller could sell the shares between vote-YES and COMMIT (buyer's money
+already moved → COMMIT fails, trade stuck).
+
+Now: the seller's bank places a real share **hold** at NEW_TX, keyed on the SI-TX
+identity `crossbank_tx_id = "<peerCode>:<idem>"` (the contract row doesn't exist
+yet). New internal RPCs on `PeerOTCService` (stock↔transaction-service, NOT the
+peer wire protocol): `ReserveSellerSharesForNewTx` (vote) and
+`ReleaseSellerSharesForNewTx` (rollback). `HoldingReservation` gains a
+`CrossbankTxID` key. At COMMIT, `RecordOptionContract` **attaches** the vote-time
+hold to the minted contract (`AttachCrossBankReservationToContract`) instead of
+re-reserving — with a fallback to the legacy reserve-at-commit for in-flight
+trades that voted YES under the old code. ROLLBACK releases the hold. The peer
+HTTP envelopes (NEW_TX/COMMIT_TX/ROLLBACK_TX) and the `sitx` contract are
+unchanged, so cohort interop is unaffected. Plan:
+`docs/superpowers/plans/2026-05-30-crossbank-otc-share-reserve-at-vote.md`.
+
 ## Open follow-ups (out of scope for this design)
 
 - HMAC-mode peer key rotation policy.

@@ -1790,6 +1790,17 @@ service PeerOTCService {
   rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
   rpc RecordOptionContract(RecordOptionContractRequest) returns (RecordOptionContractResponse);
   rpc CheckSellerCanDeliver(CheckSellerCanDeliverRequest) returns (CheckSellerCanDeliverResponse);
+  // ReserveSellerSharesForNewTx is called by transaction-service at NEW_TX
+  // (vote) time for each DEBIT-direction option-asset posting on this bank.
+  // Unlike CheckSellerCanDeliver (read-only), it places a real HOLD on the
+  // seller's shares keyed on the SI-TX identity (crossbank_tx_id), so the
+  // shares cannot be sold between vote-YES and COMMIT_TX (Celina-5 OTC SAGA
+  // step 2 "rezervacija hartija"). ok=false → INSUFFICIENT_ASSET NoVote.
+  // Idempotent on crossbank_tx_id.
+  rpc ReserveSellerSharesForNewTx(ReserveSellerSharesRequest) returns (ReserveSellerSharesResponse);
+  // ReleaseSellerSharesForNewTx releases a vote-time share hold on ROLLBACK_TX
+  // (or a partial NO mid-NEW_TX) when no contract was minted. Idempotent.
+  rpc ReleaseSellerSharesForNewTx(ReleaseSellerSharesRequest) returns (ReleaseSellerSharesResponse);
   rpc InitiateOptionExercise(InitiateOptionExerciseRequest) returns (InitiateOptionExerciseResponse);
 
   // Buyer-side mirror persistence so the buyer's bank also has a local
@@ -2093,6 +2104,31 @@ message CheckSellerCanDeliverRequest {
 message CheckSellerCanDeliverResponse {
   bool ok = 1;
   int64 available_quantity = 2;
+}
+
+// ReserveSellerSharesRequest holds `quantity` shares of `ticker` for the
+// seller participant against the cross-bank transaction identity
+// crossbank_tx_id ("<peerCode>:<idem>"). Same fields as CheckSellerCanDeliver
+// plus the identity to key the reservation on.
+message ReserveSellerSharesRequest {
+  PeerForeignBankId seller_id = 1;
+  string ticker = 2;
+  int64 quantity = 3;
+  string crossbank_tx_id = 4;
+}
+
+message ReserveSellerSharesResponse {
+  bool ok = 1;                  // false → insufficient/none; caller votes NO
+  int64 reserved_quantity = 2;  // holding's total reserved after the hold
+  int64 available_quantity = 3; // holding's available after the hold
+}
+
+message ReleaseSellerSharesRequest {
+  string crossbank_tx_id = 1;
+}
+
+message ReleaseSellerSharesResponse {
+  int64 released_quantity = 1;
 }
 
 // ---- RecurringFundService -----------------------------------------------

@@ -25,10 +25,12 @@ import (
 
 // PeerOptionRecorder is the subset of stockpb.PeerOTCServiceClient
 // that this handler depends on, to record option contracts at
-// COMMIT_TX time. Decoupled for testability — production wiring uses
-// the real gRPC client; tests can supply a stub.
+// COMMIT_TX time and release vote-time seller-share holds at ROLLBACK_TX.
+// Decoupled for testability — production wiring uses the real gRPC client;
+// tests can supply a stub.
 type PeerOptionRecorder interface {
 	RecordOptionContract(ctx context.Context, in *stockpb.RecordOptionContractRequest, opts ...grpc.CallOption) (*stockpb.RecordOptionContractResponse, error)
+	ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error)
 }
 
 // PeerTxGRPCHandler implements transactionpb.PeerTxServiceServer.
@@ -217,6 +219,25 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 // in principle (today they're homogeneous per-TX).
 //
 // No-op when optionRecorder is nil or list is empty/`[]`.
+// optionsJSONHasDebitLeg reports whether the persisted NEW_TX OptionsJSON
+// contains a DEBIT option leg — i.e. this bank held the seller and placed a
+// vote-time share hold that ROLLBACK_TX must release.
+func optionsJSONHasDebitLeg(optionsJSON string) bool {
+	if optionsJSON == "" || optionsJSON == "[]" {
+		return false
+	}
+	var items []sitx.OptionItem
+	if err := json.Unmarshal([]byte(optionsJSON), &items); err != nil {
+		return false
+	}
+	for _, it := range items {
+		if it.Direction == contractsitx.DirectionDebit {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *PeerTxGRPCHandler) materialiseOptions(ctx context.Context, optionsJSON, crossbankTxID string) error {
 	if h.optionRecorder == nil || optionsJSON == "" || optionsJSON == "[]" {
 		return nil
@@ -269,6 +290,16 @@ func (h *PeerTxGRPCHandler) HandleRollbackTx(ctx context.Context, req *transacti
 	}); rerr != nil {
 		if status.Code(rerr) != codes.NotFound {
 			return nil, status.Errorf(codes.Internal, "release: %v", rerr)
+		}
+	}
+	// Release any vote-time seller-share hold this bank placed at NEW_TX (a
+	// DEBIT option leg on our routing). The hold is keyed on the SI-TX identity
+	// (key = "<peerCode>:<idem>"), so one release covers the TX. Idempotent +
+	// no-op when absent. OptionsJSON was persisted at NEW_TX so we don't need
+	// the original postings list.
+	if h.optionRecorder != nil && optionsJSONHasDebitLeg(rec.OptionsJSON) {
+		if _, rerr := h.optionRecorder.ReleaseSellerSharesForNewTx(ctx, &stockpb.ReleaseSellerSharesRequest{CrossbankTxId: key}); rerr != nil {
+			return nil, status.Errorf(codes.Internal, "release shares: %v", rerr)
 		}
 	}
 	// Credit-back DEBIT-side immediate-debits performed during NEW_TX.

@@ -66,12 +66,19 @@ type ReserveResult struct {
 	OptionItems     []OptionItem  // populated on YES; one per option-asset posting on our routing
 }
 
-// SellerHoldingChecker is the subset of stockpb.PeerOTCServiceClient
-// the executor depends on for the NEW_TX-time seller-side holdings
-// pre-check. Decoupled for testability — production wires the real
-// gRPC client; tests can supply a stub.
+// SellerHoldingChecker is the subset of stockpb.PeerOTCServiceClient the
+// executor depends on for the NEW_TX-time seller-side share handling.
+// Decoupled for testability — production wires the real gRPC client; tests can
+// supply a stub.
+//
+// ReserveSellerSharesForNewTx places a real HOLD on the seller's shares at
+// vote time (Celina-5 OTC SAGA step 2 "rezervacija hartija"), keyed on the
+// SI-TX identity, so they can't be sold before COMMIT. CheckSellerCanDeliver
+// is retained for callers that only need a read-only pre-check.
 type SellerHoldingChecker interface {
 	CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error)
+	ReserveSellerSharesForNewTx(ctx context.Context, in *stockpb.ReserveSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReserveSellerSharesResponse, error)
+	ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error)
 }
 
 // optionDescriptionForCheck mirrors the fields of contract.sitx.OptionDescription
@@ -166,16 +173,18 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		// before COMMIT.
 		//
 		// For DEBIT option postings on our routing (this bank holds the
-		// seller), pre-check that the seller has enough unreserved
-		// shares now — voting NO with INSUFFICIENT_ASSET here means
-		// money never moves on a contract the seller can't fulfil.
-		// The pre-check is REQUIRED (Fix #6, 2026-05-16): without it
-		// the COMMIT_TX-time lock would be the only enforcement, which
-		// only fires AFTER the buyer's money has already moved. If the
-		// holdingChecker isn't wired we vote NO with INSUFFICIENT_ASSET
-		// rather than silently skip — keeps transaction-service bootable
-		// even if stock-service is briefly down, but prevents commits
-		// that would land without the seller-can-deliver guarantee.
+		// seller), RESERVE the seller's shares now — a real hold keyed on the
+		// SI-TX identity (crossbank_tx_id = "<peerCode>:<idem>"). This is the
+		// spec's Celina-5 OTC SAGA step 2 ("rezervacija hartija"): the shares
+		// must be HELD when we vote YES so they can't be sold before COMMIT_TX,
+		// not merely checked. COMMIT_TX then attaches this hold to the minted
+		// contract (no re-check that could fail); ROLLBACK releases it. A
+		// failed/insufficient reservation → INSUFFICIENT_ASSET NoVote so money
+		// never moves on a contract the seller can't fulfil. If the reserver
+		// isn't wired we vote NO rather than silently skip (keeps the YES vote
+		// honest even when stock-service is briefly down). Replaces the prior
+		// read-only CheckSellerCanDeliver pre-check (Fix #6) which left a
+		// sell-between-vote-and-commit window.
 		if strings.HasPrefix(p.AssetID, "{") {
 			if p.Direction == contractsitx.DirectionDebit {
 				if e.holdingChecker == nil {
@@ -184,13 +193,15 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 				var od optionDescriptionForCheck
 				if err := json.Unmarshal([]byte(p.AssetID), &od); err == nil && od.Ticker != "" && od.Amount > 0 {
 					seller := sellerByDesc[p.AssetID]
-					resp, err := e.holdingChecker.CheckSellerCanDeliver(ctx, &stockpb.CheckSellerCanDeliverRequest{
+					crossbankTxID := peerBankCode + ":" + locallyGeneratedKey
+					resp, err := e.holdingChecker.ReserveSellerSharesForNewTx(ctx, &stockpb.ReserveSellerSharesRequest{
 						SellerId: &stockpb.PeerForeignBankId{
 							RoutingNumber: seller.RoutingNumber,
 							Id:            seller.ID,
 						},
-						Ticker:   od.Ticker,
-						Quantity: od.Amount,
+						Ticker:        od.Ticker,
+						Quantity:      od.Amount,
+						CrossbankTxId: crossbankTxID,
 					})
 					if err != nil || resp == nil || !resp.GetOk() {
 						return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
@@ -287,6 +298,15 @@ func (e *PostingExecutor) ReverseLocal(ctx context.Context, postings []contracts
 	}); err != nil && status.Code(err) != codes.NotFound {
 		return err
 	}
+	// Release any vote-time seller-share hold (DEBIT option leg on our routing).
+	// Keyed on the SI-TX identity, so a single release covers the TX regardless
+	// of posting index. Idempotent + no-op when absent. Skipped if the reserver
+	// isn't wired.
+	if e.holdingChecker != nil && hasOwnDebitOptionLeg(postings, e.ownRouting) {
+		if _, err := e.holdingChecker.ReleaseSellerSharesForNewTx(ctx, &stockpb.ReleaseSellerSharesRequest{CrossbankTxId: key}); err != nil {
+			return err
+		}
+	}
 	for i := range postings {
 		p := postings[i]
 		if p.RoutingNumber != e.ownRouting || p.Direction != contractsitx.DirectionDebit {
@@ -340,6 +360,19 @@ func (e *PostingExecutor) resolveAccountForPosting(ctx context.Context, accountI
 		}
 	}
 	return "", fmt.Errorf("client %d has no active %s account", clientID, currency)
+}
+
+// hasOwnDebitOptionLeg reports whether the postings contain a DEBIT
+// option-asset leg on the given routing — i.e. this bank holds the seller and
+// therefore placed a vote-time share hold that must be released on rollback.
+func hasOwnDebitOptionLeg(postings []contractsitx.Posting, ownRouting int64) bool {
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber == ownRouting && p.Direction == contractsitx.DirectionDebit && strings.HasPrefix(p.AssetID, "{") {
+			return true
+		}
+	}
+	return false
 }
 
 func noVote(reason string, postingIdx int) ReserveResult {

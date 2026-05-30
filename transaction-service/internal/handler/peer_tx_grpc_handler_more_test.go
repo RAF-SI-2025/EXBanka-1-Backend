@@ -26,8 +26,10 @@ import (
 // stubOptionRecorder satisfies handler.PeerOptionRecorder for COMMIT_TX
 // option-leg materialisation tests.
 type stubOptionRecorder struct {
-	calls []*stockpb.RecordOptionContractRequest
-	err   error
+	calls        []*stockpb.RecordOptionContractRequest
+	err          error
+	releaseCalls []string // crossbank_tx_ids passed to ReleaseSellerSharesForNewTx
+	releaseErr   error
 }
 
 func (s *stubOptionRecorder) RecordOptionContract(ctx context.Context, in *stockpb.RecordOptionContractRequest, opts ...grpc.CallOption) (*stockpb.RecordOptionContractResponse, error) {
@@ -36,6 +38,30 @@ func (s *stubOptionRecorder) RecordOptionContract(ctx context.Context, in *stock
 		return nil, s.err
 	}
 	return &stockpb.RecordOptionContractResponse{}, nil
+}
+
+func (s *stubOptionRecorder) ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error) {
+	s.releaseCalls = append(s.releaseCalls, in.GetCrossbankTxId())
+	if s.releaseErr != nil {
+		return nil, s.releaseErr
+	}
+	return &stockpb.ReleaseSellerSharesResponse{}, nil
+}
+
+// handlerHoldingChecker satisfies sitx.SellerHoldingChecker for handler-level
+// tests that need a DEBIT-option leg to vote YES (reserve) at NEW_TX. Always
+// ok=true; reserve/release are recorded but the handler-level assertion uses
+// the option recorder's release tracking.
+type handlerHoldingChecker struct{}
+
+func (handlerHoldingChecker) CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error) {
+	return &stockpb.CheckSellerCanDeliverResponse{Ok: true}, nil
+}
+func (handlerHoldingChecker) ReserveSellerSharesForNewTx(ctx context.Context, in *stockpb.ReserveSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReserveSellerSharesResponse, error) {
+	return &stockpb.ReserveSellerSharesResponse{Ok: true}, nil
+}
+func (handlerHoldingChecker) ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error) {
+	return &stockpb.ReleaseSellerSharesResponse{}, nil
 }
 
 // TestHandleNewTx_MissingIdempotenceKey_400 verifies the missing-key
@@ -301,6 +327,53 @@ func TestHandleCommitTx_MaterialisesOptions(t *testing.T) {
 	}
 	if rec.calls[0].Intent != "accept" {
 		t.Errorf("intent: %q", rec.calls[0].Intent)
+	}
+}
+
+// TestHandleRollbackTx_ReleasesSellerShareHold verifies that when this bank
+// held the seller (a DEBIT option leg on our routing), ROLLBACK_TX releases the
+// vote-time share hold via ReleaseSellerSharesForNewTx, keyed on the SI-TX
+// identity. This is the asset-side counterpart to the money creditback.
+func TestHandleRollbackTx_ReleasesSellerShareHold(t *testing.T) {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err := db.AutoMigrate(&model.PeerIdempotenceRecord{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	stub := &stubAccountForHandler{}
+	idemRepo := repository.NewPeerIdempotenceRepository(db)
+	exec := sitx.NewPostingExecutor(stub, 111)
+	// Executor needs a holding checker so the DEBIT-option leg on our routing
+	// votes YES (reserves) at NEW_TX. ok=true via the stub.
+	exec.SetHoldingChecker(handlerHoldingChecker{})
+	h := handler.NewPeerTxGRPCHandler(idemRepo, exec, stub, nil, nil, nil, 111)
+	rec := &stubOptionRecorder{}
+	h.SetOptionRecorder(rec)
+
+	// NEW_TX: option DEBIT on our routing 111 = WE hold the seller.
+	optDesc := `{"ticker":"AAPL","amount":1,"intent":"accept"}`
+	if _, err := h.HandleNewTx(context.Background(), &transactionpb.SiTxNewTxRequest{
+		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "rb-shares"},
+		PeerBankCode:   "222",
+		Postings: []*transactionpb.SiTxPosting{
+			{RoutingNumber: 222, AccountId: "222-pay", AssetId: "RSD", Amount: "100", Direction: "DEBIT"},
+			{RoutingNumber: 111, AccountId: "111-pay", AssetId: "RSD", Amount: "100", Direction: "CREDIT"},
+			{RoutingNumber: 111, AccountId: "client-7", AssetId: optDesc, Amount: "1", Direction: "DEBIT"},
+			{RoutingNumber: 222, AccountId: "client-8", AssetId: optDesc, Amount: "1", Direction: "CREDIT"},
+		},
+	}); err != nil {
+		t.Fatalf("NEW_TX: %v", err)
+	}
+	if _, err := h.HandleRollbackTx(context.Background(), &transactionpb.SiTxRollbackRequest{
+		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "rb-shares"},
+		PeerBankCode:   "222",
+	}); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if len(rec.releaseCalls) != 1 {
+		t.Fatalf("expected 1 share-release call on rollback, got %d", len(rec.releaseCalls))
+	}
+	if rec.releaseCalls[0] != "222:rb-shares" {
+		t.Errorf("release keyed on %q, want 222:rb-shares", rec.releaseCalls[0])
 	}
 }
 
