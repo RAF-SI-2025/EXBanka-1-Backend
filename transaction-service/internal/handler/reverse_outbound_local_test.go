@@ -9,16 +9,21 @@ import (
 	"google.golang.org/grpc"
 )
 
-// TestReverseOutboundLocal_Transfer_CreditsBackSender verifies that reversing
-// a simple-transfer outbound row credits the local DEBIT leg back to the
-// sender with the same idempotency key the inline NO-vote path uses, so the
-// two paths can never double-credit.
-func TestReverseOutboundLocal_Transfer_CreditsBackSender(t *testing.T) {
+// TestReverseOutboundLocal_Transfer_ReleasesSenderHold verifies that reversing
+// a simple-transfer outbound row releases the sender's outgoing HOLD with the
+// same idempotency key the inline NO-vote path uses, so the two paths can never
+// double-act. Under reserve-then-settle the money never left, so this is a
+// hold release (no Balance movement), not a credit-back.
+func TestReverseOutboundLocal_Transfer_ReleasesSenderHold(t *testing.T) {
 	h, _, stub := newPeerTxHandler(t) // ownRouting 111
 
-	var updates []*accountpb.UpdateBalanceRequest
+	var releases []*accountpb.ReleaseOutgoingRequest
+	stub.releaseOutFn = func(_ context.Context, in *accountpb.ReleaseOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		releases = append(releases, in)
+		return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+	}
 	stub.updateFn = func(_ context.Context, in *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-		updates = append(updates, in)
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
 		return &accountpb.AccountResponse{}, nil
 	}
 
@@ -31,36 +36,37 @@ func TestReverseOutboundLocal_Transfer_CreditsBackSender(t *testing.T) {
 		t.Fatalf("reverse: %v", err)
 	}
 
-	if len(updates) != 1 {
-		t.Fatalf("expected exactly 1 credit-back (local DEBIT leg), got %d", len(updates))
+	if len(releases) != 1 {
+		t.Fatalf("expected exactly 1 hold release, got %d", len(releases))
 	}
-	if updates[0].GetAccountNumber() != "111-A" {
-		t.Errorf("credit-back account = %q want 111-A", updates[0].GetAccountNumber())
+	if releases[0].GetReservationKey() != "peer-out:idem-1" {
+		t.Errorf("release key = %q want peer-out:idem-1", releases[0].GetReservationKey())
 	}
-	if updates[0].GetAmount() != "100" {
-		t.Errorf("credit-back amount = %q want 100", updates[0].GetAmount())
-	}
-	if updates[0].GetIdempotencyKey() != "peer-out-creditback-idem-1" {
-		t.Errorf("credit-back key = %q want peer-out-creditback-idem-1", updates[0].GetIdempotencyKey())
+	if releases[0].GetIdempotencyKey() != "peer-out-release-idem-1" {
+		t.Errorf("release idem key = %q want peer-out-release-idem-1", releases[0].GetIdempotencyKey())
 	}
 }
 
-// TestReverseOutboundLocal_OTC_ReleasesAndCreditsBack verifies that reversing
-// an OTC multi-leg outbound row releases the local CREDIT reservation and
-// credits back each local DEBIT money leg, using the executor's keys so the
-// reversal matches the inline OTC rollback path. Option-asset legs carry no
-// money and are skipped.
-func TestReverseOutboundLocal_OTC_ReleasesAndCreditsBack(t *testing.T) {
+// TestReverseOutboundLocal_OTC_ReleasesReservationAndHolds verifies that
+// reversing an OTC multi-leg outbound row releases the local CREDIT reservation
+// (ReleaseIncoming) and releases each local DEBIT money HOLD (ReleaseOutgoing),
+// using the executor's keys so the reversal matches the inline OTC rollback
+// path. Option-asset legs carry no money and are skipped.
+func TestReverseOutboundLocal_OTC_ReleasesReservationAndHolds(t *testing.T) {
 	h, _, stub := newPeerTxHandler(t) // ownRouting 111
 
 	var releases []*accountpb.ReleaseIncomingRequest
-	var updates []*accountpb.UpdateBalanceRequest
+	var releaseOuts []*accountpb.ReleaseOutgoingRequest
 	stub.releaseFn = func(_ context.Context, in *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 		releases = append(releases, in)
 		return &accountpb.ReleaseIncomingResponse{}, nil
 	}
+	stub.releaseOutFn = func(_ context.Context, in *accountpb.ReleaseOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		releaseOuts = append(releaseOuts, in)
+		return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+	}
 	stub.updateFn = func(_ context.Context, in *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-		updates = append(updates, in)
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
 		return &accountpb.AccountResponse{}, nil
 	}
 
@@ -81,13 +87,13 @@ func TestReverseOutboundLocal_OTC_ReleasesAndCreditsBack(t *testing.T) {
 	if releases[0].GetReservationKey() != "111:idem-otc" {
 		t.Errorf("release key = %q want 111:idem-otc", releases[0].GetReservationKey())
 	}
-	if len(updates) != 1 {
-		t.Fatalf("expected 1 credit-back (only the local DEBIT money leg), got %d", len(updates))
+	if len(releaseOuts) != 1 {
+		t.Fatalf("expected 1 outgoing hold release (only the local DEBIT money leg), got %d", len(releaseOuts))
 	}
-	if updates[0].GetAccountNumber() != "111-PREM" || updates[0].GetAmount() != "50" {
-		t.Errorf("credit-back = %s %s want 111-PREM 50", updates[0].GetAccountNumber(), updates[0].GetAmount())
+	if releaseOuts[0].GetReservationKey() != "111:idem-otc:0" {
+		t.Errorf("hold release key = %q want 111:idem-otc:0", releaseOuts[0].GetReservationKey())
 	}
-	if updates[0].GetIdempotencyKey() != "sitx-localcreditback-111:idem-otc:0" {
-		t.Errorf("credit-back key = %q want sitx-localcreditback-111:idem-otc:0", updates[0].GetIdempotencyKey())
+	if releaseOuts[0].GetIdempotencyKey() != "sitx-localrelease-out-111:idem-otc:0" {
+		t.Errorf("hold release idem key = %q want sitx-localrelease-out-111:idem-otc:0", releaseOuts[0].GetIdempotencyKey())
 	}
 }

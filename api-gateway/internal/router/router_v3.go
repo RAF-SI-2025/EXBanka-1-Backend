@@ -90,20 +90,26 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/cards/virtual", h.Card.CreateVirtualCard)
 		me.POST("/cards/requests", middleware.RequireClientToken(), h.Card.CreateCardRequest)
 		me.GET("/cards/requests", middleware.RequireClientToken(), h.Card.ListMyCardRequests)
+		me.GET("/cards/requests/:id", middleware.RequireClientToken(), h.Card.GetMyCardRequest)
 
-		// Payments
-		me.POST("/payments", h.Tx.CreatePayment)
+		// Payments. Cross-bank money sends (to another person at another bank)
+		// are payments: PeerTxDispatcherHandler detects a foreign 3-digit
+		// prefix and dispatches to PeerTxService.InitiateOutboundTx, which
+		// rejects an unregistered peer bank (404) before any debit. Intra-bank
+		// payments run the standard flow.
+		me.POST("/payments", h.PeerTxDispatcher.CreatePayment)
+		me.POST("/payments/preview", h.Tx.PreviewPayment)
 		me.GET("/payments", h.Tx.ListMyPayments)
-		me.GET("/payments/:id", h.Tx.GetMyPayment)
+		me.GET("/payments/:id", h.PeerTxDispatcher.GetPaymentByID)
+		me.GET("/payments/:id/status", h.PeerTxDispatcher.GetPaymentStatusByID)
 		me.POST("/payments/:id/execute", h.Tx.ExecutePayment)
 
-		// Transfers. Intra-bank flows go directly to TransactionHandler. The
-		// PeerTxDispatcherHandler detects foreign 3-digit-prefix receivers and
-		// dispatches to PeerTxService.InitiateOutboundTx (Phase 3 Task 11).
-		me.POST("/transfers", h.PeerTxDispatcher.CreateTransfer)
+		// Transfers are intra-bank, same-client only (e.g. between your own
+		// RSD and EUR accounts, with FX). Cross-bank sends use /payments above.
+		me.POST("/transfers", h.Tx.CreateTransfer)
 		me.POST("/transfers/preview", h.Tx.PreviewTransfer)
 		me.GET("/transfers", h.Tx.ListMyTransfers)
-		me.GET("/transfers/:id", h.PeerTxDispatcher.GetTransferByID)
+		me.GET("/transfers/:id", h.Tx.GetMyTransfer)
 		me.GET("/transfers/:id/status", h.Tx.GetMyTransferStatus)
 		me.POST("/transfers/:id/execute", h.Tx.ExecuteTransfer)
 
@@ -116,6 +122,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Loans
 		me.POST("/loan-requests", h.Credit.CreateLoanRequest)
 		me.GET("/loan-requests", h.Credit.ListMyLoanRequests)
+		me.GET("/loan-requests/:id", h.Credit.GetMyLoanRequest)
 		me.GET("/loans", h.Credit.ListMyLoans)
 		me.GET("/loans/:id", h.Credit.GetMyLoan)
 		me.GET("/loans/:id/installments", h.Credit.GetMyInstallments)
@@ -204,6 +211,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/otc/ratings", bankIfEmp, h.OTCOptions.SubmitRating)
 		me.GET("/otc/ratings/received", bankIfEmp, h.OTCOptions.ListMyReceivedRatings)
 		me.GET("/otc/contracts", bankIfEmp, h.OTCOptions.ListMyContracts)
+		// Cross-bank OTC trade status: resolve the SI-TX transaction id from a
+		// cross-bank trade's poll_url via PeerTxService.GetTxStatus.
+		me.GET("/otc/transactions/:txid/status", h.PeerTxDispatcher.GetCrossBankTxStatus)
 
 		// --- Phase 2: parallel-negotiation-chain marketplace ---
 		// Listing-poster sees all chains via the OPEN

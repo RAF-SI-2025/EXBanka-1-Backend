@@ -326,6 +326,68 @@ These were settled during brainstorming and are not open questions:
 - **NoVote semantics:** all hard-fail. Sender does not retry NO votes regardless of reason.
 - **Peer-bank admin CRUD:** runtime-editable via 5 REST routes under `/api/v3/peer-banks`, gated by new `peer_banks.manage` permission (EmployeeAdmin). Seed file `seeder/peer_banks.sql` provides initial registrations; admins can add/update/remove peers without redeploy.
 
+## Amendment 2026-05-30 — cross-bank OTC seller shares reserved at NEW_TX (vote)
+
+The Celina-5 spec (`docs/Celina-5(Nova).md`, OTC accept SAGA step 2 "Provera i
+rezervacija hartija – Banka B") requires the seller's bank to **reserve** the
+shares (`rezervisaneHartije += zahtevaniBroj`) when it processes the
+prepare/NEW_TX — symmetric with the buyer-funds reservation in step 1 — with
+ownership transfer deferred to the commit step. The original implementation only
+*checked* shares at NEW_TX (`CheckSellerCanDeliver`, read-only) and reserved at
+COMMIT (`RecordOptionContract → ReserveForPeerOptionContract`), leaving a window
+where the seller could sell the shares between vote-YES and COMMIT (buyer's money
+already moved → COMMIT fails, trade stuck).
+
+Now: the seller's bank places a real share **hold** at NEW_TX, keyed on the SI-TX
+identity `crossbank_tx_id = "<peerCode>:<idem>"` (the contract row doesn't exist
+yet). New internal RPCs on `PeerOTCService` (stock↔transaction-service, NOT the
+peer wire protocol): `ReserveSellerSharesForNewTx` (vote) and
+`ReleaseSellerSharesForNewTx` (rollback). `HoldingReservation` gains a
+`CrossbankTxID` key. At COMMIT, `RecordOptionContract` **attaches** the vote-time
+hold to the minted contract (`AttachCrossBankReservationToContract`) instead of
+re-reserving — with a fallback to the legacy reserve-at-commit for in-flight
+trades that voted YES under the old code. ROLLBACK releases the hold. The peer
+HTTP envelopes (NEW_TX/COMMIT_TX/ROLLBACK_TX) and the `sitx` contract are
+unchanged, so cohort interop is unaffected. Plan:
+`docs/superpowers/plans/2026-05-30-crossbank-otc-share-reserve-at-vote.md`.
+
+## Amendment 2026-05-30 — cross-bank money DEBIT leg reserve-then-settle + timeout
+
+The buyer-funds (money DEBIT) leg of cross-bank transactions previously used
+**immediate-debit-then-creditback**: at NEW_TX/prepare the debited account's
+`Balance` was reduced via `UpdateBalance(-X)`, and a ROLLBACK_TX / NO-vote credited
+it back. This was money-safe but not the spec's reserve-then-settle shape (Celina-5
+OTC accept SAGA step 1 "rezervacija sredstava"; transfer §2), asymmetric with the
+just-fixed share leg, and — critically — had **no time-safety backstop**: if a peer
+voted YES but never sent COMMIT_TX or ROLLBACK_TX, nothing released the money.
+
+Now the money DEBIT leg mirrors the credit-side `IncomingReservation`:
+
+- **`OutgoingReservation`** (account-service) — string-keyed debit-side reservation
+  table. `ReserveOutgoing` reduces `AvailableBalance` only (the HOLD; `Balance`
+  untouched); `SettleOutgoing` reduces `Balance`, writes the debit ledger entry, and
+  marks settled (the money leaves); `ReleaseOutgoing` restores `AvailableBalance`
+  with no `Balance` movement. All three are idempotent + status-guarded. New internal
+  `AccountService` RPCs: `ReserveOutgoing` / `SettleOutgoing` / `ReleaseOutgoing`
+  (internal gRPC, NOT the peer wire protocol).
+- **Reservation keys**: receiver-side legs key on the per-posting SI-TX tag
+  `"<peer>:<idem>:<i>"` (already tracked in `DebitsJSON`); the simple-transfer sender
+  leg keys on `"peer-out:<idem>"`.
+- **Wiring**: `PostingExecutor.Reserve` reserves (was immediate-debit); `HandleCommitTx`
+  settles each `DebitsJSON` item; `HandleRollbackTx` releases them; `ReverseLocal`
+  releases; new `PostingExecutor.SettleLocal` settles on the sender-side commit paths.
+  `InitiateOutboundTx` reserves at initiation, settles after the peer's COMMIT_TX, and
+  releases on a NO vote; on a failed reserve it marks the row `rolled_back` so the
+  replay cron can't later commit a transfer whose money was never held.
+- **Time-safety**: `OutgoingReservationTimeoutCron` (account-service, cron registry
+  `outgoing-reservation-timeout`, TTL `OUTGOING_RESERVATION_TTL`, default 10m) sweeps
+  pending outgoing holds older than the TTL and releases them — the backstop for a
+  peer that never answers. `SettleOutgoing` refuses a non-pending row, so a late
+  COMMIT that races the timeout release cannot re-debit.
+
+Peer HTTP envelopes and the `sitx` contract are unchanged; cohort interop unaffected.
+Plan: `docs/superpowers/plans/2026-05-30-crossbank-buyer-funds-reserve-then-settle.md`.
+
 ## Open follow-ups (out of scope for this design)
 
 - HMAC-mode peer key rotation policy.

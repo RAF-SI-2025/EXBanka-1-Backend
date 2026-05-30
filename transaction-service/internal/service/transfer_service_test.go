@@ -168,6 +168,15 @@ func (m *mockAccountClientForTransfer) CommitIncoming(_ context.Context, _ *acco
 func (m *mockAccountClientForTransfer) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForTransfer) ReserveOutgoing(_ context.Context, in *accountpb.ReserveOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return &accountpb.ReserveOutgoingResponse{ReservationKey: in.GetReservationKey()}, nil
+}
+func (m *mockAccountClientForTransfer) SettleOutgoing(_ context.Context, _ *accountpb.SettleOutgoingRequest, _ ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return &accountpb.SettleOutgoingResponse{}, nil
+}
+func (m *mockAccountClientForTransfer) ReleaseOutgoing(_ context.Context, _ *accountpb.ReleaseOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+}
 func (m *mockAccountClientForTransfer) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }

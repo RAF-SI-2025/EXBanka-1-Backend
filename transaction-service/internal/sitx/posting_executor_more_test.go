@@ -31,10 +31,34 @@ func (s *stubAccountClientList) ListAccountsByClient(ctx context.Context, in *ac
 type stubHoldingChecker struct {
 	resp *stockpb.CheckSellerCanDeliverResponse
 	err  error
+	// reserve/release tracking (Celina-5 vote-time share hold)
+	reserveCalls    int
+	releaseCalls    int
+	lastReserveTxID string
+	lastReleaseTxID string
 }
 
 func (s *stubHoldingChecker) CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error) {
 	return s.resp, s.err
+}
+
+// ReserveSellerSharesForNewTx mirrors the configured CheckSellerCanDeliver
+// verdict (ok/err) so existing tests that set `resp`/`err` keep their meaning
+// now that the executor reserves instead of checks.
+func (s *stubHoldingChecker) ReserveSellerSharesForNewTx(ctx context.Context, in *stockpb.ReserveSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReserveSellerSharesResponse, error) {
+	s.reserveCalls++
+	s.lastReserveTxID = in.GetCrossbankTxId()
+	if s.err != nil {
+		return nil, s.err
+	}
+	ok := s.resp == nil || s.resp.GetOk()
+	return &stockpb.ReserveSellerSharesResponse{Ok: ok}, nil
+}
+
+func (s *stubHoldingChecker) ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error) {
+	s.releaseCalls++
+	s.lastReleaseTxID = in.GetCrossbankTxId()
+	return &stockpb.ReleaseSellerSharesResponse{}, nil
 }
 
 // TestPostingExecutor_AccountInactive_Unacceptable verifies that an inactive
@@ -85,14 +109,15 @@ func TestPostingExecutor_ReserveFails_VotesNo(t *testing.T) {
 }
 
 // TestPostingExecutor_DebitFails_InsufficientAsset verifies that a failing
-// UpdateBalance on a DEBIT-on-our-routing surfaces INSUFFICIENT_ASSET.
+// ReserveOutgoing (insufficient available balance) on a DEBIT-on-our-routing
+// surfaces INSUFFICIENT_ASSET.
 func TestPostingExecutor_DebitFails_InsufficientAsset(t *testing.T) {
 	stub := &stubAccountClient{
 		getAccountFn: func(ctx context.Context, in *accountpb.GetAccountByNumberRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 			return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", Status: "active"}, nil
 		},
-		updateFn: func(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-			return nil, errors.New("insufficient funds")
+		reserveOutFn: func(ctx context.Context, in *accountpb.ReserveOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+			return nil, errors.New("insufficient available balance")
 		},
 	}
 	exec := sitx.NewPostingExecutor(stub, 111)
@@ -192,6 +217,60 @@ func TestPostingExecutor_OptionItem_HoldingChecker_OK(t *testing.T) {
 	}
 	if len(res.OptionItems) != 1 {
 		t.Errorf("expected 1 option item, got %d", len(res.OptionItems))
+	}
+}
+
+// TestPostingExecutor_OptionItem_ReservesSharesAtVote is the regression test
+// for the spec deviation: at NEW_TX (vote) the executor must RESERVE the
+// seller's shares (a real hold keyed on crossbank_tx_id = "<peer>:<idem>"),
+// not merely check them — so they can't be sold before COMMIT.
+func TestPostingExecutor_OptionItem_ReservesSharesAtVote(t *testing.T) {
+	stub := &stubAccountClient{}
+	exec := sitx.NewPostingExecutor(stub, 111)
+	chk := &stubHoldingChecker{resp: &stockpb.CheckSellerCanDeliverResponse{Ok: true}}
+	exec.SetHoldingChecker(chk)
+	optDesc := `{"ticker":"AAPL","amount":4}`
+	postings := []contractsitx.Posting{
+		{RoutingNumber: 111, AccountID: "client-7", AssetID: optDesc, Amount: decimal.NewFromInt(4), Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: 222, AccountID: "client-8", AssetID: optDesc, Amount: decimal.NewFromInt(4), Direction: contractsitx.DirectionCredit},
+	}
+	res := exec.Reserve(context.Background(), postings, "222", "idem-RS")
+	if res.Vote.Type != contractsitx.VoteYes {
+		t.Fatalf("expected YES, got %+v", res.Vote)
+	}
+	if chk.reserveCalls != 1 {
+		t.Fatalf("expected exactly 1 share RESERVE call at vote, got %d", chk.reserveCalls)
+	}
+	if chk.lastReserveTxID != "222:idem-RS" {
+		t.Errorf("reserve keyed on %q, want 222:idem-RS", chk.lastReserveTxID)
+	}
+}
+
+// TestPostingExecutor_ReverseLocal_ReleasesShareHold verifies a rollback of a
+// sender-local OTC apply releases the vote-time share hold (keyed on the SI-TX
+// identity), so a rolled-back trade doesn't strand the seller's shares.
+func TestPostingExecutor_ReverseLocal_ReleasesShareHold(t *testing.T) {
+	stub := &stubAccountClient{
+		releaseFn: func(ctx context.Context, in *accountpb.ReleaseIncomingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+			return &accountpb.ReleaseIncomingResponse{}, nil // no CREDIT legs on our routing here; benign
+		},
+	}
+	exec := sitx.NewPostingExecutor(stub, 111)
+	chk := &stubHoldingChecker{resp: &stockpb.CheckSellerCanDeliverResponse{Ok: true}}
+	exec.SetHoldingChecker(chk)
+	optDesc := `{"ticker":"AAPL","amount":4}`
+	postings := []contractsitx.Posting{
+		{RoutingNumber: 111, AccountID: "client-7", AssetID: optDesc, Amount: decimal.NewFromInt(4), Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: 222, AccountID: "client-8", AssetID: optDesc, Amount: decimal.NewFromInt(4), Direction: contractsitx.DirectionCredit},
+	}
+	if err := exec.ReverseLocal(context.Background(), postings, "222", "idem-RV"); err != nil {
+		t.Fatalf("reverse: %v", err)
+	}
+	if chk.releaseCalls != 1 {
+		t.Fatalf("expected 1 share RELEASE on reverse, got %d", chk.releaseCalls)
+	}
+	if chk.lastReleaseTxID != "222:idem-RV" {
+		t.Errorf("release keyed on %q, want 222:idem-RV", chk.lastReleaseTxID)
 	}
 }
 

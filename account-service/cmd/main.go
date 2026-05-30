@@ -39,7 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}, &model.IdempotencyRecord{}, &cronreg.CronPauseState{}); err != nil {
+	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}, &model.OutgoingReservation{}, &model.IdempotencyRecord{}, &cronreg.CronPauseState{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 	cronRegistry := cronreg.NewRegistry("account-service", cronreg.NewGormPauseStore(db))
@@ -108,6 +108,7 @@ func main() {
 	bankRepo := repository.NewBankAccountRepository(db)
 	reservationRepo := repository.NewAccountReservationRepository(db)
 	incomingReservationRepo := repository.NewIncomingReservationRepository(db)
+	outgoingReservationRepo := repository.NewOutgoingReservationRepository(db)
 	idempRepo := repository.NewIdempotencyRepository(db)
 
 	accountService := service.NewAccountService(accountRepo, db, redisCache, changelogRepo)
@@ -118,6 +119,7 @@ func main() {
 	changelogSvc := service.NewChangelogService(changelogRepo)
 	reservationService := service.NewReservationService(db, accountRepo, reservationRepo, ledgerRepo).WithCache(redisCache)
 	incomingReservationService := service.NewIncomingReservationService(db, accountRepo, incomingReservationRepo)
+	outgoingReservationService := service.NewOutgoingReservationService(db, accountRepo, outgoingReservationRepo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -127,6 +129,11 @@ func main() {
 
 	maintenanceCron := service.NewMaintenanceCronService(accountRepo, ledgerService, producer, cronRegistry)
 	maintenanceCron.Start(ctx)
+
+	// Time-safety backstop: release cross-bank money DEBIT holds whose peer
+	// bank never sent COMMIT/ROLLBACK within the TTL.
+	outgoingReservationCron := service.NewOutgoingReservationTimeoutCron(outgoingReservationService, cfg.OutgoingReservationTTL, cronRegistry)
+	outgoingReservationCron.Start(ctx)
 
 	// Seed bank accounts for all supported currencies (idempotent)
 	bankAccounts, _ := accountService.ListBankAccounts()
@@ -200,7 +207,7 @@ func main() {
 	reconcileSvc.CheckAllBalances(ctx)
 
 	reservationHandler := handler.NewReservationHandler(reservationService)
-	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, incomingReservationService, producer, clientClient, db, idempRepo, changelogSvc)
+	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, incomingReservationService, outgoingReservationService, producer, clientClient, db, idempRepo, changelogSvc)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)

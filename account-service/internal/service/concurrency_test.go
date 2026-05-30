@@ -38,6 +38,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.Company{},
 		&model.Currency{},
 		&model.IncomingReservation{},
+		&model.OutgoingReservation{},
 		&model.BankOperation{},
 		&model.IdempotencyRecord{},
 	))

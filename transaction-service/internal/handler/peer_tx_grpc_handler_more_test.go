@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -26,8 +27,10 @@ import (
 // stubOptionRecorder satisfies handler.PeerOptionRecorder for COMMIT_TX
 // option-leg materialisation tests.
 type stubOptionRecorder struct {
-	calls []*stockpb.RecordOptionContractRequest
-	err   error
+	calls        []*stockpb.RecordOptionContractRequest
+	err          error
+	releaseCalls []string // crossbank_tx_ids passed to ReleaseSellerSharesForNewTx
+	releaseErr   error
 }
 
 func (s *stubOptionRecorder) RecordOptionContract(ctx context.Context, in *stockpb.RecordOptionContractRequest, opts ...grpc.CallOption) (*stockpb.RecordOptionContractResponse, error) {
@@ -36,6 +39,30 @@ func (s *stubOptionRecorder) RecordOptionContract(ctx context.Context, in *stock
 		return nil, s.err
 	}
 	return &stockpb.RecordOptionContractResponse{}, nil
+}
+
+func (s *stubOptionRecorder) ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error) {
+	s.releaseCalls = append(s.releaseCalls, in.GetCrossbankTxId())
+	if s.releaseErr != nil {
+		return nil, s.releaseErr
+	}
+	return &stockpb.ReleaseSellerSharesResponse{}, nil
+}
+
+// handlerHoldingChecker satisfies sitx.SellerHoldingChecker for handler-level
+// tests that need a DEBIT-option leg to vote YES (reserve) at NEW_TX. Always
+// ok=true; reserve/release are recorded but the handler-level assertion uses
+// the option recorder's release tracking.
+type handlerHoldingChecker struct{}
+
+func (handlerHoldingChecker) CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error) {
+	return &stockpb.CheckSellerCanDeliverResponse{Ok: true}, nil
+}
+func (handlerHoldingChecker) ReserveSellerSharesForNewTx(ctx context.Context, in *stockpb.ReserveSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReserveSellerSharesResponse, error) {
+	return &stockpb.ReserveSellerSharesResponse{Ok: true}, nil
+}
+func (handlerHoldingChecker) ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error) {
+	return &stockpb.ReleaseSellerSharesResponse{}, nil
 }
 
 // TestHandleNewTx_MissingIdempotenceKey_400 verifies the missing-key
@@ -190,16 +217,22 @@ func TestHandleRollbackTx_NoRecord_Idempotent_NoError(t *testing.T) {
 	}
 }
 
-// TestHandleRollbackTx_DebitsCreditedBack verifies the rollback path with
-// captured DebitedItems credits back the same accounts.
-func TestHandleRollbackTx_DebitsCreditedBack(t *testing.T) {
+// TestHandleRollbackTx_DebitHoldsReleased verifies the rollback path with
+// captured DebitedItems releases the same per-posting outgoing holds (no
+// Balance movement — reserve-then-settle).
+func TestHandleRollbackTx_DebitHoldsReleased(t *testing.T) {
 	h, _, stub := newPeerTxHandler(t)
-	var creditbackCalls []*accountpb.UpdateBalanceRequest
+	var releaseOutCalls []*accountpb.ReleaseOutgoingRequest
+	stub.releaseOutFn = func(ctx context.Context, in *accountpb.ReleaseOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		releaseOutCalls = append(releaseOutCalls, in)
+		return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+	}
 	stub.updateFn = func(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-		creditbackCalls = append(creditbackCalls, in)
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
 		return &accountpb.AccountResponse{}, nil
 	}
-	// Set up a NEW_TX with one DEBIT on our routing — that creates a DebitedItem.
+	// Set up a NEW_TX with one DEBIT on our routing — that creates a DebitedItem
+	// (an outgoing hold keyed by its per-posting tag).
 	_, err := h.HandleNewTx(context.Background(), &transactionpb.SiTxNewTxRequest{
 		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "k-rb"},
 		PeerBankCode:   "222",
@@ -211,21 +244,18 @@ func TestHandleRollbackTx_DebitsCreditedBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NEW_TX: %v", err)
 	}
-	// Filter the previous immediate-debit call — only the rollback creditback
-	// should land in the post-rollback assertion.
-	creditbackCalls = nil
 	if _, err := h.HandleRollbackTx(context.Background(), &transactionpb.SiTxRollbackRequest{
 		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "k-rb"},
 		PeerBankCode:   "222",
 	}); err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if len(creditbackCalls) != 1 {
-		t.Fatalf("expected 1 creditback UpdateBalance call, got %d", len(creditbackCalls))
+	if len(releaseOutCalls) != 1 {
+		t.Fatalf("expected 1 ReleaseOutgoing call, got %d", len(releaseOutCalls))
 	}
-	// Amount on creditback is positive (no leading "-")
-	if creditbackCalls[0].Amount != "75" {
-		t.Errorf("expected +75 creditback, got %q", creditbackCalls[0].Amount)
+	// The hold is keyed by the per-posting tag "<peer>:<idem>:<index>".
+	if releaseOutCalls[0].GetReservationKey() != "222:k-rb:0" {
+		t.Errorf("expected release key 222:k-rb:0, got %q", releaseOutCalls[0].GetReservationKey())
 	}
 }
 
@@ -301,6 +331,53 @@ func TestHandleCommitTx_MaterialisesOptions(t *testing.T) {
 	}
 	if rec.calls[0].Intent != "accept" {
 		t.Errorf("intent: %q", rec.calls[0].Intent)
+	}
+}
+
+// TestHandleRollbackTx_ReleasesSellerShareHold verifies that when this bank
+// held the seller (a DEBIT option leg on our routing), ROLLBACK_TX releases the
+// vote-time share hold via ReleaseSellerSharesForNewTx, keyed on the SI-TX
+// identity. This is the asset-side counterpart to the money creditback.
+func TestHandleRollbackTx_ReleasesSellerShareHold(t *testing.T) {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err := db.AutoMigrate(&model.PeerIdempotenceRecord{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	stub := &stubAccountForHandler{}
+	idemRepo := repository.NewPeerIdempotenceRepository(db)
+	exec := sitx.NewPostingExecutor(stub, 111)
+	// Executor needs a holding checker so the DEBIT-option leg on our routing
+	// votes YES (reserves) at NEW_TX. ok=true via the stub.
+	exec.SetHoldingChecker(handlerHoldingChecker{})
+	h := handler.NewPeerTxGRPCHandler(idemRepo, exec, stub, nil, nil, nil, 111)
+	rec := &stubOptionRecorder{}
+	h.SetOptionRecorder(rec)
+
+	// NEW_TX: option DEBIT on our routing 111 = WE hold the seller.
+	optDesc := `{"ticker":"AAPL","amount":1,"intent":"accept"}`
+	if _, err := h.HandleNewTx(context.Background(), &transactionpb.SiTxNewTxRequest{
+		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "rb-shares"},
+		PeerBankCode:   "222",
+		Postings: []*transactionpb.SiTxPosting{
+			{RoutingNumber: 222, AccountId: "222-pay", AssetId: "RSD", Amount: "100", Direction: "DEBIT"},
+			{RoutingNumber: 111, AccountId: "111-pay", AssetId: "RSD", Amount: "100", Direction: "CREDIT"},
+			{RoutingNumber: 111, AccountId: "client-7", AssetId: optDesc, Amount: "1", Direction: "DEBIT"},
+			{RoutingNumber: 222, AccountId: "client-8", AssetId: optDesc, Amount: "1", Direction: "CREDIT"},
+		},
+	}); err != nil {
+		t.Fatalf("NEW_TX: %v", err)
+	}
+	if _, err := h.HandleRollbackTx(context.Background(), &transactionpb.SiTxRollbackRequest{
+		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "rb-shares"},
+		PeerBankCode:   "222",
+	}); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if len(rec.releaseCalls) != 1 {
+		t.Fatalf("expected 1 share-release call on rollback, got %d", len(rec.releaseCalls))
+	}
+	if rec.releaseCalls[0] != "222:rb-shares" {
+		t.Errorf("release keyed on %q, want 222:rb-shares", rec.releaseCalls[0])
 	}
 }
 
@@ -470,9 +547,10 @@ func TestInitiateOutboundTx_HappyPath_Yes(t *testing.T) {
 	}
 }
 
-// TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked verifies the NO-vote
-// path issues a creditback to the sender.
-func TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked(t *testing.T) {
+// TestInitiateOutboundTx_PeerVotesNO_HoldReleased verifies the NO-vote path
+// reserves the sender's funds at NEW_TX and then releases the hold (no money
+// ever left) under reserve-then-settle.
+func TestInitiateOutboundTx_PeerVotesNO_HoldReleased(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"type":"NO","noVotes":[{"reason":"INSUFFICIENT_ASSET"}]}`))
@@ -482,9 +560,17 @@ func TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	_ = db.AutoMigrate(&model.PeerIdempotenceRecord{}, &model.OutboundPeerTx{})
 	stub := &stubAccountForHandler{}
-	var creditbackKeys []string
+	var reserveKeys, releaseKeys []string
+	stub.reserveOutFn = func(ctx context.Context, in *accountpb.ReserveOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+		reserveKeys = append(reserveKeys, in.GetIdempotencyKey())
+		return &accountpb.ReserveOutgoingResponse{ReservationKey: in.GetReservationKey()}, nil
+	}
+	stub.releaseOutFn = func(ctx context.Context, in *accountpb.ReleaseOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		releaseKeys = append(releaseKeys, in.GetIdempotencyKey())
+		return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+	}
 	stub.updateFn = func(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-		creditbackKeys = append(creditbackKeys, in.IdempotencyKey)
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
 		return &accountpb.AccountResponse{}, nil
 	}
 	idemRepo := repository.NewPeerIdempotenceRepository(db)
@@ -504,18 +590,20 @@ func TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("initiate: %v", err)
 	}
-	// Two UpdateBalance calls: initial debit + creditback on NO.
-	var foundDebit, foundCreditback bool
-	for _, k := range creditbackKeys {
-		if k != "" && len(k) > 14 && k[:14] == "peer-out-debit" {
-			foundDebit = true
-		}
-		if k != "" && len(k) > 19 && k[:19] == "peer-out-creditback" {
-			foundCreditback = true
+	// One reserve at NEW_TX, one release on the NO vote.
+	var foundReserve, foundRelease bool
+	for _, k := range reserveKeys {
+		if strings.HasPrefix(k, "peer-out-reserve") {
+			foundReserve = true
 		}
 	}
-	if !foundDebit || !foundCreditback {
-		t.Errorf("expected both initial debit and creditback keys; debit=%v creditback=%v keys=%v", foundDebit, foundCreditback, creditbackKeys)
+	for _, k := range releaseKeys {
+		if strings.HasPrefix(k, "peer-out-release") {
+			foundRelease = true
+		}
+	}
+	if !foundReserve || !foundRelease {
+		t.Errorf("expected reserve + release keys; reserve=%v release=%v reserveKeys=%v releaseKeys=%v", foundReserve, foundRelease, reserveKeys, releaseKeys)
 	}
 }
 

@@ -11350,6 +11350,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/cards/requests/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single card request owned by the authenticated client. The /me self-version of GET /api/v3/cards/requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "card-requests"
+                ],
+                "summary": "Get one of the caller's own card requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "card request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/dividends": {
             "get": {
                 "security": [
@@ -11458,6 +11500,48 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/loan-requests/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single loan request owned by the authenticated client. The /me self-version of GET /api/v3/loan-requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "loans"
+                ],
+                "summary": "Get one of the caller's own loan requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "loan request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -12381,6 +12465,256 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/otc/transactions/{txid}/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolves a cross-bank OTC trade's transaction id (bare idem, or the contract's \"peerCode:idem\" crossbank_tx_id) to {transaction_id, status, role, last_action_at, last_error}.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "otc"
+                ],
+                "summary": "Cross-bank OTC transaction status (SI-TX)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SI-TX transaction id (bare idem or 'peerCode:idem')",
+                        "name": "txid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/payments": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Intra-bank receivers (own 3-digit prefix) run the standard payment flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}. An unregistered destination bank code returns 404 before any debit. Currency is resolved from the sender's account unless an explicit \"currency\" is supplied.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Create a payment (dispatches intra-bank or inter-bank SI-TX)",
+                "parameters": [
+                    {
+                        "description": "Payment request — see TransactionHandler.CreatePayment; optional 'currency' override for cross-bank",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {}
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/payments/preview": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the commission fee and total debit for a payment without creating it. Payments are single-currency (no exchange).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Preview payment costs",
+                "parameters": [
+                    {
+                        "description": "Payment preview data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.previewPaymentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/payments/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Numeric id → intra-bank payment. UUID id (from a cross-bank payment's poll_url) → SI-TX status {transaction_id, status, role, last_action_at, last_error}.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Get a payment by ID (or cross-bank SI-TX status by UUID)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Payment ID (numeric) or SI-TX transaction id (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/payments/{id}/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lightweight status of a payment the caller owns. Mirrors the transfer status route so the frontend can poll payments and transfers separately.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Get the status of one of the caller's payments",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "payment id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/peer-otc/negotiations": {
             "get": {
                 "security": [
@@ -13270,107 +13604,6 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/transfers": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Intra-bank receivers (own 3-digit prefix) delegate to the standard transfer flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "transfers"
-                ],
-                "summary": "Create a transfer (dispatches intra-bank or inter-bank SI-TX)",
-                "parameters": [
-                    {
-                        "description": "Transfer request — see TransactionHandler.CreateTransfer",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {}
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/transfers/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction IDs return 404 since the inter-bank lookup path is not yet wired.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "transfers"
-                ],
-                "summary": "Get a transfer by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Transfer ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
                         }
                     }
                 }
@@ -15787,6 +16020,25 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "ticker": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.previewPaymentRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "from_account_number",
+                "to_account_number"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "from_account_number": {
+                    "type": "string"
+                },
+                "to_account_number": {
                     "type": "string"
                 }
             }

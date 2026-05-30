@@ -29,6 +29,16 @@ type fakeReserver struct {
 	lastConsumeQty     int64
 	lastReserveTicker  string
 	lastConsumeContrID uint64
+	// Cross-bank vote-time hold (Celina-5 share reservation).
+	newTxReserveCalls int
+	newTxReserveErr   error
+	attachCalls       int
+	attachErr         error
+	lastAttachTxID    string
+	lastAttachContrID uint64
+	releaseTxCalls    int
+	releaseTxErr      error
+	lastReleaseTxID   string
 }
 
 func (f *fakeReserver) ReserveForPeerOptionContract(_ context.Context, _ model.OwnerType, _ *uint64, _, ticker string, _ uint64, qty int64) (*service.ReserveHoldingResult, error) {
@@ -38,6 +48,28 @@ func (f *fakeReserver) ReserveForPeerOptionContract(_ context.Context, _ model.O
 		return nil, f.reserveErr
 	}
 	return &service.ReserveHoldingResult{}, nil
+}
+func (f *fakeReserver) ReserveForCrossBankNewTx(_ context.Context, _ model.OwnerType, _ *uint64, _, ticker, _ string, qty int64) (*service.ReserveHoldingResult, error) {
+	f.newTxReserveCalls++
+	f.lastReserveTicker = ticker
+	if f.newTxReserveErr != nil {
+		return nil, f.newTxReserveErr
+	}
+	return &service.ReserveHoldingResult{ReservedQuantity: qty, AvailableQuantity: 0}, nil
+}
+func (f *fakeReserver) AttachCrossBankReservationToContract(_ context.Context, crossbankTxID string, peerOptionContractID uint64) error {
+	f.attachCalls++
+	f.lastAttachTxID = crossbankTxID
+	f.lastAttachContrID = peerOptionContractID
+	return f.attachErr
+}
+func (f *fakeReserver) ReleaseForCrossBankNewTx(_ context.Context, crossbankTxID string) (*service.ReleaseHoldingResult, error) {
+	f.releaseTxCalls++
+	f.lastReleaseTxID = crossbankTxID
+	if f.releaseTxErr != nil {
+		return nil, f.releaseTxErr
+	}
+	return &service.ReleaseHoldingResult{}, nil
 }
 func (f *fakeReserver) ConsumeForPeerOptionContract(_ context.Context, contractID uint64, qty int64) (*service.PartialSettleHoldingResult, error) {
 	f.consumeCalls++
@@ -222,11 +254,17 @@ func TestPeerOTC_RecordOptionContract_AcceptIntent(t *testing.T) {
 	if resp.GetContractId() == 0 {
 		t.Errorf("expected contract id")
 	}
-	if reserver.reserveCalls != 1 {
-		t.Errorf("reserve calls = %d want 1", reserver.reserveCalls)
+	// Spec-aligned COMMIT path: the shares were reserved at NEW_TX (keyed on
+	// crossbank_tx_id), so COMMIT ATTACHES that hold to the minted contract
+	// rather than reserving afresh.
+	if reserver.attachCalls != 1 {
+		t.Errorf("attach calls = %d want 1", reserver.attachCalls)
 	}
-	if reserver.lastReserveTicker != "AAPL" {
-		t.Errorf("ticker=%s", reserver.lastReserveTicker)
+	if reserver.lastAttachTxID != "tx-1" || reserver.lastAttachContrID != resp.GetContractId() {
+		t.Errorf("attach got (tx=%s, contract=%d) want (tx-1, %d)", reserver.lastAttachTxID, reserver.lastAttachContrID, resp.GetContractId())
+	}
+	if reserver.reserveCalls != 0 {
+		t.Errorf("legacy reserve must not be called when attach succeeds, got %d", reserver.reserveCalls)
 	}
 }
 
@@ -257,14 +295,17 @@ func TestPeerOTC_RecordOptionContract_AcceptIntent_CreditDirection_NoReserveCall
 	}
 }
 
-// TestPeerOTC_RecordOptionContract_ReserveFails_ReturnsError verifies that
-// when the seller-side share lock (ReserveForPeerOptionContract) fails, the
-// RPC returns an error instead of silently succeeding. A success here would
-// leave an "active" contract with no holding_reservations row behind it —
-// the seller's shares stay tradeable until exercise time (Bug 2).
+// TestPeerOTC_RecordOptionContract_ReserveFails_ReturnsError verifies the
+// LEGACY fallback path: when there is NO vote-time hold to attach (attach
+// returns NotFound — e.g. a NEW_TX from before this change) COMMIT falls back
+// to ReserveForPeerOptionContract, and if THAT fails the RPC returns an error
+// instead of silently leaving an "active" contract with no holding reservation.
 func TestPeerOTC_RecordOptionContract_ReserveFails_ReturnsError(t *testing.T) {
 	h, _, _, _ := newPeerOtcHandler(t)
-	reserver := &fakeReserver{reserveErr: status.Error(codes.FailedPrecondition, "shares traded away")}
+	reserver := &fakeReserver{
+		attachErr:  status.Error(codes.NotFound, "no vote-time hold"), // force fallback
+		reserveErr: status.Error(codes.FailedPrecondition, "shares traded away"),
+	}
 	h.SetHoldingReserver(reserver)
 
 	optDesc := contractsitx.OptionDescription{

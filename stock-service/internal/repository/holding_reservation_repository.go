@@ -46,6 +46,8 @@ func (r *HoldingReservationRepository) InsertIfAbsent(res *model.HoldingReservat
 		conflictCol = "otc_contract_id"
 	case res.PeerOptionContractID != nil:
 		conflictCol = "peer_option_contract_id"
+	case res.CrossbankTxID != nil:
+		conflictCol = "crossbank_tx_id"
 	}
 	result := r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: conflictCol}},
@@ -70,6 +72,12 @@ func (r *HoldingReservationRepository) InsertIfAbsent(res *model.HoldingReservat
 			return false, nil, err
 		}
 		return false, existing, nil
+	case res.CrossbankTxID != nil:
+		existing, err := r.GetByCrossbankTxID(*res.CrossbankTxID)
+		if err != nil {
+			return false, nil, err
+		}
+		return false, existing, nil
 	default:
 		existing, err := r.GetByPeerOptionContractID(*res.PeerOptionContractID)
 		if err != nil {
@@ -77,6 +85,30 @@ func (r *HoldingReservationRepository) InsertIfAbsent(res *model.HoldingReservat
 		}
 		return false, existing, nil
 	}
+}
+
+// GetByCrossbankTxID returns the reservation row keyed on CrossbankTxID
+// (cross-bank SI-TX vote-time hold, before the peer_option_contracts row
+// exists).
+func (r *HoldingReservationRepository) GetByCrossbankTxID(crossbankTxID string) (*model.HoldingReservation, error) {
+	var res model.HoldingReservation
+	if err := r.db.Where("crossbank_tx_id = ?", crossbankTxID).First(&res).Error; err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// GetByCrossbankTxIDForUpdate is the SELECT FOR UPDATE variant, used by the
+// attach (link-to-contract) and release paths so a concurrent COMMIT/ROLLBACK
+// on the same SI-TX identity can't race the holding mutation.
+func (r *HoldingReservationRepository) GetByCrossbankTxIDForUpdate(crossbankTxID string) (*model.HoldingReservation, error) {
+	var res model.HoldingReservation
+	err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("crossbank_tx_id = ?", crossbankTxID).First(&res).Error
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 // GetByPeerOptionContractID returns the reservation row keyed on

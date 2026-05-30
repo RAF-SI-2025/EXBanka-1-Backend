@@ -184,3 +184,116 @@ func TestHoldingReservationService_ConsumeForOTCContract_NoReservation(t *testin
 		t.Errorf("expected FailedPrecondition, got %v", err)
 	}
 }
+
+// ---------------- Cross-bank SI-TX vote-time share hold (Celina-5) ----------
+
+// ReserveForCrossBankNewTx places a real hold (raises reserved_quantity) so
+// shares can't be sold before COMMIT — the spec's "rezervacija hartija".
+func TestHoldingReservation_ReserveForCrossBankNewTx_HoldsShares(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	out, err := svc.ReserveForCrossBankNewTx(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, "222:idem-1", 30)
+	if err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	if out.ReservedQuantity != 30 || out.AvailableQuantity != 70 {
+		t.Fatalf("reserved=%d available=%d want 30/70", out.ReservedQuantity, out.AvailableQuantity)
+	}
+	// The hold is real: the holding row's reserved_quantity rose.
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.ReservedQuantity != 30 {
+		t.Fatalf("holding.reserved_quantity=%d want 30 (hold not persisted)", got.ReservedQuantity)
+	}
+}
+
+func TestHoldingReservation_ReserveForCrossBankNewTx_Insufficient(t *testing.T) {
+	svc, _, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	_, err := svc.ReserveForCrossBankNewTx(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, "222:idem-x", 9999)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", err)
+	}
+}
+
+func TestHoldingReservation_ReserveForCrossBankNewTx_Idempotent(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	a, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:dup", 10)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	b, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:dup", 10)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if a.ReservationID != b.ReservationID {
+		t.Fatalf("replay made a new reservation (%d vs %d)", a.ReservationID, b.ReservationID)
+	}
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.ReservedQuantity != 10 {
+		t.Fatalf("replay double-held: reserved=%d want 10", got.ReservedQuantity)
+	}
+}
+
+// Attach links the vote-time hold to the minted contract; the existing
+// consume-by-contract-id path then settles it. Proves the end-to-end re-key.
+func TestHoldingReservation_AttachThenConsume(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	if _, err := svc.ReserveForCrossBankNewTx(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, "222:attach", 20); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	const contractID = uint64(7001)
+	if err := svc.AttachCrossBankReservationToContract(context.Background(), "222:attach", contractID); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	// Idempotent re-attach.
+	if err := svc.AttachCrossBankReservationToContract(context.Background(), "222:attach", contractID); err != nil {
+		t.Fatalf("re-attach: %v", err)
+	}
+	// Now the contract-id-keyed consume path works on the same reservation.
+	if _, err := svc.ConsumeForPeerOptionContract(context.Background(), contractID, 20); err != nil {
+		t.Fatalf("consume via attached contract id: %v", err)
+	}
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.Quantity != 80 {
+		t.Fatalf("after consume quantity=%d want 80 (100-20)", got.Quantity)
+	}
+}
+
+func TestHoldingReservation_AttachMissing_NotFound(t *testing.T) {
+	svc, _, _ := newHoldingReservationFixture(t)
+	err := svc.AttachCrossBankReservationToContract(context.Background(), "222:nope", 9)
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("expected NotFound (so COMMIT falls back to reserve), got %v", err)
+	}
+}
+
+// Release returns the held shares on ROLLBACK.
+func TestHoldingReservation_ReleaseForCrossBankNewTx(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	if _, err := svc.ReserveForCrossBankNewTx(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, "222:rb", 40); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	out, err := svc.ReleaseForCrossBankNewTx(context.Background(), "222:rb")
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if out.ReleasedQuantity != 40 {
+		t.Fatalf("released=%d want 40", out.ReleasedQuantity)
+	}
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.ReservedQuantity != 0 {
+		t.Fatalf("after release reserved=%d want 0", got.ReservedQuantity)
+	}
+	// Idempotent: releasing again is a no-op.
+	out2, err := svc.ReleaseForCrossBankNewTx(context.Background(), "222:rb")
+	if err != nil || out2.ReleasedQuantity != 0 {
+		t.Fatalf("re-release not idempotent: out=%+v err=%v", out2, err)
+	}
+}

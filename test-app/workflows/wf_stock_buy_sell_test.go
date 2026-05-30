@@ -83,6 +83,18 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	}
 	t.Logf("WF-6: portfolio has %d stock position(s)", len(positions))
 
+	// Each security position must expose holding_id (the holdings-row id), so a
+	// client can feed make-public/exercise directly from the portfolio response.
+	pos0, ok := positions[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("WF-6: position[0] is not an object: %T", positions[0])
+	}
+	hid, ok := pos0["holding_id"].(float64)
+	if !ok || hid <= 0 {
+		t.Fatalf("WF-6: expected positive holding_id on stock position, got %v", pos0["holding_id"])
+	}
+	t.Logf("WF-6: stock position exposes holding_id=%d", int(hid))
+
 	// Step 6: Place market sell order for the same listing
 	sellResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,

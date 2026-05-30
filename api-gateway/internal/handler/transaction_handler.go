@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
@@ -21,6 +23,18 @@ type TransactionHandler struct {
 
 func NewTransactionHandler(txClient transactionpb.TransactionServiceClient, feeClient transactionpb.FeeServiceClient, accountClient accountpb.AccountServiceClient, exchangeClient exchangepb.ExchangeServiceClient) *TransactionHandler {
 	return &TransactionHandler{txClient: txClient, feeClient: feeClient, accountClient: accountClient, exchangeClient: exchangeClient}
+}
+
+// AccountCurrency resolves an account's currency code via account-service.
+// Used by the payment dispatcher to stamp the SI-TX posting currency for a
+// cross-bank payment (the sender's account currency — the recipient's currency
+// lives at the peer bank and is its concern).
+func (h *TransactionHandler) AccountCurrency(ctx context.Context, accountNumber string) (string, error) {
+	acc, err := h.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: accountNumber})
+	if err != nil {
+		return "", err
+	}
+	return acc.GetCurrencyCode(), nil
 }
 
 // resolveClientAccountNumbers fetches all account numbers belonging to a client from account-service.
@@ -668,6 +682,36 @@ func (h *TransactionHandler) GetMyPayment(c *gin.Context) {
 	c.JSON(http.StatusOK, paymentToJSON(resp))
 }
 
+// GetMyPaymentStatus godoc
+// @Summary      Get the status of one of the caller's payments
+// @Description  Lightweight status of a payment the caller owns. Mirrors the transfer status route so the frontend can poll payments and transfers separately.
+// @Tags         payments
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path int true "payment id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/payments/{id}/status [get]
+func (h *TransactionHandler) GetMyPaymentStatus(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.txClient.GetPayment(c.Request.Context(), &transactionpb.GetPaymentRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"payment_id": resp.Id,
+		"status":     resp.GetStatus(),
+	})
+}
+
 // ListMyTransfers serves GET /api/me/transfers.
 func (h *TransactionHandler) ListMyTransfers(c *gin.Context) {
 	userID, _ := c.Get("principal_id")
@@ -1288,4 +1332,77 @@ func (h *TransactionHandler) PreviewTransfer(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+type previewPaymentRequest struct {
+	FromAccountNumber string  `json:"from_account_number" binding:"required"`
+	ToAccountNumber   string  `json:"to_account_number" binding:"required"`
+	Amount            float64 `json:"amount" binding:"required"`
+}
+
+// PreviewPayment returns the fee a payment would cost, without creating it, so
+// the frontend can show the total before execution. Payments are single-
+// currency (no FX): the fee is computed in the sender's account currency and
+// debited on top of the amount, so `total_debit = input_amount + total_fee`
+// and the recipient receives `input_amount`. Works for both intra-bank and
+// cross-bank destinations (the fee is sender-side; the recipient account is not
+// looked up).
+//
+// @Summary      Preview payment costs
+// @Description  Returns the commission fee and total debit for a payment without creating it. Payments are single-currency (no exchange).
+// @Tags         payments
+// @Accept       json
+// @Produce      json
+// @Param        body  body  previewPaymentRequest  true  "Payment preview data"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/v3/me/payments/preview [post]
+func (h *TransactionHandler) PreviewPayment(c *gin.Context) {
+	var req previewPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	if err := positive("amount", req.Amount); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+
+	amountStr := fmt.Sprintf("%.4f", req.Amount)
+	ctx := c.Request.Context()
+
+	// Sender currency is authoritative for the fee (payments don't convert).
+	currency, err := h.AccountCurrency(ctx, req.FromAccountNumber)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if currency == "" {
+		currency = "RSD"
+	}
+
+	feeResp, err := h.feeClient.CalculateFee(ctx, &transactionpb.CalculateFeeRequest{
+		Amount:          amountStr,
+		TransactionType: "payment",
+		CurrencyCode:    currency,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	totalFee, _ := decimal.NewFromString(feeResp.GetTotalFee())
+	inputAmt, _ := decimal.NewFromString(amountStr)
+	totalDebit := inputAmt.Add(totalFee)
+
+	c.JSON(http.StatusOK, gin.H{
+		"currency":        currency,
+		"input_amount":    amountStr,
+		"total_fee":       feeResp.GetTotalFee(),
+		"fee_breakdown":   feeResp.GetAppliedFees(),
+		"total_debit":     totalDebit.StringFixed(4), // what leaves the sender
+		"amount_received": amountStr,                 // recipient gets the amount (no FX)
+	})
 }

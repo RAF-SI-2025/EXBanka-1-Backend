@@ -113,21 +113,22 @@ func TestCohortDryRun(t *testing.T) {
 	_, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	t.Logf("activated client account: %s", accountNumber)
 
-	// 5. Initiate a foreign-prefix transfer.
-	// The receiver account number's 3-digit prefix must be "222" (matching
-	// the mock peer's bank_code) so the gateway dispatches inter-bank.
+	// 5. Initiate a foreign-prefix PAYMENT (cross-bank money sends are payments;
+	// transfers are intra-bank/same-client only). The receiver account number's
+	// 3-digit prefix must be "222" (matching the mock peer's bank_code) so the
+	// gateway dispatches inter-bank via SI-TX.
 	foreignReceiver := "222999999999999999"
-	transferResp, err := clientC.POST("/api/v3/me/transfers", map[string]interface{}{
+	transferResp, err := clientC.POST("/api/v3/me/payments", map[string]interface{}{
 		"from_account_number": accountNumber,
 		"to_account_number":   foreignReceiver,
 		"amount":              "10.00",
 		"currency":            "RSD",
 	})
 	if err != nil {
-		t.Fatalf("create transfer: %v", err)
+		t.Fatalf("create cross-bank payment: %v", err)
 	}
 	if transferResp.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202 Accepted for foreign-prefix transfer, got %d body=%s", transferResp.StatusCode, string(transferResp.RawBody))
+		t.Fatalf("expected 202 Accepted for foreign-prefix payment, got %d body=%s", transferResp.StatusCode, string(transferResp.RawBody))
 	}
 
 	// 6. Verify response contains a transaction_id and poll URL.
@@ -136,7 +137,7 @@ func TestCohortDryRun(t *testing.T) {
 		t.Fatalf("missing transaction_id in response: %+v", transferResp.Body)
 	}
 	pollURL, _ := transferResp.Body["poll_url"].(string)
-	if pollURL == "" || !strings.HasPrefix(pollURL, "/api/v3/me/transfers/") {
+	if pollURL == "" || !strings.HasPrefix(pollURL, "/api/v3/me/payments/") {
 		t.Errorf("unexpected poll_url: %q", pollURL)
 	}
 	t.Logf("dispatched tx %s (poll: %s)", txID, pollURL)

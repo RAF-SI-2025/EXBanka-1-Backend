@@ -844,6 +844,177 @@ func (s *HoldingReservationService) ReleaseForPeerOptionContract(ctx context.Con
 	return out, nil
 }
 
+// ReserveForCrossBankNewTx locks `qty` shares of the seller's stock holding at
+// SI-TX NEW_TX (vote) time, keyed on the cross-bank transaction identity
+// (crossbankTxID = "<peerCode>:<idem>") because the peer_option_contracts row
+// does not exist yet — it is minted only at COMMIT_TX. This is the spec's
+// "rezervacija hartija" step (Celina-5 OTC SAGA step 2): the seller's shares
+// must be HELD when the bank votes YES, not merely checked, so they cannot be
+// sold in the window before COMMIT. Mirror of ReserveForPeerOptionContract,
+// keyed on CrossbankTxID; idempotent on the identity.
+//
+// At COMMIT the reservation is linked to the contract via
+// AttachCrossBankReservationToContract; on ROLLBACK it is released via
+// ReleaseForCrossBankNewTx.
+func (s *HoldingReservationService) ReserveForCrossBankNewTx(
+	ctx context.Context,
+	sellerOwnerType model.OwnerType,
+	sellerOwnerID *uint64,
+	securityType, ticker, crossbankTxID string,
+	qty int64,
+) (*ReserveHoldingResult, error) {
+	if qty <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	if crossbankTxID == "" {
+		return nil, status.Error(codes.InvalidArgument, "crossbankTxID required")
+	}
+	// Tickers across banks may arrive in mixed case via SI-TX; normalize for
+	// the holdings lookup (same as ReserveForPeerOptionContract, Fix #4).
+	ticker = strings.ToUpper(ticker)
+	var out *ReserveHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var holding model.Holding
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("security_type = ? AND ticker = ?", securityType, ticker)
+		if sellerOwnerID == nil {
+			q = q.Where("owner_type = ? AND owner_id IS NULL", sellerOwnerType)
+		} else {
+			q = q.Where("owner_type = ? AND owner_id = ?", sellerOwnerType, *sellerOwnerID)
+		}
+		err := q.First(&holding).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "holding not found")
+			}
+			return err
+		}
+		available := holding.Quantity - holding.ReservedQuantity
+		if available < qty {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: have %d, need %d", available, qty)
+		}
+		ctxID := crossbankTxID
+		res := &model.HoldingReservation{
+			HoldingID:     holding.ID,
+			CrossbankTxID: &ctxID,
+			Quantity:      qty,
+			Status:        model.HoldingReservationStatusActive,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		inserted, existing, err := s.resRepo.WithTx(tx).InsertIfAbsent(res)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			out = &ReserveHoldingResult{
+				ReservationID:     existing.ID,
+				ReservedQuantity:  holding.ReservedQuantity,
+				AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+			}
+			return nil
+		}
+		holding.ReservedQuantity += qty
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+			return err
+		}
+		out = &ReserveHoldingResult{
+			ReservationID:     res.ID,
+			ReservedQuantity:  holding.ReservedQuantity,
+			AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AttachCrossBankReservationToContract links a vote-time crossbank_tx_id
+// reservation to the peer_option_contracts row minted at COMMIT_TX, by setting
+// its PeerOptionContractID. After this, the existing consume/release-by-
+// contract-id settlement & exercise paths operate on the same reservation
+// unchanged — no shares move here, the hold is simply re-keyed.
+//
+// Idempotent: a no-op if the reservation is already attached to this contract,
+// or if no crossbank reservation exists (returns NotFound so the caller can
+// fall back to reserve-at-commit during rollout). Runs under FOR UPDATE.
+func (s *HoldingReservationService) AttachCrossBankReservationToContract(ctx context.Context, crossbankTxID string, peerOptionContractID uint64) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		res, err := s.resRepo.WithTx(tx).GetByCrossbankTxIDForUpdate(crossbankTxID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// Map to a gRPC NotFound so the COMMIT caller can detect "no
+				// vote-time hold" and fall back to reserve-at-commit.
+				return status.Error(codes.NotFound, "no vote-time share reservation for this crossbank_tx_id")
+			}
+			return err
+		}
+		if res.PeerOptionContractID != nil && *res.PeerOptionContractID == peerOptionContractID {
+			return nil // already attached — idempotent
+		}
+		cid := peerOptionContractID
+		res.PeerOptionContractID = &cid
+		res.UpdatedAt = time.Now()
+		return s.resRepo.WithTx(tx).UpdateStatus(res)
+	})
+}
+
+// ReleaseForCrossBankNewTx releases a vote-time crossbank_tx_id share
+// reservation (used on SI-TX ROLLBACK_TX when the trade voted YES but never
+// committed, so no peer_option_contracts row was minted). Mirror of
+// ReleaseForPeerOptionContract keyed on CrossbankTxID. No-op (released=0) when
+// the reservation is missing or already non-active, so rollback is idempotent.
+func (s *HoldingReservationService) ReleaseForCrossBankNewTx(ctx context.Context, crossbankTxID string) (*ReleaseHoldingResult, error) {
+	var out *ReleaseHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		res, err := s.resRepo.WithTx(tx).GetByCrossbankTxIDForUpdate(crossbankTxID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}
+				return nil
+			}
+			return err
+		}
+		if res.Status != model.HoldingReservationStatusActive {
+			out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}
+			return nil
+		}
+		settled, err := s.resRepo.WithTx(tx).SumSettlements(res.ID)
+		if err != nil {
+			return err
+		}
+		remaining := res.Quantity - settled
+		if remaining < 0 {
+			remaining = 0
+		}
+		var holding model.Holding
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+			return err
+		}
+		holding.ReservedQuantity -= remaining
+		if holding.ReservedQuantity < 0 {
+			holding.ReservedQuantity = 0
+		}
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+			return err
+		}
+		res.Status = model.HoldingReservationStatusReleased
+		res.UpdatedAt = time.Now()
+		if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
+			return err
+		}
+		out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: holding.ReservedQuantity}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CreditBuyerHoldingForPeerOption credits the buyer's holding when a
 // cross-bank exercise lands on the buyer's bank. Finds an existing
 // holding by (owner, ticker) and increments quantity, or creates a

@@ -323,3 +323,50 @@ func TestLoan_RejectLoanRequest(t *testing.T) {
 	}
 	t.Logf("loan request %d rejected successfully", loanReqID)
 }
+
+// TestLoan_GetMyLoanRequest_SelfRoute validates the /me self-version added so a
+// client can read one of their OWN loan requests without an employee route.
+// Owner gets 200; a different client gets 404 (ownership enforced from JWT).
+func TestLoan_GetMyLoanRequest_SelfRoute(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	clientID, accountNum, clientC, _ := setupActivatedClient(t, adminC)
+
+	// Client submits a loan request under /me.
+	reqResp, err := clientC.POST("/api/v3/me/loan-requests", map[string]interface{}{
+		"client_id":         clientID,
+		"loan_type":         "cash",
+		"interest_type":     "fixed",
+		"amount":            10000,
+		"currency_code":     "RSD",
+		"purpose":           "self-route test",
+		"monthly_income":    50000,
+		"employment_status": "permanent",
+		"employment_period": 24,
+		"repayment_period":  12,
+		"phone":             helpers.RandomPhone(),
+		"account_number":    accountNum,
+	})
+	if err != nil {
+		t.Fatalf("create loan request: %v", err)
+	}
+	helpers.RequireStatus(t, reqResp, 201)
+	reqID := int(helpers.GetNumberField(t, reqResp, "id"))
+
+	// Owner reads their own request via the new /me single-GET.
+	getResp, err := clientC.GET(fmt.Sprintf("/api/v3/me/loan-requests/%d", reqID))
+	if err != nil {
+		t.Fatalf("get my loan request: %v", err)
+	}
+	helpers.RequireStatus(t, getResp, 200)
+	if int(helpers.GetNumberField(t, getResp, "id")) != reqID {
+		t.Fatalf("expected request id %d, got body %+v", reqID, getResp.Body)
+	}
+
+	// A different client must NOT see it (ownership → 404).
+	_, _, otherC, _ := setupActivatedClient(t, adminC)
+	otherResp, err := otherC.GET(fmt.Sprintf("/api/v3/me/loan-requests/%d", reqID))
+	if err != nil {
+		t.Fatalf("other client get: %v", err)
+	}
+	helpers.RequireStatus(t, otherResp, 404)
+}
