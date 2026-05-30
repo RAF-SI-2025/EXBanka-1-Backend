@@ -91,19 +91,22 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/cards/requests", middleware.RequireClientToken(), h.Card.CreateCardRequest)
 		me.GET("/cards/requests", middleware.RequireClientToken(), h.Card.ListMyCardRequests)
 
-		// Payments
-		me.POST("/payments", h.Tx.CreatePayment)
+		// Payments. Cross-bank money sends (to another person at another bank)
+		// are payments: PeerTxDispatcherHandler detects a foreign 3-digit
+		// prefix and dispatches to PeerTxService.InitiateOutboundTx, which
+		// rejects an unregistered peer bank (404) before any debit. Intra-bank
+		// payments run the standard flow.
+		me.POST("/payments", h.PeerTxDispatcher.CreatePayment)
 		me.GET("/payments", h.Tx.ListMyPayments)
-		me.GET("/payments/:id", h.Tx.GetMyPayment)
+		me.GET("/payments/:id", h.PeerTxDispatcher.GetPaymentByID)
 		me.POST("/payments/:id/execute", h.Tx.ExecutePayment)
 
-		// Transfers. Intra-bank flows go directly to TransactionHandler. The
-		// PeerTxDispatcherHandler detects foreign 3-digit-prefix receivers and
-		// dispatches to PeerTxService.InitiateOutboundTx (Phase 3 Task 11).
-		me.POST("/transfers", h.PeerTxDispatcher.CreateTransfer)
+		// Transfers are intra-bank, same-client only (e.g. between your own
+		// RSD and EUR accounts, with FX). Cross-bank sends use /payments above.
+		me.POST("/transfers", h.Tx.CreateTransfer)
 		me.POST("/transfers/preview", h.Tx.PreviewTransfer)
 		me.GET("/transfers", h.Tx.ListMyTransfers)
-		me.GET("/transfers/:id", h.PeerTxDispatcher.GetTransferByID)
+		me.GET("/transfers/:id", h.Tx.GetMyTransfer)
 		me.GET("/transfers/:id/status", h.Tx.GetMyTransferStatus)
 		me.POST("/transfers/:id/execute", h.Tx.ExecuteTransfer)
 

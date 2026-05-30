@@ -9358,6 +9358,82 @@ paths:
       summary: Cancel your own OTC stock sell or buy offer
       tags:
       - OTCStocks
+  /api/v3/me/payments:
+    post:
+      consumes:
+      - application/json
+      description: Intra-bank receivers (own 3-digit prefix) run the standard payment
+        flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx
+        and return 202 Accepted with {transaction_id, poll_url, status}. An unregistered
+        destination bank code returns 404 before any debit. Currency is resolved from
+        the sender's account unless an explicit "currency" is supplied.
+      parameters:
+      - description: Payment request — see TransactionHandler.CreatePayment; optional
+          'currency' override for cross-bank
+        in: body
+        name: body
+        required: true
+        schema: {}
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a payment (dispatches intra-bank or inter-bank SI-TX)
+      tags:
+      - payments
+  /api/v3/me/payments/{id}:
+    get:
+      description: Delegates to the intra-bank GetMyPayment handler.
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a payment by ID
+      tags:
+      - payments
   /api/v3/me/peer-otc/negotiations:
     get:
       description: Returns rows from this bank's peer_otc_negotiations where the caller
@@ -9933,75 +10009,6 @@ paths:
       summary: Revoke a specific session
       tags:
       - sessions
-  /api/v3/me/transfers:
-    post:
-      consumes:
-      - application/json
-      description: Intra-bank receivers (own 3-digit prefix) delegate to the standard
-        transfer flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx
-        and return 202 Accepted with {transaction_id, poll_url, status}.
-      parameters:
-      - description: Transfer request — see TransactionHandler.CreateTransfer
-        in: body
-        name: body
-        required: true
-        schema: {}
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "202":
-          description: Accepted
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create a transfer (dispatches intra-bank or inter-bank SI-TX)
-      tags:
-      - transfers
-  /api/v3/me/transfers/{id}:
-    get:
-      description: Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction
-        IDs return 404 since the inter-bank lookup path is not yet wired.
-      parameters:
-      - description: Transfer ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get a transfer by ID
-      tags:
-      - transfers
   /api/v3/me/transfers/{id}/status:
     get:
       description: Maps the internal transfer lifecycle (pending/processing/completed/failed)

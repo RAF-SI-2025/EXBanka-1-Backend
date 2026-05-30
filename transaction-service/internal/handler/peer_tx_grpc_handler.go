@@ -322,9 +322,12 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 	row := &model.OutboundPeerTx{
 		IdempotenceKey: idem,
 		PeerBankCode:   peerCode,
-		TxKind:         "transfer",
-		PostingsJSON:   string(postingsJSON),
-		Status:         "pending",
+		// Cross-bank client money sends are dispatched from /api/v3/me/payments
+		// (a payment to another person at another bank); transfers are
+		// intra-bank/same-client only.
+		TxKind:       "payment",
+		PostingsJSON: string(postingsJSON),
+		Status:       "pending",
 	}
 	if err := h.outRepo.Create(row); err != nil {
 		return nil, status.Errorf(codes.Internal, "outbound row: %v", err)
@@ -387,7 +390,7 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 
 	return &transactionpb.SiTxInitiateResponse{
 		TransactionId: idem,
-		PollUrl:       "/api/v3/me/transfers/" + idem,
+		PollUrl:       "/api/v3/me/payments/" + idem,
 		Status:        "pending",
 	}, nil
 }

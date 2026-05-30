@@ -12381,6 +12381,114 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/payments": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Intra-bank receivers (own 3-digit prefix) run the standard payment flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}. An unregistered destination bank code returns 404 before any debit. Currency is resolved from the sender's account unless an explicit \"currency\" is supplied.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Create a payment (dispatches intra-bank or inter-bank SI-TX)",
+                "parameters": [
+                    {
+                        "description": "Payment request — see TransactionHandler.CreatePayment; optional 'currency' override for cross-bank",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {}
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/payments/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delegates to the intra-bank GetMyPayment handler.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Get a payment by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Payment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/peer-otc/negotiations": {
             "get": {
                 "security": [
@@ -13270,107 +13378,6 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/transfers": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Intra-bank receivers (own 3-digit prefix) delegate to the standard transfer flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "transfers"
-                ],
-                "summary": "Create a transfer (dispatches intra-bank or inter-bank SI-TX)",
-                "parameters": [
-                    {
-                        "description": "Transfer request — see TransactionHandler.CreateTransfer",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {}
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/transfers/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction IDs return 404 since the inter-bank lookup path is not yet wired.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "transfers"
-                ],
-                "summary": "Get a transfer by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Transfer ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
                         }
                     }
                 }

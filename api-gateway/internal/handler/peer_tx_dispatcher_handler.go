@@ -12,11 +12,12 @@ import (
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
-// PeerTxDispatcherHandler serves /api/v3/me/transfers and /api/v3/me/transfers/:id.
-// For intra-bank receivers (own 3-digit prefix) it delegates to the
-// existing TransactionHandler. For foreign-prefix receivers it dispatches
-// to PeerTxService.InitiateOutboundTx via gRPC, returning 202 Accepted
-// with a poll URL.
+// PeerTxDispatcherHandler serves /api/v3/me/payments. For intra-bank receivers
+// (own 3-digit prefix) it delegates to the existing TransactionHandler payment
+// flow. For foreign-prefix receivers it dispatches to
+// PeerTxService.InitiateOutboundTx via gRPC, returning 202 Accepted with a poll
+// URL. (Cross-bank money sends are payments — to another person at another
+// bank; transfers are intra-bank/same-client only.)
 type PeerTxDispatcherHandler struct {
 	tx          *TransactionHandler
 	peerTx      transactionpb.PeerTxServiceClient
@@ -29,24 +30,30 @@ func NewPeerTxDispatcherHandler(tx *TransactionHandler, peerTx transactionpb.Pee
 	return &PeerTxDispatcherHandler{tx: tx, peerTx: peerTx, ownBankCode: ownBankCode}
 }
 
-// CreateTransfer routes to the intra-bank handler when the receiver
-// account number's 3-digit prefix matches ownBankCode. Foreign-prefix
-// receivers dispatch to PeerTxService.InitiateOutboundTx.
+// CreatePayment routes to the intra-bank payment handler when the receiver
+// account number's 3-digit prefix matches ownBankCode. Foreign-prefix receivers
+// dispatch to PeerTxService.InitiateOutboundTx, which rejects an unregistered
+// peer bank with 404 "peer bank XXX not registered" before any funds move.
 //
-// CreateTransfer godoc
-// @Summary      Create a transfer (dispatches intra-bank or inter-bank SI-TX)
-// @Description  Intra-bank receivers (own 3-digit prefix) delegate to the standard transfer flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}.
-// @Tags         transfers
+// Currency: the SI-TX posting uses a single currency for both legs. The
+// sender's account is always local, so the currency is resolved from it
+// (account-service) unless the caller supplies an explicit "currency" override.
+//
+// CreatePayment godoc
+// @Summary      Create a payment (dispatches intra-bank or inter-bank SI-TX)
+// @Description  Intra-bank receivers (own 3-digit prefix) run the standard payment flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}. An unregistered destination bank code returns 404 before any debit. Currency is resolved from the sender's account unless an explicit "currency" is supplied.
+// @Tags         payments
 // @Security     BearerAuth
 // @Accept       json
 // @Produce      json
-// @Param        body body interface{} true "Transfer request — see TransactionHandler.CreateTransfer"
+// @Param        body body interface{} true "Payment request — see TransactionHandler.CreatePayment; optional 'currency' override for cross-bank"
 // @Success      201 {object} map[string]interface{}
 // @Success      202 {object} map[string]interface{}
 // @Failure      400 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v3/me/transfers [post]
-func (h *PeerTxDispatcherHandler) CreateTransfer(c *gin.Context) {
+// @Router       /api/v3/me/payments [post]
+func (h *PeerTxDispatcherHandler) CreatePayment(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, "unreadable body")
@@ -54,25 +61,15 @@ func (h *PeerTxDispatcherHandler) CreateTransfer(c *gin.Context) {
 	}
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 
-	// Tolerant unmarshal: amount may arrive as a JSON number (legacy
-	// intra-bank shape) or as a string (SI-TX shape). RawMessage lets us
-	// decide based on the routing branch which form to forward.
-	//
-	// Currency: the SI-TX wire shape uses "currency"; the intra-bank
-	// /me/transfers body uses "from_currency" / "to_currency" (since the
-	// intra-bank handler supports FX conversion). For peer-bank
-	// dispatch we need ONE currency on the posting AssetID, so we
-	// prefer "currency" but fall back to "from_currency" so the
-	// intra-bank caller doesn't have to know the SI-TX field name.
-	// Without this, the peer's vote builder rejects with
-	// "NO_SUCH_ASSET" because the posting AssetID is empty.
+	// Tolerant unmarshal: amount may arrive as a JSON number (intra-bank shape)
+	// or as a string (SI-TX shape). RawMessage lets us forward the right form
+	// per branch. "currency" is an optional cross-bank override.
 	var req struct {
 		FromAccountNumber string          `json:"from_account_number"`
 		ToAccountNumber   string          `json:"to_account_number"`
 		ReceiverAccount   string          `json:"receiverAccount,omitempty"`
 		Amount            json.RawMessage `json:"amount"`
 		Currency          string          `json:"currency,omitempty"`
-		FromCurrency      string          `json:"from_currency,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
@@ -84,12 +81,17 @@ func (h *PeerTxDispatcherHandler) CreateTransfer(c *gin.Context) {
 	}
 
 	if len(receiver) >= 3 && receiver[:3] != h.ownBankCode {
-		// Inter-bank dispatch via PeerTxService. Stringify amount so it
-		// matches the SiTxInitiateRequest.amount string contract.
+		// Cross-bank payment dispatched via SI-TX.
 		amount := strings.Trim(string(req.Amount), `"`)
 		currency := req.Currency
 		if currency == "" {
-			currency = req.FromCurrency
+			// Resolve the sender's account currency — the SI-TX posting currency.
+			cur, cerr := h.tx.AccountCurrency(c.Request.Context(), req.FromAccountNumber)
+			if cerr != nil {
+				handleGRPCError(c, cerr)
+				return
+			}
+			currency = cur
 		}
 		resp, err := h.peerTx.InitiateOutboundTx(c.Request.Context(), &transactionpb.SiTxInitiateRequest{
 			FromAccountNumber: req.FromAccountNumber,
@@ -108,26 +110,24 @@ func (h *PeerTxDispatcherHandler) CreateTransfer(c *gin.Context) {
 		})
 		return
 	}
-	// Intra-bank.
-	h.tx.CreateTransfer(c)
+	// Intra-bank payment.
+	h.tx.CreatePayment(c)
 }
 
-// GetTransferByID — intra-bank lookup only. UUID-style transactionIds
-// (which the deleted InterBankPublicHandler used to recognise) now
-// return 404 via the underlying handler's int parse. Phase 3+ will
-// extend this to fall through to outbound_peer_txs lookup if the id
-// parses as a UUID.
+// GetPaymentByID — intra-bank lookup. UUID-style transactionIds (cross-bank
+// SI-TX sends) are resolved by the status route's outbound-tx fallback (Phase D);
+// this by-id route delegates to the intra-bank GetMyPayment handler.
 //
-// GetTransferByID godoc
-// @Summary      Get a transfer by ID
-// @Description  Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction IDs return 404 since the inter-bank lookup path is not yet wired.
-// @Tags         transfers
+// GetPaymentByID godoc
+// @Summary      Get a payment by ID
+// @Description  Delegates to the intra-bank GetMyPayment handler.
+// @Tags         payments
 // @Security     BearerAuth
 // @Produce      json
-// @Param        id path string true "Transfer ID"
+// @Param        id path string true "Payment ID"
 // @Success      200 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Router       /api/v3/me/transfers/{id} [get]
-func (h *PeerTxDispatcherHandler) GetTransferByID(c *gin.Context) {
-	h.tx.GetMyTransfer(c)
+// @Router       /api/v3/me/payments/{id} [get]
+func (h *PeerTxDispatcherHandler) GetPaymentByID(c *gin.Context) {
+	h.tx.GetMyPayment(c)
 }

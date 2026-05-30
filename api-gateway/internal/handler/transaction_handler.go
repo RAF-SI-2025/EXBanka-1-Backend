@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -21,6 +22,18 @@ type TransactionHandler struct {
 
 func NewTransactionHandler(txClient transactionpb.TransactionServiceClient, feeClient transactionpb.FeeServiceClient, accountClient accountpb.AccountServiceClient, exchangeClient exchangepb.ExchangeServiceClient) *TransactionHandler {
 	return &TransactionHandler{txClient: txClient, feeClient: feeClient, accountClient: accountClient, exchangeClient: exchangeClient}
+}
+
+// AccountCurrency resolves an account's currency code via account-service.
+// Used by the payment dispatcher to stamp the SI-TX posting currency for a
+// cross-bank payment (the sender's account currency — the recipient's currency
+// lives at the peer bank and is its concern).
+func (h *TransactionHandler) AccountCurrency(ctx context.Context, accountNumber string) (string, error) {
+	acc, err := h.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: accountNumber})
+	if err != nil {
+		return "", err
+	}
+	return acc.GetCurrencyCode(), nil
 }
 
 // resolveClientAccountNumbers fetches all account numbers belonging to a client from account-service.

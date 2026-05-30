@@ -1562,13 +1562,13 @@ Temporarily block a card for a specified duration in hours. The card is automati
 
 ## 7. Payments
 
-Payments are domestic/foreign transfers from one account to another with optional payment metadata.
+Payments send money from one account to **another person** — a different client, at this bank or at another (peer) bank — with optional payment metadata. (To move money between your **own** accounts, use transfers.)
 
 ---
 
 ### POST /api/v3/me/payments
 
-Initiate a new payment from a client account.
+Initiate a new payment from a client account. The destination may be at this bank (intra-bank) or at a registered peer bank (cross-bank, dispatched via SI-TX — see the inter-bank note below).
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1579,10 +1579,13 @@ Initiate a new payment from a client account.
 | `from_account_number` | string | Yes | Source account number |
 | `to_account_number` | string | Yes | Destination account number |
 | `amount` | float64 | Yes | Payment amount (in source currency) |
+| `currency` | string | No | Cross-bank only: the SI-TX posting currency. Optional — defaults to the **sender's** account currency (resolved from account-service). |
 | `recipient_name` | string | No | Recipient display name |
 | `payment_code` | string | No | Payment code (e.g., `"289"`) |
 | `reference_number` | string | No | Reference/model number |
 | `payment_purpose` | string | No | Description or purpose of payment |
+
+> **Inter-bank dispatch (SI-TX):** When `to_account_number`'s 3-digit prefix differs from this bank's `OWN_BANK_CODE`, the request is dispatched to `PeerTxService.InitiateOutboundTx` and returns `202 Accepted` with `{transaction_id, poll_url, status}`; poll the returned URL for SI-TX completion. **If the destination bank code is not a registered, active peer bank, the request is rejected with `404 not_found` ("peer bank XXX not registered") before any funds move.** Intra-bank receivers (own prefix) keep the `201 Created` shape below.
 
 **Example Request:**
 ```json
@@ -1817,7 +1820,7 @@ Initiate a currency transfer between accounts.
 
 > **Note:** Transfer is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/v3/verifications` and then poll `GET /api/v3/verifications/:id/status` until verified. Once verified, call `POST /api/v3/me/transfers/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
-> **Inter-bank dispatch (Phase 3):** When `to_account_number`'s 3-digit prefix differs from this bank's `OWN_BANK_CODE`, the request is dispatched to `PeerTxService.InitiateOutboundTx` via gRPC and returns `202 Accepted` with `{transaction_id, poll_url, status}`. Poll the returned URL for SI-TX completion status. Intra-bank receivers (own prefix) keep the legacy `201 Created` shape above.
+> **Intra-bank only:** Transfers are between accounts of the **same client** within this bank (e.g. your own RSD → EUR account, with FX). Both `from_account_number` and `to_account_number` must belong to the same client and to this bank. To send money to **another person or another bank**, use **payments** (`POST /api/v3/me/payments`), which is where cross-bank (SI-TX) dispatch lives. A cross-bank `to_account_number` here is rejected (intra-client/intra-bank validation fails).
 
 > **Fund account restriction (E0, Plan E 2026-05-28):** The source account (`from_account_number`) must NOT belong to an investment fund's RSD account (`account_category = "investment_fund"`). Fund cash may only exit via dedicated fund operations (buy on behalf of fund, dividend payout, investor redemption). Using a fund account as the source returns `403 forbidden` with code `fund_account_outflow_restricted`.
 
