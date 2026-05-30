@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -543,9 +544,10 @@ func TestInitiateOutboundTx_HappyPath_Yes(t *testing.T) {
 	}
 }
 
-// TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked verifies the NO-vote
-// path issues a creditback to the sender.
-func TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked(t *testing.T) {
+// TestInitiateOutboundTx_PeerVotesNO_HoldReleased verifies the NO-vote path
+// reserves the sender's funds at NEW_TX and then releases the hold (no money
+// ever left) under reserve-then-settle.
+func TestInitiateOutboundTx_PeerVotesNO_HoldReleased(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"type":"NO","noVotes":[{"reason":"INSUFFICIENT_ASSET"}]}`))
@@ -555,9 +557,17 @@ func TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	_ = db.AutoMigrate(&model.PeerIdempotenceRecord{}, &model.OutboundPeerTx{})
 	stub := &stubAccountForHandler{}
-	var creditbackKeys []string
+	var reserveKeys, releaseKeys []string
+	stub.reserveOutFn = func(ctx context.Context, in *accountpb.ReserveOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+		reserveKeys = append(reserveKeys, in.GetIdempotencyKey())
+		return &accountpb.ReserveOutgoingResponse{ReservationKey: in.GetReservationKey()}, nil
+	}
+	stub.releaseOutFn = func(ctx context.Context, in *accountpb.ReleaseOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		releaseKeys = append(releaseKeys, in.GetIdempotencyKey())
+		return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+	}
 	stub.updateFn = func(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-		creditbackKeys = append(creditbackKeys, in.IdempotencyKey)
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
 		return &accountpb.AccountResponse{}, nil
 	}
 	idemRepo := repository.NewPeerIdempotenceRepository(db)
@@ -577,18 +587,20 @@ func TestInitiateOutboundTx_PeerVotesNO_CreditbackInvoked(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("initiate: %v", err)
 	}
-	// Two UpdateBalance calls: initial debit + creditback on NO.
-	var foundDebit, foundCreditback bool
-	for _, k := range creditbackKeys {
-		if k != "" && len(k) > 14 && k[:14] == "peer-out-debit" {
-			foundDebit = true
-		}
-		if k != "" && len(k) > 19 && k[:19] == "peer-out-creditback" {
-			foundCreditback = true
+	// One reserve at NEW_TX, one release on the NO vote.
+	var foundReserve, foundRelease bool
+	for _, k := range reserveKeys {
+		if strings.HasPrefix(k, "peer-out-reserve") {
+			foundReserve = true
 		}
 	}
-	if !foundDebit || !foundCreditback {
-		t.Errorf("expected both initial debit and creditback keys; debit=%v creditback=%v keys=%v", foundDebit, foundCreditback, creditbackKeys)
+	for _, k := range releaseKeys {
+		if strings.HasPrefix(k, "peer-out-release") {
+			foundRelease = true
+		}
+	}
+	if !foundReserve || !foundRelease {
+		t.Errorf("expected reserve + release keys; reserve=%v release=%v reserveKeys=%v releaseKeys=%v", foundReserve, foundRelease, reserveKeys, releaseKeys)
 	}
 }
 

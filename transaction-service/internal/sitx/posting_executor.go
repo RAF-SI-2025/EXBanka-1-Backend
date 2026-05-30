@@ -26,6 +26,9 @@ type AccountClient interface {
 	ReserveIncoming(ctx context.Context, in *accountpb.ReserveIncomingRequest, opts ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error)
 	CommitIncoming(ctx context.Context, in *accountpb.CommitIncomingRequest, opts ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error)
 	ReleaseIncoming(ctx context.Context, in *accountpb.ReleaseIncomingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error)
+	ReserveOutgoing(ctx context.Context, in *accountpb.ReserveOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error)
+	SettleOutgoing(ctx context.Context, in *accountpb.SettleOutgoingRequest, opts ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error)
+	ReleaseOutgoing(ctx context.Context, in *accountpb.ReleaseOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error)
 	UpdateBalance(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error)
 }
 
@@ -122,11 +125,15 @@ func (e *PostingExecutor) SetHoldingChecker(c SellerHoldingChecker) {
 //     HandleRollbackTx, so the receiving account's balance is unaffected
 //     until the IB confirms. Reservation key is "<peer>:<idem>".
 //
-//   - DEBIT posting (asset is leaving our account) → immediate UpdateBalance
-//     with amount=-X. We track the debit in the returned DebitedItems so
-//     HandleRollbackTx can credit back the same amount with a matching
-//     idempotency key. UpdateBalance is itself idempotent on the key, so
-//     the debit is safe to replay; only the first call moves money.
+//   - DEBIT posting (asset is leaving our account) → ReserveOutgoing, the
+//     debit-side mirror of ReserveIncoming. This places a HOLD (reduces
+//     AvailableBalance only); the money doesn't actually leave until
+//     HandleCommitTx settles it, and the hold is released by HandleRollbackTx
+//     (or the account-service timeout cron if the peer never responds). We
+//     track each reserved debit in the returned DebitedItems — keyed by the
+//     per-posting idempotency tag "<peer>:<idem>:<i>", which doubles as the
+//     reservation key — so the commit/rollback steps can find them. Idempotent
+//     on the key, so the reserve is safe to replay.
 //
 // Postings whose AssetID is a JSON option-description (currency mismatch
 // won't apply) are silently skipped: option contract handling lives in
@@ -250,14 +257,18 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 			keys = append(keys, key)
 
 		case contractsitx.DirectionDebit:
+			// Reserve-then-settle: place a HOLD now (AvailableBalance -= amount),
+			// not an immediate debit. The reservation key is the per-posting tag
+			// so each DEBIT leg gets its own hold; settle/release at COMMIT/ROLLBACK.
 			tag := fmt.Sprintf("%s:%s:%d", peerBankCode, locallyGeneratedKey, i)
-			if _, err := e.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber:   accountNumber,
-				Amount:          "-" + p.Amount.String(),
-				UpdateAvailable: true,
-				IdempotencyKey:  "sitx-debit-" + tag,
+			if _, err := e.client.ReserveOutgoing(ctx, &accountpb.ReserveOutgoingRequest{
+				AccountNumber:  accountNumber,
+				Amount:         p.Amount.String(),
+				Currency:       p.AssetID,
+				ReservationKey: tag,
+				IdempotencyKey: "sitx-reserve-out-" + tag,
 			}); err != nil {
-				// account-service rejects debits below available balance;
+				// account-service rejects holds above available balance;
 				// surface that as INSUFFICIENT_ASSET per SI-TX semantics.
 				return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
 			}
@@ -281,10 +292,12 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 
 // ReverseLocal undoes the local effects a prior Reserve applied for the same
 // (postings, peerBankCode, locallyGeneratedKey): it releases the CREDIT-side
-// reservation and credits back each DEBIT posting on our routing, reusing the
-// same reservation key and per-posting idempotency tags Reserve used. Because
-// those keys match, ReverseLocal nets exactly the effects of Reserve and is
-// safe to call repeatedly and to interleave with the inline rollback path.
+// reservation and releases each DEBIT-side outgoing hold on our routing,
+// reusing the same reservation key and per-posting idempotency tags Reserve
+// used. Because those keys match, ReverseLocal nets exactly the effects of
+// Reserve and is safe to call repeatedly and to interleave with the inline
+// rollback path. (DEBIT legs were held — not debited — so releasing the hold
+// returns AvailableBalance with no Balance movement.)
 //
 // Used by OutboundReplayCron (via PeerTxGRPCHandler.ReverseOutboundLocal) to
 // return money on a sender-side OTC TX that terminally fails after the local
@@ -315,17 +328,42 @@ func (e *PostingExecutor) ReverseLocal(ctx context.Context, postings []contracts
 		if strings.HasPrefix(p.AssetID, "{") {
 			continue // option-asset leg — no money to return
 		}
-		accountNumber, resolveErr := e.resolveAccountForPosting(ctx, p.AccountID, p.AssetID)
-		if resolveErr != nil {
-			return resolveErr
+		tag := fmt.Sprintf("%s:%s:%d", peerBankCode, locallyGeneratedKey, i)
+		// Release the outgoing HOLD (no Balance movement). NotFound is benign —
+		// the hold may never have landed (e.g. NEW_TX voted NO before reserving
+		// this leg) or was already released.
+		if _, err := e.client.ReleaseOutgoing(ctx, &accountpb.ReleaseOutgoingRequest{
+			ReservationKey: tag,
+			IdempotencyKey: "sitx-localrelease-out-" + tag,
+		}); err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+	}
+	return nil
+}
+
+// SettleLocal finalises the DEBIT-side outgoing holds a prior Reserve placed
+// for the same (postings, peerBankCode, locallyGeneratedKey): for each money
+// DEBIT leg on our routing it calls SettleOutgoing, moving the held amount out
+// of Balance (the money actually leaves). CREDIT-side reservations are settled
+// separately via CommitIncoming, and option legs carry no money — both are
+// skipped here. Keyed by the same per-posting tags Reserve used, so this is
+// idempotent and safe to call from both the inline commit path and the replay
+// cron. NotFound on a leg is benign (no hold landed for it).
+func (e *PostingExecutor) SettleLocal(ctx context.Context, postings []contractsitx.Posting, peerBankCode, locallyGeneratedKey string) error {
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber != e.ownRouting || p.Direction != contractsitx.DirectionDebit {
+			continue
+		}
+		if strings.HasPrefix(p.AssetID, "{") {
+			continue // option-asset leg — no money to settle
 		}
 		tag := fmt.Sprintf("%s:%s:%d", peerBankCode, locallyGeneratedKey, i)
-		if _, err := e.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-			AccountNumber:   accountNumber,
-			Amount:          p.Amount.String(),
-			UpdateAvailable: true,
-			IdempotencyKey:  "sitx-localcreditback-" + tag,
-		}); err != nil {
+		if _, err := e.client.SettleOutgoing(ctx, &accountpb.SettleOutgoingRequest{
+			ReservationKey: tag,
+			IdempotencyKey: "sitx-localsettle-out-" + tag,
+		}); err != nil && status.Code(err) != codes.NotFound {
 			return err
 		}
 	}

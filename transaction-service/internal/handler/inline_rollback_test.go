@@ -19,13 +19,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestInitiateOutboundTx_PeerVotesNO_CreditbackFails_StaysPending verifies
-// that when the inline NO-vote credit-back fails (e.g. account-service is
+// TestInitiateOutboundTx_PeerVotesNO_ReleaseFails_StaysPending verifies
+// that when the inline NO-vote hold release fails (e.g. account-service is
 // transiently down), the outbound row is NOT parked in the terminal
 // `rolled_back` state — it stays `pending` so OutboundReplayCron retries the
-// reversal. Marking it rolled_back here would strand the debited money in a
+// reversal. Marking it rolled_back here would strand the held money in a
 // row nothing ever revisits.
-func TestInitiateOutboundTx_PeerVotesNO_CreditbackFails_StaysPending(t *testing.T) {
+func TestInitiateOutboundTx_PeerVotesNO_ReleaseFails_StaysPending(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"type":"NO","noVotes":[{"reason":"INSUFFICIENT_ASSET"}]}`))
@@ -35,11 +35,11 @@ func TestInitiateOutboundTx_PeerVotesNO_CreditbackFails_StaysPending(t *testing.
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	_ = db.AutoMigrate(&model.PeerIdempotenceRecord{}, &model.OutboundPeerTx{})
 	stub := &stubAccountForHandler{}
-	stub.updateFn = func(_ context.Context, in *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-		if strings.HasPrefix(in.GetIdempotencyKey(), "peer-out-creditback-") {
+	stub.releaseOutFn = func(_ context.Context, in *accountpb.ReleaseOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		if strings.HasPrefix(in.GetIdempotencyKey(), "peer-out-release-") {
 			return nil, errors.New("account-service down")
 		}
-		return &accountpb.AccountResponse{}, nil // initial debit succeeds
+		return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
 	}
 	idemRepo := repository.NewPeerIdempotenceRepository(db)
 	outRepo := repository.NewOutboundPeerTxRepository(db)

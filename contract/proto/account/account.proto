@@ -41,6 +41,16 @@ service AccountService {
   // idempotent
   rpc ReleaseIncoming(ReleaseIncomingRequest) returns (ReleaseIncomingResponse);
 
+  // Debit-side reservation lifecycle for inter-bank OUTBOUND transfers
+  // (Celina-5 SI-TX reserve-then-settle: hold at NEW_TX, debit at COMMIT_TX,
+  // release on NO/ROLLBACK/timeout). String-keyed mirror of the Incoming trio.
+  // ReserveOutgoing reduces AvailableBalance (not Balance); SettleOutgoing
+  // reduces Balance + writes the debit ledger entry; ReleaseOutgoing restores
+  // AvailableBalance. All idempotent on reservation_key.
+  rpc ReserveOutgoing(ReserveOutgoingRequest) returns (ReserveOutgoingResponse);
+  rpc SettleOutgoing(SettleOutgoingRequest)   returns (SettleOutgoingResponse);
+  rpc ReleaseOutgoing(ReleaseOutgoingRequest) returns (ReleaseOutgoingResponse);
+
   // Audit-trail reads. Returns changelog rows scoped by entity_type +
   // entity_id; pagination matches list endpoints (1-based page).
   rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
@@ -389,3 +399,27 @@ message ReleaseIncomingRequest  {
     string idempotency_key = 2;  // saga step idempotency
 }
 message ReleaseIncomingResponse { bool   released        = 1; }
+
+message ReserveOutgoingRequest {
+    string account_number  = 1;
+    string amount          = 2;  // decimal string
+    string currency        = 3;
+    string reservation_key = 4;  // domain dedup key (SI-TX "<peer>:<idem>:<i>")
+    string idempotency_key = 5;  // saga step idempotency
+}
+message ReserveOutgoingResponse {
+    string reservation_key   = 1;
+    string available_after   = 2;  // AvailableBalance after the hold
+}
+
+message SettleOutgoingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;
+}
+message SettleOutgoingResponse { string balance_after = 1; }
+
+message ReleaseOutgoingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;
+}
+message ReleaseOutgoingResponse { bool released = 1; }

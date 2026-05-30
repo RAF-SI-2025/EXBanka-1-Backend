@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"time"
 )
 
 type Config struct {
@@ -16,6 +17,10 @@ type Config struct {
 	ClientGRPCAddr string
 	MetricsPort    string
 	OwnBankCode    string
+	// OutgoingReservationTTL is how long a cross-bank money DEBIT hold may sit
+	// pending (no COMMIT/ROLLBACK from the peer) before the timeout cron
+	// releases it back to AvailableBalance. Time-safety backstop.
+	OutgoingReservationTTL time.Duration
 }
 
 func Load() *Config {
@@ -31,7 +36,17 @@ func Load() *Config {
 		ClientGRPCAddr: getEnv("CLIENT_GRPC_ADDR", "localhost:50054"),
 		MetricsPort:    getEnv("METRICS_PORT", "9105"),
 		OwnBankCode:    getEnv("OWN_BANK_CODE", "111"),
+		OutgoingReservationTTL: getEnvDuration("OUTGOING_RESERVATION_TTL", 10*time.Minute),
 	}
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return fallback
 }
 
 func getEnv(key, fallback string) string {

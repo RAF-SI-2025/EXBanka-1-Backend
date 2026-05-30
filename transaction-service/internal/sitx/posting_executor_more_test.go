@@ -109,14 +109,15 @@ func TestPostingExecutor_ReserveFails_VotesNo(t *testing.T) {
 }
 
 // TestPostingExecutor_DebitFails_InsufficientAsset verifies that a failing
-// UpdateBalance on a DEBIT-on-our-routing surfaces INSUFFICIENT_ASSET.
+// ReserveOutgoing (insufficient available balance) on a DEBIT-on-our-routing
+// surfaces INSUFFICIENT_ASSET.
 func TestPostingExecutor_DebitFails_InsufficientAsset(t *testing.T) {
 	stub := &stubAccountClient{
 		getAccountFn: func(ctx context.Context, in *accountpb.GetAccountByNumberRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 			return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", Status: "active"}, nil
 		},
-		updateFn: func(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-			return nil, errors.New("insufficient funds")
+		reserveOutFn: func(ctx context.Context, in *accountpb.ReserveOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+			return nil, errors.New("insufficient available balance")
 		},
 	}
 	exec := sitx.NewPostingExecutor(stub, 111)

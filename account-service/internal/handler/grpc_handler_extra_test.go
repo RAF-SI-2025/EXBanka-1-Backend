@@ -365,7 +365,7 @@ func TestAccountHandler_ListChangelog_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewAccountGRPCHandler_Constructs(t *testing.T) {
-	h := NewAccountGRPCHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := NewAccountGRPCHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NotNil(t, h)
 }
 
