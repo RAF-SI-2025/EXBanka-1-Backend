@@ -1755,13 +1755,22 @@ Preview what a payment would cost **before** creating it, so the frontend can sh
 
 ### GET /api/v3/me/payments/:id/status
 
-Lightweight status of a payment the caller owns — mirrors `GET /api/v3/me/transfers/:id/status` so the frontend can poll payments and transfers separately. Returns `404` if the payment is not owned by the caller.
+Lightweight status of a payment — mirrors `GET /api/v3/me/transfers/:id/status` so the frontend can poll payments and transfers separately. The `:id` may be either:
+- a **numeric** payment id → intra-bank payment status (`404` if not owned by the caller); or
+- a **UUID** SI-TX transaction id (the `transaction_id` / `poll_url` returned by a cross-bank payment's `202`) → the outbound SI-TX status.
+
+`GET /api/v3/me/payments/:id` accepts the same two id forms. (The cross-bank UUID is unguessable and is only ever handed to the initiator, so knowing it authorizes reading its status.)
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
-**Response 200:**
+**Response 200 (intra-bank, numeric id):**
 ```json
 { "payment_id": 99, "status": "completed" }
+```
+
+**Response 200 (cross-bank, UUID id):**
+```json
+{ "transaction_id": "1111-...-5555", "status": "committed", "role": "sender", "last_action_at": "2026-05-30T00:00:00Z", "last_error": "" }
 ```
 
 ---

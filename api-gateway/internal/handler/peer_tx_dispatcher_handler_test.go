@@ -39,6 +39,7 @@ func peerTxDispatcherRouter(t *testing.T, tx *stubTransactionClient, peerTx tran
 	}
 	r.POST("/api/v3/me/payments", withCtx, pd.CreatePayment)
 	r.GET("/api/v3/me/payments/:id", withCtx, pd.GetPaymentByID)
+	r.GET("/api/v3/me/payments/:id/status", withCtx, pd.GetPaymentStatusByID)
 	return r
 }
 
@@ -196,4 +197,41 @@ func TestPeerTxDispatcher_GetPaymentByID_Delegates(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 	require.True(t, delegated, "expected GetPaymentByID to delegate to tx.GetMyPayment")
+}
+
+// A UUID-style id (cross-bank SI-TX poll url) resolves via GetTxStatus instead
+// of the intra-bank payment lookup — for both the by-id and the /status routes.
+func TestPeerTxDispatcher_UUIDResolvesViaGetTxStatus(t *testing.T) {
+	const uuid = "11111111-2222-3333-4444-555555555555"
+	for _, route := range []string{"/api/v3/me/payments/" + uuid, "/api/v3/me/payments/" + uuid + "/status"} {
+		t.Run(route, func(t *testing.T) {
+			called := false
+			peerTx := &stubPeerTxClient{
+				getTxStatusFn: func(_ context.Context, in *transactionpb.GetTxStatusRequest, _ ...grpc.CallOption) (*transactionpb.GetTxStatusResponse, error) {
+					called = true
+					require.Equal(t, uuid, in.GetTransactionId())
+					return &transactionpb.GetTxStatusResponse{State: "committed", OurRole: "sender", LastActionAt: "2026-05-30T00:00:00Z"}, nil
+				},
+			}
+			// tx delegate must NOT be reached for a UUID id.
+			tx := &stubTransactionClient{
+				getPaymentFn: func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error) {
+					t.Fatal("intra-bank GetPayment must not be called for a UUID id")
+					return nil, nil
+				},
+			}
+			r := peerTxDispatcherRouter(t, tx, peerTx, "111", nil)
+			req := httptest.NewRequest("GET", route, nil)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.True(t, called, "expected GetTxStatus to be called")
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, uuid, resp["transaction_id"])
+			require.Equal(t, "committed", resp["status"])
+			require.Equal(t, "sender", resp["role"])
+		})
+	}
 }

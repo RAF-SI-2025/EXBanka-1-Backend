@@ -12512,18 +12512,18 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Delegates to the intra-bank GetMyPayment handler.",
+                "description": "Numeric id → intra-bank payment. UUID id (from a cross-bank payment's poll_url) → SI-TX status {transaction_id, status, role, last_action_at, last_error}.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "payments"
                 ],
-                "summary": "Get a payment by ID",
+                "summary": "Get a payment by ID (or cross-bank SI-TX status by UUID)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Payment ID",
+                        "description": "Payment ID (numeric) or SI-TX transaction id (UUID)",
                         "name": "id",
                         "in": "path",
                         "required": true

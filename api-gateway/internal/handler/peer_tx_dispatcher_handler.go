@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -114,20 +115,69 @@ func (h *PeerTxDispatcherHandler) CreatePayment(c *gin.Context) {
 	h.tx.CreatePayment(c)
 }
 
-// GetPaymentByID — intra-bank lookup. UUID-style transactionIds (cross-bank
-// SI-TX sends) are resolved by the status route's outbound-tx fallback (Phase D);
-// this by-id route delegates to the intra-bank GetMyPayment handler.
+// crossBankStatus resolves a cross-bank SI-TX transaction id (the UUID returned
+// by a cross-bank payment's 202 `poll_url`). A numeric id is a normal intra-bank
+// payment — it returns false so the caller delegates to the intra-bank handler.
+// A non-numeric id is treated as a SI-TX transaction id and resolved via
+// PeerTxService.GetTxStatus; the UUID is unguessable and is only ever handed to
+// the initiator, so knowing it authorizes reading its status.
+func (h *PeerTxDispatcherHandler) crossBankStatus(c *gin.Context, id string) bool {
+	if _, err := strconv.ParseUint(id, 10, 64); err == nil {
+		return false // numeric → intra-bank payment id
+	}
+	resp, err := h.peerTx.GetTxStatus(c.Request.Context(), &transactionpb.GetTxStatusRequest{TransactionId: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return true
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"transaction_id": id,
+		"status":         resp.GetState(),
+		"role":           resp.GetOurRole(),
+		"last_action_at": resp.GetLastActionAt(),
+		"last_error":     resp.GetLastError(),
+	})
+	return true
+}
+
+// GetPaymentByID resolves the id in the cross-bank poll URL. A UUID-style id
+// (cross-bank SI-TX send) is resolved via PeerTxService.GetTxStatus; a numeric
+// id delegates to the intra-bank GetMyPayment handler.
 //
 // GetPaymentByID godoc
-// @Summary      Get a payment by ID
-// @Description  Delegates to the intra-bank GetMyPayment handler.
+// @Summary      Get a payment by ID (or cross-bank SI-TX status by UUID)
+// @Description  Numeric id → intra-bank payment. UUID id (from a cross-bank payment's poll_url) → SI-TX status {transaction_id, status, role, last_action_at, last_error}.
 // @Tags         payments
 // @Security     BearerAuth
 // @Produce      json
-// @Param        id path string true "Payment ID"
+// @Param        id path string true "Payment ID (numeric) or SI-TX transaction id (UUID)"
 // @Success      200 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Router       /api/v3/me/payments/{id} [get]
 func (h *PeerTxDispatcherHandler) GetPaymentByID(c *gin.Context) {
+	if h.crossBankStatus(c, c.Param("id")) {
+		return
+	}
 	h.tx.GetMyPayment(c)
+}
+
+// GetPaymentStatusByID is the status route's UUID-aware variant: a cross-bank
+// SI-TX id resolves via GetTxStatus, a numeric id delegates to the intra-bank
+// GetMyPaymentStatus.
+//
+// GetPaymentStatusByID godoc
+// @Summary      Get a payment's status (or cross-bank SI-TX status by UUID)
+// @Description  Numeric id → intra-bank payment status. UUID id (cross-bank) → SI-TX status.
+// @Tags         payments
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path string true "Payment ID (numeric) or SI-TX transaction id (UUID)"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/payments/{id}/status [get]
+func (h *PeerTxDispatcherHandler) GetPaymentStatusByID(c *gin.Context) {
+	if h.crossBankStatus(c, c.Param("id")) {
+		return
+	}
+	h.tx.GetMyPaymentStatus(c)
 }
