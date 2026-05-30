@@ -326,6 +326,36 @@ func TestPostingExecutor_ExerciseForgedStrike_NoVote(t *testing.T) {
 	}
 }
 
+// TestPostingExecutor_ExerciseBuyerOvercharge_NoVote is the mirror of the
+// forged-strike test for the BUYER's bank: a CREDIT (buyer) option leg whose
+// paired money DEBIT (the buyer's strike payment) exceeds the receiver's stored
+// terms must produce a NO vote, so a malicious peer cannot overcharge the buyer.
+func TestPostingExecutor_ExerciseBuyerOvercharge_NoVote(t *testing.T) {
+	stub := &stubAccountClient{}
+	exec := sitx.NewPostingExecutor(stub, 111) // buyer's bank
+	chk := &stubHoldingChecker{validateDeny: true}
+	exec.SetHoldingChecker(chk)
+	od := `{"ticker":"MA","amount":2,"strikePrice":"250","currency":"RSD","negotiationId":{"routingNumber":222,"id":"neg-9"},"intent":"exercise"}`
+	postings := []contractsitx.Posting{
+		{RoutingNumber: 111, AccountID: "client-1", AssetID: od, Amount: decimal.NewFromInt(2), Direction: contractsitx.DirectionCredit},            // buyer option leg (own routing)
+		{RoutingNumber: 111, AccountID: "111-BUYER-ACCT", AssetID: "RSD", Amount: decimal.NewFromInt(9000), Direction: contractsitx.DirectionDebit}, // forged-high strike 9000 (should be 500)
+		{RoutingNumber: 222, AccountID: "client-1", AssetID: "RSD", Amount: decimal.NewFromInt(9000), Direction: contractsitx.DirectionCredit},
+	}
+	res := exec.Reserve(context.Background(), postings, "222", "idem-OVER")
+	if res.Vote.Type != contractsitx.VoteNo {
+		t.Fatalf("expected NO vote on buyer-overcharge exercise, got %+v", res.Vote)
+	}
+	if chk.validateCalls != 1 {
+		t.Fatalf("expected exactly 1 money-leg validation, got %d", chk.validateCalls)
+	}
+	if chk.lastValidate.GetDirection() != "CREDIT" {
+		t.Errorf("validator direction = %q, want CREDIT (buyer side)", chk.lastValidate.GetDirection())
+	}
+	if got := chk.lastValidate.GetMoneyAmount(); got != "9000" {
+		t.Errorf("validator money_amount = %q, want 9000 (the forged buyer debit)", got)
+	}
+}
+
 // TestPostingExecutor_ExerciseHonestStrike_Yes verifies the happy path: when the
 // seller's paired money CREDIT matches stored terms the validator approves and
 // the vote is YES, and the validator received the correctly-summed seller money.
