@@ -155,6 +155,16 @@ func (m *mockOrderTxRepo) Create(tx *model.OrderTransaction) error {
 	return nil
 }
 
+func (m *mockOrderTxRepo) GetByID(id uint64) (*model.OrderTransaction, error) {
+	for i := range m.txns {
+		if m.txns[i].ID == id {
+			cp := m.txns[i]
+			return &cp, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 // Update persists a modified OrderTransaction back to the in-memory store.
 // Used by the fill saga's convert_amount step to record native/converted
 // amounts and FX rate.

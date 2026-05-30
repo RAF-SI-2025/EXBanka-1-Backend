@@ -21,6 +21,17 @@ func (r *OrderTransactionRepository) Create(tx *model.OrderTransaction) error {
 	return r.db.Create(tx).Error
 }
 
+// GetByID loads a single order-transaction by ID. Used by fill-saga crash
+// recovery to rebuild the fill saga against the transaction the engine already
+// persisted for the fill.
+func (r *OrderTransactionRepository) GetByID(id uint64) (*model.OrderTransaction, error) {
+	var tx model.OrderTransaction
+	if err := r.db.First(&tx, id).Error; err != nil {
+		return nil, err
+	}
+	return &tx, nil
+}
+
 // Update persists changes to an existing OrderTransaction. Used by the fill
 // saga's convert_amount step to record native/converted amounts and FX rate
 // on the transaction row before settlement proceeds.

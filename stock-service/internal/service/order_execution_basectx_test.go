@@ -67,6 +67,9 @@ func (r *fakeBaseCtxTxRepo) Create(txn *model.OrderTransaction) error {
 	}
 	return nil
 }
+func (r *fakeBaseCtxTxRepo) GetByID(_ uint64) (*model.OrderTransaction, error) {
+	return nil, errors.New("not found")
+}
 func (r *fakeBaseCtxTxRepo) Update(_ *model.OrderTransaction) error { return nil }
 func (r *fakeBaseCtxTxRepo) Delete(_ uint64) error                  { return nil }
 func (r *fakeBaseCtxTxRepo) ListByOrderID(_ uint64) ([]model.OrderTransaction, error) {

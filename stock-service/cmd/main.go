@@ -806,6 +806,7 @@ func main() {
 	sagaRecovery.WithAcceptRecoverer(otcOfferSvc)
 	sagaRecovery.WithFundRecoverer(fundService)
 	sagaRecovery.WithPlacementRecoverer(orderSvc)
+	sagaRecovery.WithFillRecoverer(portfolioSvc, orderTxRepo)
 	sagaRecovery.Run(ctx, 60*time.Second)
 
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---

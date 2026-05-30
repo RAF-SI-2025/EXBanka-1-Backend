@@ -52,6 +52,9 @@ func (r *abortTxRepo) Create(tx *model.OrderTransaction) error {
 	tx.ID = r.nextID
 	return nil
 }
+func (r *abortTxRepo) GetByID(_ uint64) (*model.OrderTransaction, error) {
+	return nil, errors.New("not found")
+}
 func (r *abortTxRepo) Update(_ *model.OrderTransaction) error { return nil }
 func (r *abortTxRepo) Delete(_ uint64) error {
 	r.mu.Lock()

@@ -674,6 +674,74 @@ func TestSagaRecovery_FundStep_AutoResolvesViaRecoverer(t *testing.T) {
 	}
 }
 
+// fakeFillRecoverer records RecoverFillSaga calls.
+type fakeFillRecoverer struct {
+	calls []struct {
+		sagaID  string
+		orderID uint64
+		txnID   uint64
+	}
+	err error
+}
+
+func (f *fakeFillRecoverer) RecoverFillSaga(_ context.Context, sagaID string, order *model.Order, txn *model.OrderTransaction, _ bool) error {
+	f.calls = append(f.calls, struct {
+		sagaID  string
+		orderID uint64
+		txnID   uint64
+	}{sagaID, order.ID, txn.ID})
+	return f.err
+}
+
+// fakeTxnGetter is a minimal OrderTransactionGetter.
+type fakeTxnGetter struct{ txn *model.OrderTransaction }
+
+func (g *fakeTxnGetter) GetByID(id uint64) (*model.OrderTransaction, error) {
+	if g.txn == nil || g.txn.ID != id {
+		return nil, errors.New("not found")
+	}
+	return g.txn, nil
+}
+
+// fakeFillOrderRepo is a minimal RecoveryOrderRepo for fill dispatch tests.
+type fakeFillOrderRepo struct{ order *model.Order }
+
+func (r *fakeFillOrderRepo) GetByID(id uint64) (*model.Order, error) {
+	if r.order == nil || r.order.ID != id {
+		return nil, errors.New("not found")
+	}
+	return r.order, nil
+}
+
+// Stuck fill early steps (record_transaction / convert_amount) auto-resolve by
+// delegating to the fill recoverer with the loaded (order, txn).
+func TestSagaRecovery_FillStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{"record_transaction", "convert_amount"} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 555, 8001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeFillRecoverer{}
+			orderRepo := &fakeFillOrderRepo{order: &model.Order{ID: 555, Direction: "buy", SecurityType: "stock"}}
+			txns := &fakeTxnGetter{txn: &model.OrderTransaction{ID: 8001, OrderID: 555}}
+
+			rec := NewSagaRecovery(repo, client, orderRepo, "", nil, nilRegistry()).
+				WithFillRecoverer(recvr, txns)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" ||
+				recvr.calls[0].orderID != 555 || recvr.calls[0].txnID != 8001 {
+				t.Fatalf("expected RecoverFillSaga(saga-1, order=555, txn=8001), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
 // When no recoverer is wired (e.g. a bare test harness), exercise steps fall
 // back to log-and-leave: no UpdateStatus, no panic.
 func TestSagaRecovery_ExerciseStep_NoRecoverer_LeavesRow(t *testing.T) {
