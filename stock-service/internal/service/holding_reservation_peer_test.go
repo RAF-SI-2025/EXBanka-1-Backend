@@ -168,6 +168,31 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_NewBuyer(t *t
 	}
 }
 
+// TestHoldingReservationService_CreditBuyerHolding_TwoTickersNoCollision is the
+// regression for the duplicate-key bug: crediting a buyer two DIFFERENT
+// cross-bank tickers must create two holdings with distinct security_ids (not
+// both 0), or the (owner_type, owner_id, security_type, security_id) unique
+// index rejects the second with SQLSTATE 23505 and the exercise fails.
+func TestHoldingReservationService_CreditBuyerHolding_TwoTickersNoCollision(t *testing.T) {
+	svc, holdingRepo, _ := newHoldingReservationFixture(t)
+	buyerUID := uint64(99)
+	strike := decimal.NewFromInt(150)
+
+	require.NoError(t, svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, "ZZZA", 5, strike))
+	// Second, DIFFERENT ticker must NOT collide (was: duplicate key on security_id=0).
+	require.NoError(t, svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, "ZZZB", 7, strike),
+		"crediting a second cross-bank ticker must not collide on security_id")
+
+	a, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", "ZZZA")
+	require.NoError(t, err)
+	b, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", "ZZZB")
+	require.NoError(t, err)
+	require.Equal(t, int64(5), a.Quantity)
+	require.Equal(t, int64(7), b.Quantity)
+	require.NotEqual(t, a.SecurityID, b.SecurityID, "distinct tickers must get distinct security_ids")
+	require.NotZero(t, a.SecurityID, "security_id must not default to 0 (collision source)")
+}
+
 // TestHoldingReservationService_ExerciseBuyerCreditForPeerOption_Idempotent
 // is the Bug D regression: a replayed cross-bank exercise (duplicate
 // COMMIT_TX) must credit the buyer's shares exactly once. The contract
