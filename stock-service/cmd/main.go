@@ -804,6 +804,7 @@ func main() {
 	// construction) because otcOfferSvc only exists now.
 	sagaRecovery.WithExerciseRecoverer(otcOfferSvc)
 	sagaRecovery.WithAcceptRecoverer(otcOfferSvc)
+	sagaRecovery.WithFundRecoverer(fundService)
 	sagaRecovery.Run(ctx, 60*time.Second)
 
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---

@@ -580,6 +580,52 @@ func TestSagaRecovery_AcceptStep_AutoResolvesViaRecoverer(t *testing.T) {
 	}
 }
 
+// fakeFundRecoverer records RecoverFundSaga calls.
+type fakeFundRecoverer struct {
+	calls []struct {
+		sagaID    string
+		contribID uint64
+	}
+	err error
+}
+
+func (f *fakeFundRecoverer) RecoverFundSaga(_ context.Context, sagaID string, contribID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID    string
+		contribID uint64
+	}{sagaID, contribID})
+	return f.err
+}
+
+// Every stuck fund invest/redeem step must auto-resolve by delegating to the
+// fund recoverer — no human review — then mark the row terminal.
+func TestSagaRecovery_FundStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"debit_source", "credit_fund", "upsert_position",
+		"debit_fund", "credit_target", "credit_bank_fee",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 3131, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeFundRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithFundRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].contribID != 3131 {
+				t.Fatalf("expected RecoverFundSaga(saga-1, 3131), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
 // When no recoverer is wired (e.g. a bare test harness), exercise steps fall
 // back to log-and-leave: no UpdateStatus, no panic.
 func TestSagaRecovery_ExerciseStep_NoRecoverer_LeavesRow(t *testing.T) {

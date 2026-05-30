@@ -97,7 +97,10 @@ type SagaRecovery struct {
 	// acceptRecoverer auto-resolves stuck OTC accept sagas (forward-resume to a
 	// minted contract, or rollback). Optional: nil → accept steps log-for-review.
 	acceptRecoverer AcceptSagaRecoverer
-	entry           *cronreg.Entry
+	// fundRecoverer auto-resolves stuck fund invest/redeem sagas. Optional: nil
+	// → fund steps log-for-review.
+	fundRecoverer FundSagaRecoverer
+	entry         *cronreg.Entry
 }
 
 // ExerciseSagaRecoverer drives a crash-stranded OTC exercise saga to a terminal
@@ -112,6 +115,12 @@ type AcceptSagaRecoverer interface {
 	RecoverAcceptSaga(ctx context.Context, sagaID string, offerID uint64) error
 }
 
+// FundSagaRecoverer drives a crash-stranded fund invest/redeem saga to a
+// terminal state with no human intervention. Implemented by *FundService.
+type FundSagaRecoverer interface {
+	RecoverFundSaga(ctx context.Context, sagaID string, contribID uint64) error
+}
+
 // WithExerciseRecoverer wires the OTC exercise auto-resolver. Returns the same
 // *SagaRecovery for chaining at construction time in main.go.
 func (r *SagaRecovery) WithExerciseRecoverer(rec ExerciseSagaRecoverer) *SagaRecovery {
@@ -122,6 +131,12 @@ func (r *SagaRecovery) WithExerciseRecoverer(rec ExerciseSagaRecoverer) *SagaRec
 // WithAcceptRecoverer wires the OTC accept auto-resolver.
 func (r *SagaRecovery) WithAcceptRecoverer(rec AcceptSagaRecoverer) *SagaRecovery {
 	r.acceptRecoverer = rec
+	return r
+}
+
+// WithFundRecoverer wires the fund invest/redeem auto-resolver.
+func (r *SagaRecovery) WithFundRecoverer(rec FundSagaRecoverer) *SagaRecovery {
+	r.fundRecoverer = rec
 	return r
 }
 
@@ -289,19 +304,17 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 			step.ID, step.OrderID, step.StepName)
 		return nil
 
-	// --- Fund money-movement / position steps. These sagas migrated to
-	// shared.Saga without dedicated recovery reconcilers; the safest behaviour
-	// is the hands-off "log and leave for review" until per-step semantics are
-	// wired (tracked in the saga auto-resolve plan's rollout).
+	// --- Fund invest/redeem saga steps (assembled by buildInvestSaga /
+	// buildRedeemSaga). Auto-resolved by re-driving the whole saga to a terminal
+	// state from the persisted contribution row. No human review. See
+	// reconcileFund.
 	case saga.StepDebitSource,
-		saga.StepCreditTarget,
-		saga.StepDebitFund,
 		saga.StepCreditFund,
 		saga.StepUpsertPosition,
+		saga.StepDebitFund,
+		saga.StepCreditTarget,
 		saga.StepCreditBankFee:
-		log.Printf("WARN: stuck Fund saga step %d (order=%d, step=%s) — needs human review",
-			step.ID, step.OrderID, step.StepName)
-		return nil
+		return r.reconcileFund(ctx, step)
 
 	// --- OTC accept saga steps (assembled by buildAcceptSaga). Auto-resolved by
 	// re-driving the whole saga to a terminal state (forward-resume to a minted
@@ -427,6 +440,31 @@ func (r *SagaRecovery) reconcileAccept(ctx context.Context, step model.SagaLog) 
 	}
 	if err := r.acceptRecoverer.RecoverAcceptSaga(ctx, step.SagaID, step.OrderID); err != nil {
 		return fmt.Errorf("recover accept saga %s (offer=%d): %w", step.SagaID, step.OrderID, err)
+	}
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (saga re-driven to terminal)")
+}
+
+// reconcileFund auto-resolves a stuck fund invest/redeem saga step by
+// delegating to the fund recoverer, which re-drives the whole saga (identified
+// by step.SagaID, contribution = step.OrderID) to a terminal state. Mirrors
+// reconcileExercise/reconcileAccept.
+func (r *SagaRecovery) reconcileFund(ctx context.Context, step model.SagaLog) error {
+	if r.fundRecoverer == nil {
+		log.Printf("WARN: stuck fund saga step %d (order=%d, step=%s) — no recoverer wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" {
+		log.Printf("WARN: stuck fund saga step %d (step=%s) — missing saga_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	if err := r.fundRecoverer.RecoverFundSaga(ctx, step.SagaID, step.OrderID); err != nil {
+		return fmt.Errorf("recover fund saga %s (contrib=%d): %w", step.SagaID, step.OrderID, err)
 	}
 	finalStatus := model.SagaStatusCompleted
 	if step.IsCompensation {
