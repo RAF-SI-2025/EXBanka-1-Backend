@@ -153,12 +153,15 @@ func (s *HoldingReservationService) Reserve(
 		// 5-share holding to 6). Postgres row-locks during the UPDATE and
 		// re-evaluates the WHERE against the latest committed state, so the loser
 		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
-		upd := tx.Model(&model.Holding{}).
-			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
-			UpdateColumns(map[string]any{
-				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
-				"version":           gorm.Expr("version + 1"),
-			})
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
 		if upd.Error != nil {
 			return upd.Error
 		}
@@ -416,12 +419,15 @@ func (s *HoldingReservationService) ReserveForPeerOptionContract(
 		// 5-share holding to 6). Postgres row-locks during the UPDATE and
 		// re-evaluates the WHERE against the latest committed state, so the loser
 		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
-		upd := tx.Model(&model.Holding{}).
-			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
-			UpdateColumns(map[string]any{
-				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
-				"version":           gorm.Expr("version + 1"),
-			})
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
 		if upd.Error != nil {
 			return upd.Error
 		}
@@ -507,12 +513,15 @@ func (s *HoldingReservationService) ReserveForOTCContract(
 		// 5-share holding to 6). Postgres row-locks during the UPDATE and
 		// re-evaluates the WHERE against the latest committed state, so the loser
 		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
-		upd := tx.Model(&model.Holding{}).
-			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
-			UpdateColumns(map[string]any{
-				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
-				"version":           gorm.Expr("version + 1"),
-			})
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
 		if upd.Error != nil {
 			return upd.Error
 		}
@@ -973,12 +982,15 @@ func (s *HoldingReservationService) ReserveForCrossBankNewTx(
 		// 5-share holding to 6). Postgres row-locks during the UPDATE and
 		// re-evaluates the WHERE against the latest committed state, so the loser
 		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
-		upd := tx.Model(&model.Holding{}).
-			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
-			UpdateColumns(map[string]any{
-				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
-				"version":           gorm.Expr("version + 1"),
-			})
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
 		if upd.Error != nil {
 			return upd.Error
 		}

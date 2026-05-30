@@ -261,6 +261,10 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_WeightedAvera
 func TestReserveForCrossBankNewTx_NoOverReservation(t *testing.T) {
 	svc, holdingRepo, h := newHoldingReservationFixture(t) // holding qty=100, ticker TEST, owner 1
 	uid := uint64(1)
+	// Force a non-zero version so the reserve must succeed against a real version
+	// — guards against the BeforeUpdate-hook regression where a zero-value model
+	// injected a stale `version = 0` predicate into the increment and matched 0 rows.
+	require.NoError(t, holdingRepo.DB().Exec("UPDATE holdings SET version = 7 WHERE id = ?", h.ID).Error)
 
 	r1, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-a", 60)
 	require.NoError(t, err)
