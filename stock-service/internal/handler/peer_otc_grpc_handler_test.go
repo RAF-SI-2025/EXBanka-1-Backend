@@ -389,4 +389,13 @@ func TestValidatePeerOptionMoneyLeg_ForgedStrike(t *testing.T) {
 	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, ac); err != nil || !r.GetOk() {
 		t.Errorf("accept intent should not be blocked here; got ok=%v err=%v", r.GetOk(), err)
 	}
+
+	// Replay defense: once the contract is exercised, even an honest-amount
+	// exercise must be denied (a forged second exercise would double-charge).
+	if err := db.Model(&model.PeerOptionContract{}).Where("negotiation_id = ?", "neg-1").Update("status", "exercised").Error; err != nil {
+		t.Fatalf("mark exercised: %v", err)
+	}
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, base("500")); r.GetOk() {
+		t.Errorf("exercise of an already-exercised contract must be denied; got ok with reason=%q", r.GetReason())
+	}
 }

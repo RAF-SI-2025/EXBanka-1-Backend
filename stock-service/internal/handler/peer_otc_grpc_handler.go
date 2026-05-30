@@ -1085,6 +1085,16 @@ func (h *PeerOTCGRPCHandler) ValidatePeerOptionMoneyLeg(ctx context.Context, req
 		}
 		return nil, status.Errorf(codes.Internal, "lookup contract: %v", err)
 	}
+	// Replay/double-exercise defense: only an exercisable contract may move money.
+	// "active" (unclaimed) and "exercising" (buyer-side claim) are the valid
+	// pre-exercise states; an already-"exercised" (or expired/cancelled) contract
+	// must NOT vote YES — otherwise a forged second exercise debits the buyer the
+	// strike again while COMMIT's materialise no-ops (no delivery), double-charging
+	// the buyer. Mirrors recordOptionExercise's COMMIT-time guard, but at vote time
+	// so no money is ever reserved for the replay.
+	if contract.Status != "active" && contract.Status != "exercising" {
+		return deny("contract not exercisable, status=" + contract.Status)
+	}
 	if req.GetQuantity() != contract.Quantity {
 		return deny(fmt.Sprintf("quantity %d != stored %d", req.GetQuantity(), contract.Quantity))
 	}
