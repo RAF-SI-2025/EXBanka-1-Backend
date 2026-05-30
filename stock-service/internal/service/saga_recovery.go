@@ -100,7 +100,10 @@ type SagaRecovery struct {
 	// fundRecoverer auto-resolves stuck fund invest/redeem sagas. Optional: nil
 	// → fund steps log-for-review.
 	fundRecoverer FundSagaRecoverer
-	entry         *cronreg.Entry
+	// placementRecoverer auto-resolves stuck order-placement sagas. Optional:
+	// nil → placement steps log-for-review.
+	placementRecoverer PlacementSagaRecoverer
+	entry              *cronreg.Entry
 }
 
 // ExerciseSagaRecoverer drives a crash-stranded OTC exercise saga to a terminal
@@ -121,6 +124,12 @@ type FundSagaRecoverer interface {
 	RecoverFundSaga(ctx context.Context, sagaID string, contribID uint64) error
 }
 
+// PlacementSagaRecoverer drives a crash-stranded order-placement saga to a
+// terminal state with no human intervention. Implemented by *OrderService.
+type PlacementSagaRecoverer interface {
+	RecoverPlacementSaga(ctx context.Context, sagaID string, orderID uint64) error
+}
+
 // WithExerciseRecoverer wires the OTC exercise auto-resolver. Returns the same
 // *SagaRecovery for chaining at construction time in main.go.
 func (r *SagaRecovery) WithExerciseRecoverer(rec ExerciseSagaRecoverer) *SagaRecovery {
@@ -137,6 +146,12 @@ func (r *SagaRecovery) WithAcceptRecoverer(rec AcceptSagaRecoverer) *SagaRecover
 // WithFundRecoverer wires the fund invest/redeem auto-resolver.
 func (r *SagaRecovery) WithFundRecoverer(rec FundSagaRecoverer) *SagaRecovery {
 	r.fundRecoverer = rec
+	return r
+}
+
+// WithPlacementRecoverer wires the order-placement auto-resolver.
+func (r *SagaRecovery) WithPlacementRecoverer(rec PlacementSagaRecoverer) *SagaRecovery {
+	r.placementRecoverer = rec
 	return r
 }
 
@@ -292,15 +307,23 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
 			"auto-completed by recovery (holding settlement is idempotent)")
 
-	// --- placement / order-construction steps: auto-replay would risk
-	// duplicating the user's order. Leave for human review.
+	// --- order-placement saga steps (assembled by buildPlacementSaga). Auto-
+	// resolved by re-driving the whole saga from the persisted order (idempotent
+	// mint + keyed reservation), to approved/pending or rolled back. No human
+	// review. See reconcilePlacement.
 	case saga.StepPersistOrderPending,
 		saga.StepReserveFunds,
 		saga.StepReserveHolding,
-		saga.StepFinalizeOrder,
-		saga.StepConvertAmount,
+		saga.StepFinalizeOrder:
+		return r.reconcilePlacement(ctx, step)
+
+	// --- fill-saga steps (convert_amount / record_transaction are produced by
+	// portfolio_service / forex_fill_service, NOT placement). The fill saga's
+	// money legs are auto-retried via the credit_*/settle_* reconcilers above;
+	// these two have no dedicated reconciler yet, so they stay log-for-review.
+	case saga.StepConvertAmount,
 		saga.StepRecordTransaction:
-		log.Printf("WARN: stuck placement saga step %d (order=%d, step=%s) — needs human review",
+		log.Printf("WARN: stuck fill saga step %d (order=%d, step=%s) — needs human review",
 			step.ID, step.OrderID, step.StepName)
 		return nil
 
@@ -465,6 +488,31 @@ func (r *SagaRecovery) reconcileFund(ctx context.Context, step model.SagaLog) er
 	}
 	if err := r.fundRecoverer.RecoverFundSaga(ctx, step.SagaID, step.OrderID); err != nil {
 		return fmt.Errorf("recover fund saga %s (contrib=%d): %w", step.SagaID, step.OrderID, err)
+	}
+	finalStatus := model.SagaStatusCompleted
+	if step.IsCompensation {
+		finalStatus = model.SagaStatusCompensated
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, finalStatus, "auto-resolved by recovery (saga re-driven to terminal)")
+}
+
+// reconcilePlacement auto-resolves a stuck order-placement saga step by
+// delegating to the placement recoverer, which re-drives the whole saga
+// (identified by step.SagaID, order = step.OrderID) to a terminal state.
+// Mirrors reconcileExercise/reconcileAccept/reconcileFund.
+func (r *SagaRecovery) reconcilePlacement(ctx context.Context, step model.SagaLog) error {
+	if r.placementRecoverer == nil {
+		log.Printf("WARN: stuck placement saga step %d (order=%d, step=%s) — no recoverer wired, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	if step.SagaID == "" {
+		log.Printf("WARN: stuck placement saga step %d (step=%s) — missing saga_id, cannot rebuild",
+			step.ID, step.StepName)
+		return nil
+	}
+	if err := r.placementRecoverer.RecoverPlacementSaga(ctx, step.SagaID, step.OrderID); err != nil {
+		return fmt.Errorf("recover placement saga %s (order=%d): %w", step.SagaID, step.OrderID, err)
 	}
 	finalStatus := model.SagaStatusCompleted
 	if step.IsCompensation {

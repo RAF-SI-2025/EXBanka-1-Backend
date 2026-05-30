@@ -60,6 +60,19 @@ func (m *mockOrderRepo) GetByID(id uint64) (*model.Order, error) {
 	return &copy, nil
 }
 
+func (m *mockOrderRepo) GetBySagaID(sagaID string) (*model.Order, error) {
+	if sagaID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	for _, o := range m.orders {
+		if o.SagaID == sagaID {
+			copy := *o
+			return &copy, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 func (m *mockOrderRepo) GetByIDWithOwner(id uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
 	o, ok := m.orders[id]
 	if !ok {
@@ -360,9 +373,29 @@ func (r *mockSagaRepo) UpdateStatus(id uint64, version int64, newStatus, errMsg 
 }
 
 // IsForwardCompleted satisfies the SagaLogRepo / FillSagaLogRepo interface.
-// Returns false in tests so shared.Saga's restart-resume always re-runs
-// each step from the start (the in-memory mock has no prior state).
+// Reports true when a completed forward row exists for (sagaID, stepName).
+// During a single forward pass this still returns false for each step (checked
+// before the row is marked completed), so normal CreateOrder tests are
+// unaffected; a SECOND Execute on the same sagaID (placement crash-recovery
+// resume) correctly skips the already-completed steps.
 func (r *mockSagaRepo) IsForwardCompleted(sagaID, stepName string) (bool, error) {
+	for _, row := range r.rows {
+		if row.SagaID == sagaID && row.StepName == stepName &&
+			!row.IsCompensation && row.Status == model.SagaStatusCompleted {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// HasCompensations satisfies sagaCompensationChecker so RecoverPlacementSaga
+// picks the right direction (forward-resume vs rollback) in recovery tests.
+func (r *mockSagaRepo) HasCompensations(sagaID string) (bool, error) {
+	for _, row := range r.rows {
+		if row.SagaID == sagaID && row.IsCompensation {
+			return true, nil
+		}
+	}
 	return false, nil
 }
 

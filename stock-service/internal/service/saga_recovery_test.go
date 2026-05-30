@@ -436,6 +436,9 @@ func TestSagaRecovery_CreditStep_WithoutOrderRepo_LeftAlone(t *testing.T) {
 // step kinds that aren't registered (e.g. an obsolete "validate_listing"
 // label from older code) now panic via the recovery default arm and
 // belong in TestSagaRecovery_UnknownStepKind_Panics.
+// Without a recoverer wired, placement steps fall back to log-and-leave; the
+// fill steps convert_amount/record_transaction have no recoverer and always
+// log-and-leave. None auto-retry (no GetReservation / settle / UpdateStatus).
 func TestSagaRecovery_PlacementStep_NotAutoRetried(t *testing.T) {
 	for _, name := range []string{
 		"persist_order_pending", "reserve_funds", "reserve_holding", "finalize_order",
@@ -572,6 +575,51 @@ func TestSagaRecovery_AcceptStep_AutoResolvesViaRecoverer(t *testing.T) {
 			}
 			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].offerID != 7777 {
 				t.Fatalf("expected RecoverAcceptSaga(saga-1, 7777), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
+// fakePlacementRecoverer records RecoverPlacementSaga calls.
+type fakePlacementRecoverer struct {
+	calls []struct {
+		sagaID  string
+		orderID uint64
+	}
+	err error
+}
+
+func (f *fakePlacementRecoverer) RecoverPlacementSaga(_ context.Context, sagaID string, orderID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID  string
+		orderID uint64
+	}{sagaID, orderID})
+	return f.err
+}
+
+// Every stuck order-placement step must auto-resolve by delegating to the
+// placement recoverer — no human review — then mark the row terminal.
+func TestSagaRecovery_PlacementStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"persist_order_pending", "reserve_funds", "reserve_holding", "finalize_order",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 2424, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakePlacementRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithPlacementRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].orderID != 2424 {
+				t.Fatalf("expected RecoverPlacementSaga(saga-1, 2424), got %+v", recvr.calls)
 			}
 			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
 				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)

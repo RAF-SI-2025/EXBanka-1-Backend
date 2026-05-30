@@ -105,6 +105,7 @@ type DailyPriceRepo interface {
 type OrderRepo interface {
 	Create(order *model.Order) error
 	GetByID(id uint64) (*model.Order, error)
+	GetBySagaID(sagaID string) (*model.Order, error)
 	GetByIDWithOwner(id uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
 	Update(order *model.Order) error
 	Delete(id uint64) error

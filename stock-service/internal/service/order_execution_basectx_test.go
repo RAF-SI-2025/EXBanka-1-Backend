@@ -24,6 +24,12 @@ func (r *fakeBaseCtxOrderRepo) GetByID(id uint64) (*model.Order, error) {
 	}
 	return r.order, nil
 }
+func (r *fakeBaseCtxOrderRepo) GetBySagaID(sagaID string) (*model.Order, error) {
+	if r.order == nil || r.order.SagaID != sagaID {
+		return nil, errors.New("not found")
+	}
+	return r.order, nil
+}
 func (r *fakeBaseCtxOrderRepo) Update(o *model.Order) error {
 	r.order = o
 	return nil
