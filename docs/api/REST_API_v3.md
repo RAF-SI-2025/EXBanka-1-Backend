@@ -1720,6 +1720,39 @@ List payments for a specific account, identified by account numeric ID. Supports
 
 ---
 
+### POST /api/v3/me/payments/preview
+
+Preview what a payment would cost **before** creating it, so the frontend can show the fee and total. Payments are single-currency (no exchange): the fee is computed in the sender's account currency and debited on top of the amount, so `total_debit = input_amount + total_fee` and the recipient receives `input_amount`. Works for both intra-bank and cross-bank destinations (the fee is sender-side; the recipient account is not looked up).
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `from_account_number` | string | Yes | Source account number |
+| `to_account_number` | string | Yes | Destination account number |
+| `amount` | float64 | Yes | Payment amount (in source currency) |
+
+**Response 200:**
+```json
+{
+  "currency": "RSD",
+  "input_amount": "1000.0000",
+  "total_fee": "10.0000",
+  "fee_breakdown": [ { "fee_type": "percentage", "amount": "10.0000" } ],
+  "total_debit": "1010.0000",
+  "amount_received": "1000.0000"
+}
+```
+
+**Error Responses:**
+- `400` — invalid body or non-positive amount
+- `401` — missing or invalid JWT
+- `500` — fee or account lookup failed
+
+---
+
 ### POST /api/v3/me/payments/:id/execute
 
 Execute a pending payment after verification. The payment must have been created previously via `POST /api/v3/me/payments`. Verification is handled by the verification-service -- pass the `challenge_id` from the completed verification challenge.

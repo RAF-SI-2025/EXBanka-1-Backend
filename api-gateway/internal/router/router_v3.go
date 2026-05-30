@@ -97,6 +97,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// rejects an unregistered peer bank (404) before any debit. Intra-bank
 		// payments run the standard flow.
 		me.POST("/payments", h.PeerTxDispatcher.CreatePayment)
+		me.POST("/payments/preview", h.Tx.PreviewPayment)
 		me.GET("/payments", h.Tx.ListMyPayments)
 		me.GET("/payments/:id", h.PeerTxDispatcher.GetPaymentByID)
 		me.POST("/payments/:id/execute", h.Tx.ExecutePayment)

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
@@ -1301,4 +1302,77 @@ func (h *TransactionHandler) PreviewTransfer(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+type previewPaymentRequest struct {
+	FromAccountNumber string  `json:"from_account_number" binding:"required"`
+	ToAccountNumber   string  `json:"to_account_number" binding:"required"`
+	Amount            float64 `json:"amount" binding:"required"`
+}
+
+// PreviewPayment returns the fee a payment would cost, without creating it, so
+// the frontend can show the total before execution. Payments are single-
+// currency (no FX): the fee is computed in the sender's account currency and
+// debited on top of the amount, so `total_debit = input_amount + total_fee`
+// and the recipient receives `input_amount`. Works for both intra-bank and
+// cross-bank destinations (the fee is sender-side; the recipient account is not
+// looked up).
+//
+// @Summary      Preview payment costs
+// @Description  Returns the commission fee and total debit for a payment without creating it. Payments are single-currency (no exchange).
+// @Tags         payments
+// @Accept       json
+// @Produce      json
+// @Param        body  body  previewPaymentRequest  true  "Payment preview data"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/v3/me/payments/preview [post]
+func (h *TransactionHandler) PreviewPayment(c *gin.Context) {
+	var req previewPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	if err := positive("amount", req.Amount); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+
+	amountStr := fmt.Sprintf("%.4f", req.Amount)
+	ctx := c.Request.Context()
+
+	// Sender currency is authoritative for the fee (payments don't convert).
+	currency, err := h.AccountCurrency(ctx, req.FromAccountNumber)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if currency == "" {
+		currency = "RSD"
+	}
+
+	feeResp, err := h.feeClient.CalculateFee(ctx, &transactionpb.CalculateFeeRequest{
+		Amount:          amountStr,
+		TransactionType: "payment",
+		CurrencyCode:    currency,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	totalFee, _ := decimal.NewFromString(feeResp.GetTotalFee())
+	inputAmt, _ := decimal.NewFromString(amountStr)
+	totalDebit := inputAmt.Add(totalFee)
+
+	c.JSON(http.StatusOK, gin.H{
+		"currency":        currency,
+		"input_amount":    amountStr,
+		"total_fee":       feeResp.GetTotalFee(),
+		"fee_breakdown":   feeResp.GetAppliedFees(),
+		"total_debit":     totalDebit.StringFixed(4), // what leaves the sender
+		"amount_received": amountStr,                 // recipient gets the amount (no FX)
+	})
 }

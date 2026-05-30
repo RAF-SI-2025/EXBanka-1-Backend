@@ -799,6 +799,19 @@ definitions:
       ticker:
         type: string
     type: object
+  handler.previewPaymentRequest:
+    properties:
+      amount:
+        type: number
+      from_account_number:
+        type: string
+      to_account_number:
+        type: string
+    required:
+    - amount
+    - from_account_number
+    - to_account_number
+    type: object
   handler.previewTransferRequest:
     properties:
       amount:
@@ -9432,6 +9445,44 @@ paths:
       security:
       - BearerAuth: []
       summary: Get a payment by ID
+      tags:
+      - payments
+  /api/v3/me/payments/preview:
+    post:
+      consumes:
+      - application/json
+      description: Returns the commission fee and total debit for a payment without
+        creating it. Payments are single-currency (no exchange).
+      parameters:
+      - description: Payment preview data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.previewPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Preview payment costs
       tags:
       - payments
   /api/v3/me/peer-otc/negotiations:
