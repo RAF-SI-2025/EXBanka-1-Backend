@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/exbanka/transaction-service/internal/service"
 	"github.com/exbanka/transaction-service/internal/sitx"
 )
+
+var errFakeSettle = errors.New("simulated settle failure")
 
 // setupReconcilerPeer starts a test HTTP server that serves CHECK_STATUS
 // responses. The statusFn maps a txID to the response JSON body.
@@ -74,6 +77,57 @@ func TestPeerTxReconciler_PeerCommitted(t *testing.T) {
 	row, _ := repo.GetByIdempotenceKey(idem)
 	if row.Status != "committed" {
 		t.Errorf("expected committed, got %s last_error=%q", row.Status, row.LastError)
+	}
+}
+
+// TestPeerTxReconciler_PeerCommitted_SettlesLocalHold verifies that when the
+// peer reports committed, the reconciler runs the local commit/settle hook
+// BEFORE marking the row committed — and that a settle failure leaves the row
+// pending for retry (never a committed row with an un-settled hold, which the
+// timeout cron would wrongly refund). Reserve-then-settle regression.
+func TestPeerTxReconciler_PeerCommitted_SettlesLocalHold(t *testing.T) {
+	repo := newReconcilerDB(t)
+	idem := "reconcile-committed-settle-001"
+	if err := repo.Create(&model.OutboundPeerTx{
+		IdempotenceKey: idem, PeerBankCode: "222", TxKind: "payment",
+		PostingsJSON: "[]", Status: "pending",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	srv := setupReconcilerPeer(t, func(_ string) string {
+		body, _ := json.Marshal(map[string]string{"state": "committed", "our_role": "receiver"})
+		return string(body)
+	})
+	defer srv.Close()
+
+	// First: settle hook fails → row must stay pending.
+	failing := newReconciler(repo, srv.URL)
+	calls := 0
+	failing.WithLocalCommit(func(_ context.Context, row *model.OutboundPeerTx) error {
+		calls++
+		return errFakeSettle
+	})
+	failing.Tick(context.Background())
+	if calls != 1 {
+		t.Fatalf("expected local commit hook called once, got %d", calls)
+	}
+	if row, _ := repo.GetByIdempotenceKey(idem); row.Status != "pending" {
+		t.Fatalf("settle failed → row must stay pending, got %s", row.Status)
+	}
+
+	// Then: settle hook succeeds → row marked committed.
+	ok := newReconciler(repo, srv.URL)
+	settled := false
+	ok.WithLocalCommit(func(_ context.Context, row *model.OutboundPeerTx) error {
+		settled = true
+		return nil
+	})
+	ok.Tick(context.Background())
+	if !settled {
+		t.Fatalf("expected local commit hook to settle on success")
+	}
+	if row, _ := repo.GetByIdempotenceKey(idem); row.Status != "committed" {
+		t.Fatalf("expected committed after successful settle, got %s", row.Status)
 	}
 }
 

@@ -637,15 +637,19 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 // into the cron as its LocalReversalFunc so the cron — which has no account
 // client of its own — can credit the sender back.
 //
-// Dispatch mirrors the two initiation paths so the reversal idempotency keys
-// match, making the reversal idempotent and safe to interleave with the inline
-// NO-vote rollback:
-//   - "transfer" (InitiateOutboundTx): a single sender hold was placed with
+// Dispatch is keyed on tx_kind, which determines the reservation-key scheme the
+// initiation path used, so the reversal idempotency keys match and the reversal
+// is safe to interleave with the inline NO-vote rollback:
+//   - "payment" (InitiateOutboundTx): a single sender hold was placed with
 //     reservation key "peer-out:<idem>"; release it (the money never left —
 //     only the hold is lifted). No Balance movement.
-//   - otherwise (InitiateOutboundTxWithPostings OTC legs): reservations +
-//     outgoing holds were applied via the posting executor with peerCode = our
-//     own routing; reverse them via the executor's matching keys.
+//   - "transfer" / "otc-*" (InitiateOutboundTxWithPostings): reservations +
+//     per-posting outgoing holds were applied via the posting executor with
+//     peerCode = our own routing; reverse them via the executor's matching keys.
+//
+// NB: "transfer" is the WithPostings default (per-posting), NOT the single-hold
+// payment path — InitiateOutboundTx sets "payment". Routing "payment" through
+// the executor branch (the old bug) left the real "peer-out:<idem>" hold pending.
 func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
 	var postings []contractsitx.Posting
 	if err := json.Unmarshal([]byte(row.PostingsJSON), &postings); err != nil {
@@ -653,7 +657,7 @@ func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model
 	}
 	idem := row.IdempotenceKey
 	switch row.TxKind {
-	case "", "transfer":
+	case "", "payment":
 		if _, err := h.client.ReleaseOutgoing(ctx, &accountpb.ReleaseOutgoingRequest{
 			ReservationKey: "peer-out:" + idem,
 			IdempotencyKey: "peer-out-release-" + idem,
@@ -673,16 +677,18 @@ func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model
 // cross-bank commit after a crash between the inline reserve and the inline
 // commit/settle calls.
 //
-//   - "transfer" rows (InitiateOutboundTx): settle the single sender HOLD keyed
+//   - "payment" rows (InitiateOutboundTx): settle the single sender HOLD keyed
 //     "peer-out:<idem>" (the money leaves). No CREDIT leg.
-//   - OTC rows (InitiateOutboundTxWithPostings): commit local CREDIT-leg
-//     reservations AND settle local DEBIT-side outgoing holds via the executor.
+//   - "transfer" / "otc-*" rows (InitiateOutboundTxWithPostings): commit local
+//     CREDIT-leg reservations AND settle per-posting DEBIT-side outgoing holds
+//     via the executor.
 //
 // Idempotency: every step reuses the inline path's keys, so this is safe to
 // call multiple times. NotFound at account-service is benign — means no
-// matching leg landed on this bank.
+// matching leg landed on this bank. NB: "payment" (not "transfer") is the
+// single-hold path — InitiateOutboundTx sets tx_kind="payment".
 func (h *PeerTxGRPCHandler) CommitOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
-	if row.TxKind == "" || row.TxKind == "transfer" {
+	if row.TxKind == "" || row.TxKind == "payment" {
 		if _, err := h.client.SettleOutgoing(ctx, &accountpb.SettleOutgoingRequest{
 			ReservationKey: "peer-out:" + row.IdempotenceKey,
 			IdempotencyKey: "peer-out-settle-" + row.IdempotenceKey,
