@@ -143,62 +143,13 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 		return nil, err
 	}
 
-	debitTotal := in.AmountRSD.Add(feeRSD)
-
-	// Pre-compute idempotency keys + memos shared by forward and backward.
-	debitMemo := fmt.Sprintf("Redeem fund #%d (saga=%s)", in.FundID, sagaID)
-	debitKey := fmt.Sprintf("redeem-%s-debit-fund", sagaID)
-	creditMemo := fmt.Sprintf("Redemption from fund #%d (saga=%s)", in.FundID, sagaID)
-	creditKey := fmt.Sprintf("redeem-%s-credit-target", sagaID)
-	compFundMemo := fmt.Sprintf("Comp redeem fund saga=%s", sagaID)
-	compFundKey := fmt.Sprintf("redeem-%s-comp-fund", sagaID)
-	compTargetMemo := fmt.Sprintf("Comp redeem target saga=%s", sagaID)
-	compTargetKey := fmt.Sprintf("redeem-%s-comp-target", sagaID)
-	feeKey := fmt.Sprintf("redeem-%s-fee", sagaID)
-	feeMemo := fmt.Sprintf("Fund redemption fee saga=%s", sagaID)
-
-	state := saga.NewState()
-	state.Set("step:debit_fund:amount", debitTotal)
-	state.Set("step:debit_fund:currency", "RSD")
-	state.Set("step:credit_target:amount", in.AmountRSD)
-	state.Set("step:credit_target:currency", "RSD")
-	if !feeRSD.IsZero() {
-		state.Set("step:credit_bank_fee:amount", feeRSD)
-		state.Set("step:credit_bank_fee:currency", "RSD")
-	}
-
-	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(saga.Step{
-			Name: saga.StepDebitFund,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, debitTotal, debitMemo, debitKey)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, debitTotal, compFundMemo, compFundKey)
-				return e
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepCreditTarget,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, creditMemo, creditKey)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.DebitAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, compTargetMemo, compTargetKey)
-				return e
-			},
-		}).
-		AddIf(!feeRSD.IsZero(), saga.Step{
-			Name: saga.StepCreditBankFee,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, bankRSDAcctNo, feeRSD, feeMemo, feeKey)
-				return e
-			},
-			// Last money step. Nothing after it to fail, so no Backward needed.
-		})
-
+	sg, state := s.buildRedeemSaga(sagaID, redeemSagaParams{
+		fundID: in.FundID, contribID: contrib.ID,
+		posOwnerType: posOwnerType, posOwnerID: posOwnerID,
+		fundAcctNumber: fundAcct.AccountNumber, targetAcctNumber: targetAcct.AccountNumber,
+		bankRSDAcctNumber: bankRSDAcctNo,
+		amountRSD:         in.AmountRSD, feeRSD: feeRSD,
+	})
 	if err := sg.Execute(ctx, state); err != nil {
 		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
 		return nil, err
@@ -237,6 +188,84 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	}
 
 	return contrib, nil
+}
+
+// redeemSagaParams bundles what buildRedeemSaga needs, so Redeem (from the
+// request) and RecoverRedeemSaga (from the persisted contribution) build the
+// identical saga.
+type redeemSagaParams struct {
+	fundID            uint64
+	contribID         uint64
+	posOwnerType      model.OwnerType
+	posOwnerID        *uint64
+	fundAcctNumber    string
+	targetAcctNumber  string
+	bankRSDAcctNumber string
+	amountRSD         decimal.Decimal
+	feeRSD            decimal.Decimal
+}
+
+// buildRedeemSaga assembles the fund-redeem saga under sagaID. Every money step
+// is idempotency-keyed, so a crash-recovery forward-resume replays safely.
+// state["order_id"]=contribID so saga_logs rows carry it for recovery lookup.
+func (s *FundService) buildRedeemSaga(sagaID string, p redeemSagaParams) (*saga.Saga, *saga.State) {
+	debitTotal := p.amountRSD.Add(p.feeRSD)
+
+	debitMemo := fmt.Sprintf("Redeem fund #%d (saga=%s)", p.fundID, sagaID)
+	debitKey := fmt.Sprintf("redeem-%s-debit-fund", sagaID)
+	creditMemo := fmt.Sprintf("Redemption from fund #%d (saga=%s)", p.fundID, sagaID)
+	creditKey := fmt.Sprintf("redeem-%s-credit-target", sagaID)
+	compFundMemo := fmt.Sprintf("Comp redeem fund saga=%s", sagaID)
+	compFundKey := fmt.Sprintf("redeem-%s-comp-fund", sagaID)
+	compTargetMemo := fmt.Sprintf("Comp redeem target saga=%s", sagaID)
+	compTargetKey := fmt.Sprintf("redeem-%s-comp-target", sagaID)
+	feeKey := fmt.Sprintf("redeem-%s-fee", sagaID)
+	feeMemo := fmt.Sprintf("Fund redemption fee saga=%s", sagaID)
+
+	state := saga.NewState()
+	state.Set("order_id", p.contribID)
+	state.Set("step:debit_fund:amount", debitTotal)
+	state.Set("step:debit_fund:currency", "RSD")
+	state.Set("step:credit_target:amount", p.amountRSD)
+	state.Set("step:credit_target:currency", "RSD")
+	if !p.feeRSD.IsZero() {
+		state.Set("step:credit_bank_fee:amount", p.feeRSD)
+		state.Set("step:credit_bank_fee:currency", "RSD")
+	}
+
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
+			Name: saga.StepDebitFund,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.DebitAccount(ctx, p.fundAcctNumber, debitTotal, debitMemo, debitKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.CreditAccount(ctx, p.fundAcctNumber, debitTotal, compFundMemo, compFundKey)
+				return e
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepCreditTarget,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.CreditAccount(ctx, p.targetAcctNumber, p.amountRSD, creditMemo, creditKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.DebitAccount(ctx, p.targetAcctNumber, p.amountRSD, compTargetMemo, compTargetKey)
+				return e
+			},
+		}).
+		AddIf(!p.feeRSD.IsZero(), saga.Step{
+			Name: saga.StepCreditBankFee,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.CreditAccount(ctx, p.bankRSDAcctNumber, p.feeRSD, feeMemo, feeKey)
+				return e
+			},
+			// Last money step. Nothing after it to fail, so no Backward needed.
+		})
+
+	return sg, state
 }
 
 // ErrInsufficientFundCash is returned when a redemption requires more cash

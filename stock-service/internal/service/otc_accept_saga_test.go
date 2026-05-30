@@ -82,6 +82,7 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 		&model.Holding{},
 		&model.HoldingReservation{},
 		&model.HoldingReservationSettlement{},
+		&model.HoldingCreditMarker{},
 		&model.OTCOffer{},
 		&model.OTCOfferRevision{},
 		&model.OptionContract{},

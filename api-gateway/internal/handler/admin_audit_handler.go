@@ -12,12 +12,14 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	creditpb "github.com/exbanka/contract/creditpb"
 	notifpb "github.com/exbanka/contract/notificationpb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
-// AdminAuditHandler serves the six /api/v3/admin/audit/* routes.
+// AdminAuditHandler serves the /api/v3/admin/audit/* routes.
 // Each route fans out to one service's changelog (or notification-service's
-// admin_audit_logs table) and returns a paginated, filterable list.
+// admin_audit_logs table, or transaction-service's saga logs) and returns a
+// paginated, filterable list.
 type AdminAuditHandler struct {
 	accountClient accountpb.AccountServiceClient
 	cardClient    cardpb.CardServiceClient
@@ -25,9 +27,10 @@ type AdminAuditHandler struct {
 	creditClient  creditpb.CreditServiceClient
 	userClient    userpb.UserServiceClient
 	notifClient   notifpb.NotificationServiceClient
+	txClient      transactionpb.TransactionServiceClient
 }
 
-// NewAdminAuditHandler wires the six downstream gRPC clients.
+// NewAdminAuditHandler wires the downstream gRPC clients.
 func NewAdminAuditHandler(
 	accountClient accountpb.AccountServiceClient,
 	cardClient cardpb.CardServiceClient,
@@ -35,6 +38,7 @@ func NewAdminAuditHandler(
 	creditClient creditpb.CreditServiceClient,
 	userClient userpb.UserServiceClient,
 	notifClient notifpb.NotificationServiceClient,
+	txClient transactionpb.TransactionServiceClient,
 ) *AdminAuditHandler {
 	return &AdminAuditHandler{
 		accountClient: accountClient,
@@ -43,6 +47,7 @@ func NewAdminAuditHandler(
 		creditClient:  creditClient,
 		userClient:    userClient,
 		notifClient:   notifClient,
+		txClient:      txClient,
 	}
 }
 
@@ -419,6 +424,49 @@ func (h *AdminAuditHandler) ListCronActions(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"entries":   entries,
+		"total":     resp.GetTotal(),
+		"page":      p.page,
+		"page_size": p.pageSize,
+	})
+}
+
+// ListSagaLogs godoc
+// @Summary      List transfer/payment saga execution logs (admin audit)
+// @Description  Returns transaction-service saga_logs (forward + compensation steps), paginated and filterable. Requires admin.audit.view. Lets an admin review saga execution and compensation history.
+// @Tags         AdminAudit
+// @Security     BearerAuth
+// @Produce      json
+// @Param        page query int false "page (default 1)"
+// @Param        page_size query int false "page size (default 50, max 200)"
+// @Param        saga_id query string false "filter to a single saga"
+// @Param        status query string false "pending|completed|failed|compensating|dead_letter"
+// @Param        transaction_type query string false "transfer|payment"
+// @Param        since query string false "YYYY-MM-DD (created_at >=)"
+// @Param        until query string false "YYYY-MM-DD (created_at <=)"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
+// @Router       /api/v3/admin/audit/saga-logs [get]
+func (h *AdminAuditHandler) ListSagaLogs(c *gin.Context) {
+	p, ok := parseAuditParams(c)
+	if !ok {
+		return
+	}
+	resp, err := h.txClient.ListSagaLogs(c.Request.Context(), &transactionpb.ListSagaLogsRequest{
+		Page:            p.page,
+		PageSize:        p.pageSize,
+		Since:           p.since,
+		Until:           p.until,
+		SagaId:          c.Query("saga_id"),
+		Status:          c.Query("status"),
+		TransactionType: c.Query("transaction_type"),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"logs":      emptyIfNil(resp.GetLogs()),
 		"total":     resp.GetTotal(),
 		"page":      p.page,
 		"page_size": p.pageSize,

@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
@@ -46,14 +48,17 @@ type ExerciseInput struct {
 //  8. mark_contract_exercised — flip contract.Status = exercised.
 //  9. publish_otc_exercise_event — Kafka + in-app notifications.
 //
-// Steps 1-4 are inside the saga with backward compensation. Step 4
-// (consume_seller_holding) is the Pivot: once shares have left the
-// seller's portfolio the share transfer is irrecoverable and we do
-// NOT compensate earlier money steps on failure in steps 5-9 (doing so
-// would credit money back without returning shares, leaving the system
-// in a worse state). Steps 5-9 are inside the saga but run AFTER the
-// pivot, so their failure is logged and the saga attempts forward-only
-// retries rather than backward compensation.
+// There is NO pivot (removed 2026-05-29). Every state-changing step has an
+// inverse Backward, so a failure at any forward step unwinds the whole flow in
+// reverse — matching the SAGA spec's symmetric C5…C1. This is safe because
+// compensation runs synchronously inside Execute, before ExerciseContract
+// returns: the buyer cannot act on the briefly-credited shares mid-flight, so
+// returning them to the seller (consume's Backward) and removing them from the
+// buyer (upsert's Backward) fully restores prior state. The money steps
+// (reserve/settle/credit) already had inverse Backwards. Net invariants: per
+// currency SUM(available+reserved) and per symbol SUM(quantity+reserved) are
+// unchanged on any Compensated outcome, and the contract stays "active" unless
+// the flow Completes.
 func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput) (*model.OptionContract, error) {
 	if s.sagaRepo == nil || s.accounts == nil || s.holdingRes == nil || s.holdingRepo == nil {
 		return nil, errOTCSagaDepsNotWired
@@ -64,21 +69,46 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		return nil, err
 	}
 	if c.Status != model.OptionContractStatusActive {
-		return nil, errors.New("contract is not active")
+		return nil, status.Error(codes.FailedPrecondition, "contract is not active")
 	}
 
 	if !c.SettlementDate.After(time.Now().UTC().Truncate(24 * time.Hour)) {
-		return nil, errors.New("contract has expired (settlement_date <= today)")
+		return nil, status.Error(codes.FailedPrecondition, "contract has expired (settlement_date <= today)")
 	}
 	// Only the contract buyer may exercise. Comparison runs through the
 	// (owner_type, owner_id) identity, derived from the actor's legacy pair.
 	actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(in.ActorUserID), in.ActorSystemType)
 	if c.BuyerOwnerType != actorOwnerType || !ownerIDEqual(c.BuyerOwnerID, actorOwnerID) {
-		return nil, errors.New("only the contract buyer can exercise")
+		return nil, status.Error(codes.PermissionDenied, "only the contract buyer can exercise")
 	}
 
 	if c.BuyerAccountID == 0 || c.SellerAccountID == 0 {
-		return nil, errors.New("contract has no bound accounts")
+		return nil, status.Error(codes.FailedPrecondition, "contract has no bound accounts")
+	}
+
+	sagaID := uuid.NewString()
+	sg, state, err := s.buildExerciseSaga(ctx, sagaID, c)
+	if err != nil {
+		return nil, err
+	}
+	if err := sg.Execute(ctx, state); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// buildExerciseSaga assembles the exercise saga for contract c under the given
+// sagaID. Pure assembly: it recomputes every derived value (account snapshots,
+// strike amounts, FX, seller cost basis, idempotency keys) from the contract
+// alone, so crash recovery can rebuild the identical saga from just
+// (sagaID, contractID) and re-drive it (RecoverExerciseSaga). Request-time
+// gates (status, expiry, actor permission) live in ExerciseContract, not here,
+// so recovery is not blocked by a since-expired contract. state["order_id"] is
+// set to the contract id so every persisted saga_logs row carries it for the
+// recovery lookup.
+func (s *OTCOfferService) buildExerciseSaga(ctx context.Context, sagaID string, c *model.OptionContract) (*saga.Saga, *saga.State, error) {
+	if s.sagaRepo == nil || s.accounts == nil || s.holdingRes == nil || s.holdingRepo == nil {
+		return nil, nil, errOTCSagaDepsNotWired
 	}
 
 	// Snapshot the seller's cost basis BEFORE the saga consumes their
@@ -107,11 +137,11 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	}
 	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: c.BuyerAccountID})
 	if err != nil {
-		return nil, fmt.Errorf("get buyer account: %w", err)
+		return nil, nil, fmt.Errorf("get buyer account: %w", err)
 	}
 	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: c.SellerAccountID})
 	if err != nil {
-		return nil, fmt.Errorf("get seller account: %w", err)
+		return nil, nil, fmt.Errorf("get seller account: %w", err)
 	}
 	// Strike is denominated in the seller's currency. For cross-currency
 	// exercises the buyer-side debit runs in the buyer's currency at the
@@ -122,7 +152,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	buyerCcy := buyerAcct.CurrencyCode
 	if buyerCcy != strikeCcy {
 		if s.exchange == nil {
-			return nil, errors.New("cross-currency OTC exercise requires exchange client")
+			return nil, nil, errors.New("cross-currency OTC exercise requires exchange client")
 		}
 		conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
 			FromCurrency: strikeCcy,
@@ -130,16 +160,15 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			Amount:       strikeSellerCcy.String(),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("FX strike convert: %w", err)
+			return nil, nil, fmt.Errorf("FX strike convert: %w", err)
 		}
 		converted, err := decimal.NewFromString(conv.ConvertedAmount)
 		if err != nil {
-			return nil, fmt.Errorf("FX strike convert: parse %q: %w", conv.ConvertedAmount, err)
+			return nil, nil, fmt.Errorf("FX strike convert: parse %q: %w", conv.ConvertedAmount, err)
 		}
 		strikeBuyerCcy = converted
 	}
 
-	sagaID := uuid.NewString()
 	// Deterministic idempotency keys for capital-gain rows so their Backward
 	// closures can delete the exact row by key (idempotent on retry).
 	sellerStrikeGainKey := fmt.Sprintf("%s:seller-strike-cg", sagaID)
@@ -156,6 +185,10 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	compBuyerKey := fmt.Sprintf("otc-exercise-%d-comp-buyer", c.ID)
 	compSellerMemo := fmt.Sprintf("Compensating OTC strike credit #%d", c.ID)
 	compSellerKey := fmt.Sprintf("otc-exercise-%d-comp-seller", c.ID)
+	// Contract-scoped marker key making the buyer-credit step idempotent on
+	// replay (saga retry / crash recovery). Forward and Backward share it so
+	// the credit lands exactly once and its reversal pairs up exactly.
+	buyerCreditKey := fmt.Sprintf("otc-exercise-buyer-credit-%d", c.ID)
 
 	// Build buyer holding with metadata (resolved once outside the saga steps
 	// to avoid repeated lookups on retry).
@@ -186,6 +219,9 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	}
 
 	state := saga.NewState()
+	// Stamp the contract id as order_id on every persisted saga_logs row so
+	// crash recovery can rebuild this saga from just (sagaID, contractID).
+	state.Set("order_id", c.ID)
 	state.Set("step:reserve_strike:amount", strikeBuyerCcy)
 	state.Set("step:reserve_strike:currency", buyerCcy)
 	state.Set("step:settle_strike_buyer:amount", strikeBuyerCcy)
@@ -240,11 +276,15 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 				_, e := s.holdingRes.ConsumeForOTCContract(ctx, c.ID, qty, syntheticTxnID)
 				return e
 			},
-			// Pivot: shares physically moved between portfolios. Steps after
-			// this point cannot compensate backward (the seller's position is
-			// gone). If they fail, the saga returns an error but the earlier
-			// money steps are NOT rolled back.
-			Pivot: true,
+			// Pivot removed (2026-05-29): the share transfer is fully reversible
+			// within the synchronous saga — compensation runs before Exercise
+			// returns, so the buyer cannot act on the shares mid-flight. The
+			// backward step returns the consumed shares (and their reservation)
+			// to the seller, so a failure in any later step (F5 etc.) fully
+			// unwinds rather than leaving money moved without shares.
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				return s.holdingRes.RestoreForOTCContract(ctx, c.ID, syntheticTxnID)
+			},
 		}).
 		Add(saga.Step{
 			Name: saga.StepUpsertBuyerHolding,
@@ -259,19 +299,20 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 						Quantity:        qty,
 						AveragePriceRSD: c.StrikePrice,
 					}
-					return s.fundHoldingRepo.Upsert(fh)
+					return s.fundHoldingRepo.UpsertIdempotent(fh, buyerCreditKey)
 				}
-				return s.holdingRepo.Upsert(ctx, buyerHolding)
+				return s.holdingRepo.UpsertIdempotent(ctx, buyerHolding, buyerCreditKey)
 			},
-			// After the pivot, backward compensations for post-pivot steps
-			// run ONLY if the step itself was attempted and we're unwinding
-			// from a later step's failure. The HoldingRepository.Upsert is
-			// idempotent (weighted-average merge), so the safest backward
-			// action is a no-op (we cannot easily "un-upsert" a position
-			// without knowing the prior state, and the shares transfer is
-			// already irrecoverable past the pivot).
+			// Reverse the buyer credit: remove the acquired shares again so a
+			// later-step failure fully unwinds the transfer (pivot removal —
+			// 2026-05-29). Mirrors the forward's fund-vs-personal branch; both
+			// decrement helpers no-op when the row is absent, so the backward
+			// pass is idempotent on retry.
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				return nil
+				if c.OnBehalfOfFundID != nil && *c.OnBehalfOfFundID != 0 && s.fundHoldingRepo != nil {
+					return s.fundHoldingRepo.DecrementForFundSecurityIdempotent(*c.OnBehalfOfFundID, "stock", c.StockID, qty, buyerCreditKey)
+				}
+				return s.holdingRepo.DecrementForOwnerIdempotent(ctx, c.BuyerOwnerType, c.BuyerOwnerID, "stock", c.StockID, qty, buyerCreditKey)
 			},
 		}).
 		Add(saga.Step{
@@ -390,9 +431,5 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			},
 		})
 
-	if err := sg.Execute(ctx, state); err != nil {
-		return nil, err
-	}
-
-	return c, nil
+	return sg, state, nil
 }

@@ -29,6 +29,23 @@ func (r *OptionContractRepository) GetByID(id uint64) (*model.OptionContract, er
 	return &c, err
 }
 
+// GetBySagaID returns the contract minted by a given accept saga, or
+// gorm.ErrRecordNotFound if none exists yet. Used by accept-saga crash recovery
+// to rebuild the saga against the contract its (possibly partial) original run
+// already created, so a forward-resume reuses that contract instead of minting
+// a duplicate.
+func (r *OptionContractRepository) GetBySagaID(sagaID string) (*model.OptionContract, error) {
+	if sagaID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var c model.OptionContract
+	err := r.db.Where("saga_id = ?", sagaID).First(&c).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	return &c, err
+}
+
 func (r *OptionContractRepository) GetByOfferID(offerID uint64) (*model.OptionContract, error) {
 	var c model.OptionContract
 	err := r.db.Where("offer_id = ?", offerID).First(&c).Error

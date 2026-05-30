@@ -3,6 +3,7 @@ package repository
 import (
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -23,7 +24,16 @@ func NewCapitalGainRepository(db *gorm.DB) *CapitalGainRepository {
 	return &CapitalGainRepository{db: db}
 }
 
+// Create inserts a capital-gain row. When the row carries an idempotency key it
+// uses ON CONFLICT DO NOTHING so a saga retry (or recovery re-run) of the
+// recording step is a safe no-op instead of a unique-constraint error.
 func (r *CapitalGainRepository) Create(gain *model.CapitalGain) error {
+	if gain.IdempotencyKey != nil && *gain.IdempotencyKey != "" {
+		return r.db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(gain).Error
+	}
 	return r.db.Create(gain).Error
 }
 

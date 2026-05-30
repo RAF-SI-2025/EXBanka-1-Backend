@@ -498,124 +498,27 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 	// The actuary-limit gate is computed inside the finalize step so the
 	// needsApproval branch can choose between status="pending" and
 	// status="approved" without splitting the saga in two.
-	state.Set("step:persist_order_pending:amount", decimal.Zero)
-	if req.Direction == "buy" {
-		state.Set("step:reserve_funds:amount", reserveAmount)
-		state.Set("step:reserve_funds:currency", reserveCurrency)
-	}
-
-	var (
-		needsApproval  bool
-		limitAmountRSD decimal.Decimal
-		actuaryLimitID uint64
-	)
-
-	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(saga.Step{
-			Name: saga.StepPersistOrderPending,
-			Forward: func(ctx context.Context, st *saga.State) error {
-				if err := s.orderRepo.Create(order); err != nil {
-					return err
-				}
-				st.Set("order_id", order.ID)
-				StockOrderTotal.WithLabelValues(req.OrderType, "pending").Inc()
-				return nil
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				return s.orderRepo.Delete(order.ID)
-			},
-		}).
-		AddIf(req.Direction == "buy", saga.Step{
-			Name: saga.StepReserveFunds,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, rerr := s.accountClient.ReserveFunds(ctx, req.AccountID, order.ID, reserveAmount, reserveCurrency,
-					saga.IdempotencyKey(sagaID, saga.StepReserveFunds), orderkind.StockOrder)
-				return rerr
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID,
-					saga.IdempotencyKey(sagaID, saga.StepReserveFunds)+":compensate", orderkind.StockOrder)
-				return rerr
-			},
-		}).
-		AddIf(req.Direction == "sell" && listing.SecurityType != "forex", saga.Step{
-			Name: saga.StepReserveHolding,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				if s.holdingReservationSvc == nil {
-					return status.Error(codes.Internal, "holding reservation service not configured")
-				}
-				_, herr := s.holdingReservationSvc.Reserve(ctx, orderOwnerType, orderOwnerID,
-					listing.SecurityType, listing.SecurityID, order.ID, req.Quantity)
-				return herr
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				if s.holdingReservationSvc == nil {
-					return nil
-				}
-				_, rerr := s.holdingReservationSvc.Release(ctx, order.ID)
-				return rerr
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepFinalizeOrder,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				// Per-actuary EmployeeLimit gate. Fires whenever an employee
-				// is the acting party — regardless of whether the resulting
-				// order's system_type is "employee" (legacy direct), "bank"
-				// (Phase 3 employee→bank), or "client" (employee on-behalf).
-				// The lookup keys on ActingEmployeeID when set, falling back
-				// to UserID for the legacy system_type=="employee" path that
-				// pre-dates ActingEmployeeID.
-				actingForLimit := req.ActingEmployeeID
-				if actingForLimit == 0 && req.SystemType == "employee" {
-					actingForLimit = req.UserID
-				}
-				if actingForLimit != 0 && s.actuaryClient != nil && req.Direction == "buy" {
-					info, aerr := s.actuaryClient.GetActuaryLimit(ctx, actingForLimit)
-					switch {
-					case aerr == nil:
-						rsdAmt, cerr := s.convertToRSD(ctx, reserveAmount, reserveCurrency)
-						if cerr != nil {
-							return cerr
-						}
-						limitAmountRSD = rsdAmt
-						actuaryLimitID = info.ID
-						if info.NeedApproval && info.Limit.Sign() > 0 &&
-							info.UsedLimit.Add(rsdAmt).GreaterThan(info.Limit) {
-							needsApproval = true
-						}
-					case errors.Is(aerr, stockgrpc.ErrActuaryNotFound):
-						// Non-actuary employee — fall through with auto-approve.
-					default:
-						return status.Errorf(codes.Internal, "actuary limit lookup failed: %v", aerr)
-					}
-				}
-
-				if actuaryLimitID != 0 {
-					amt := limitAmountRSD
-					order.LimitAmountRSD = &amt
-					aid := actuaryLimitID
-					order.LimitActuaryID = &aid
-				}
-
-				if needsApproval {
-					// Status stays "pending"; supervisor will approve later.
-					order.LastModification = time.Now()
-				} else {
-					order.Status = "approved"
-					order.ApprovedBy = approvalActor(req.SystemType)
-					order.LastModification = time.Now()
-				}
-				return s.orderRepo.Update(order)
-			},
-			// No Backward needed: if this step fails, the saga walks back
-			// to reserve_funds/reserve_holding/persist_order_pending and
-			// runs their Backwards in reverse.
-		})
-
+	var result placementResult
+	sg, state := s.buildPlacementSaga(sagaID, placementParams{
+		order:            order,
+		listing:          listing,
+		orderOwnerType:   orderOwnerType,
+		orderOwnerID:     orderOwnerID,
+		direction:        req.Direction,
+		quantity:         req.Quantity,
+		accountID:        req.AccountID,
+		reserveAmount:    reserveAmount,
+		reserveCurrency:  reserveCurrency,
+		actingEmployeeID: req.ActingEmployeeID,
+		systemType:       req.SystemType,
+		userID:           req.UserID,
+	}, &result)
 	if err := sg.Execute(ctx, state); err != nil {
 		return nil, err
 	}
+	needsApproval := result.needsApproval
+	actuaryLimitID := result.actuaryLimitID
+	limitAmountRSD := result.limitAmountRSD
 
 	if needsApproval {
 		// Order sits in "pending" until a supervisor calls ApproveOrder.
@@ -654,6 +557,169 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 	})
 
 	return order, nil
+}
+
+// placementParams bundles what buildPlacementSaga needs so CreateOrder (from the
+// request) and RecoverPlacementSaga (from the persisted order) build the
+// identical saga.
+type placementParams struct {
+	order            *model.Order
+	listing          *model.Listing
+	orderOwnerType   model.OwnerType
+	orderOwnerID     *uint64
+	direction        string
+	quantity         int64
+	accountID        uint64
+	reserveAmount    decimal.Decimal
+	reserveCurrency  string
+	actingEmployeeID uint64
+	systemType       string
+	userID           uint64
+}
+
+// placementResult carries the finalize-step's actuary-gate outputs back to the
+// caller (read after Execute): whether the order needs supervisor approval and,
+// if an actuary limit applied, its id + the RSD amount to bump used_limit by.
+type placementResult struct {
+	needsApproval  bool
+	limitAmountRSD decimal.Decimal
+	actuaryLimitID uint64
+}
+
+// buildPlacementSaga assembles the order-placement saga under sagaID. Pure
+// assembly: step closures read p and write actuary-gate outputs into out, so
+// crash recovery can rebuild the identical saga from just the persisted order
+// (RecoverPlacementSaga). persist_order_pending is an idempotent mint (reuses
+// the order matched by sagaID), and the money step is idempotency-keyed, so a
+// forward-resume replays safely.
+func (s *OrderService) buildPlacementSaga(sagaID string, p placementParams, out *placementResult) (*saga.Saga, *saga.State) {
+	order := p.order
+	listing := p.listing
+	orderOwnerType, orderOwnerID := p.orderOwnerType, p.orderOwnerID
+	reserveAmount, reserveCurrency := p.reserveAmount, p.reserveCurrency
+
+	state := saga.NewState()
+	state.Set("order_id", uint64(0))
+	state.Set("step:persist_order_pending:amount", decimal.Zero)
+	if p.direction == "buy" {
+		state.Set("step:reserve_funds:amount", reserveAmount)
+		state.Set("step:reserve_funds:currency", reserveCurrency)
+	}
+
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
+			Name: saga.StepPersistOrderPending,
+			Forward: func(ctx context.Context, st *saga.State) error {
+				// Idempotent mint: a crash-recovery replay must reuse the order
+				// the original run already created (matched by sagaID), not
+				// insert a duplicate. order.ID is set when recovery pre-loaded it;
+				// otherwise look it up by sagaID, then create.
+				if order.ID == 0 {
+					if existing, gerr := s.orderRepo.GetBySagaID(sagaID); gerr == nil && existing != nil {
+						*order = *existing
+					} else {
+						if err := s.orderRepo.Create(order); err != nil {
+							return err
+						}
+						StockOrderTotal.WithLabelValues(order.OrderType, "pending").Inc()
+					}
+				}
+				st.Set("order_id", order.ID)
+				return nil
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				return s.orderRepo.Delete(order.ID)
+			},
+		}).
+		AddIf(p.direction == "buy", saga.Step{
+			Name: saga.StepReserveFunds,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				_, rerr := s.accountClient.ReserveFunds(ctx, p.accountID, order.ID, reserveAmount, reserveCurrency,
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds), orderkind.StockOrder)
+				return rerr
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID,
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds)+":compensate", orderkind.StockOrder)
+				return rerr
+			},
+		}).
+		AddIf(p.direction == "sell" && listing.SecurityType != "forex", saga.Step{
+			Name: saga.StepReserveHolding,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				if s.holdingReservationSvc == nil {
+					return status.Error(codes.Internal, "holding reservation service not configured")
+				}
+				_, herr := s.holdingReservationSvc.Reserve(ctx, orderOwnerType, orderOwnerID,
+					listing.SecurityType, listing.SecurityID, order.ID, p.quantity)
+				return herr
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				if s.holdingReservationSvc == nil {
+					return nil
+				}
+				_, rerr := s.holdingReservationSvc.Release(ctx, order.ID)
+				return rerr
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepFinalizeOrder,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				// Per-actuary EmployeeLimit gate. Fires whenever an employee
+				// is the acting party — regardless of whether the resulting
+				// order's system_type is "employee" (legacy direct), "bank"
+				// (Phase 3 employee→bank), or "client" (employee on-behalf).
+				// The lookup keys on ActingEmployeeID when set, falling back
+				// to UserID for the legacy system_type=="employee" path that
+				// pre-dates ActingEmployeeID.
+				actingForLimit := p.actingEmployeeID
+				if actingForLimit == 0 && p.systemType == "employee" {
+					actingForLimit = p.userID
+				}
+				if actingForLimit != 0 && s.actuaryClient != nil && p.direction == "buy" {
+					info, aerr := s.actuaryClient.GetActuaryLimit(ctx, actingForLimit)
+					switch {
+					case aerr == nil:
+						rsdAmt, cerr := s.convertToRSD(ctx, reserveAmount, reserveCurrency)
+						if cerr != nil {
+							return cerr
+						}
+						out.limitAmountRSD = rsdAmt
+						out.actuaryLimitID = info.ID
+						if info.NeedApproval && info.Limit.Sign() > 0 &&
+							info.UsedLimit.Add(rsdAmt).GreaterThan(info.Limit) {
+							out.needsApproval = true
+						}
+					case errors.Is(aerr, stockgrpc.ErrActuaryNotFound):
+						// Non-actuary employee — fall through with auto-approve.
+					default:
+						return status.Errorf(codes.Internal, "actuary limit lookup failed: %v", aerr)
+					}
+				}
+
+				if out.actuaryLimitID != 0 {
+					amt := out.limitAmountRSD
+					order.LimitAmountRSD = &amt
+					aid := out.actuaryLimitID
+					order.LimitActuaryID = &aid
+				}
+
+				if out.needsApproval {
+					// Status stays "pending"; supervisor will approve later.
+					order.LastModification = time.Now()
+				} else {
+					order.Status = "approved"
+					order.ApprovedBy = approvalActor(p.systemType)
+					order.LastModification = time.Now()
+				}
+				return s.orderRepo.Update(order)
+			},
+			// No Backward needed: if this step fails, the saga walks back
+			// to reserve_funds/reserve_holding/persist_order_pending and
+			// runs their Backwards in reverse.
+		})
+
+	return sg, state
 }
 
 // convertToRSD returns the RSD-equivalent of `amount` denominated in

@@ -436,6 +436,9 @@ func TestSagaRecovery_CreditStep_WithoutOrderRepo_LeftAlone(t *testing.T) {
 // step kinds that aren't registered (e.g. an obsolete "validate_listing"
 // label from older code) now panic via the recovery default arm and
 // belong in TestSagaRecovery_UnknownStepKind_Panics.
+// Without a recoverer wired, placement steps fall back to log-and-leave; the
+// fill steps convert_amount/record_transaction have no recoverer and always
+// log-and-leave. None auto-retry (no GetReservation / settle / UpdateStatus).
 func TestSagaRecovery_PlacementStep_NotAutoRetried(t *testing.T) {
 	for _, name := range []string{
 		"persist_order_pending", "reserve_funds", "reserve_holding", "finalize_order",
@@ -480,6 +483,279 @@ func TestSagaRecovery_UpdateHolding_MarksCompleted(t *testing.T) {
 	}
 	if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
 		t.Errorf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+	}
+}
+
+// fakeExerciseRecoverer records RecoverExerciseSaga calls so the dispatch test
+// can assert the reconciler delegated with the right (sagaID, contractID).
+type fakeExerciseRecoverer struct {
+	calls []struct {
+		sagaID     string
+		contractID uint64
+	}
+	err error
+}
+
+func (f *fakeExerciseRecoverer) RecoverExerciseSaga(_ context.Context, sagaID string, contractID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID     string
+		contractID uint64
+	}{sagaID, contractID})
+	return f.err
+}
+
+// Every stuck OTC exercise step must auto-resolve by delegating to the
+// exercise recoverer (re-driving the whole saga) — no human review. The row is
+// then marked terminal so it drops out of the stuck set.
+func TestSagaRecovery_ExerciseStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"reserve_strike", "settle_strike_buyer", "credit_strike_seller",
+		"consume_seller_holding", "upsert_buyer_holding", "record_seller_strike_gain",
+		"record_buyer_exercise_cost", "mark_contract_exercised", "publish_otc_exercise_event",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			// order_id carries the contract id for exercise rows.
+			step := settleStep(1, 4242, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeExerciseRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithExerciseRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].contractID != 4242 {
+				t.Fatalf("expected RecoverExerciseSaga(saga-1, 4242), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
+// fakeAcceptRecoverer records RecoverAcceptSaga calls.
+type fakeAcceptRecoverer struct {
+	calls []struct {
+		sagaID  string
+		offerID uint64
+	}
+	err error
+}
+
+func (f *fakeAcceptRecoverer) RecoverAcceptSaga(_ context.Context, sagaID string, offerID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID  string
+		offerID uint64
+	}{sagaID, offerID})
+	return f.err
+}
+
+// Every stuck OTC accept step must auto-resolve by delegating to the accept
+// recoverer — no human review — then mark the row terminal.
+func TestSagaRecovery_AcceptStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"reserve_and_contract", "reserve_premium", "settle_premium_buyer",
+		"credit_premium_seller", "mark_offer_accepted", "record_seller_premium_gain",
+		"record_buyer_premium_cost", "publish_otc_accepted_event",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 7777, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeAcceptRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithAcceptRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].offerID != 7777 {
+				t.Fatalf("expected RecoverAcceptSaga(saga-1, 7777), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
+// fakePlacementRecoverer records RecoverPlacementSaga calls.
+type fakePlacementRecoverer struct {
+	calls []struct {
+		sagaID  string
+		orderID uint64
+	}
+	err error
+}
+
+func (f *fakePlacementRecoverer) RecoverPlacementSaga(_ context.Context, sagaID string, orderID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID  string
+		orderID uint64
+	}{sagaID, orderID})
+	return f.err
+}
+
+// Every stuck order-placement step must auto-resolve by delegating to the
+// placement recoverer — no human review — then mark the row terminal.
+func TestSagaRecovery_PlacementStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"persist_order_pending", "reserve_funds", "reserve_holding", "finalize_order",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 2424, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakePlacementRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithPlacementRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].orderID != 2424 {
+				t.Fatalf("expected RecoverPlacementSaga(saga-1, 2424), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
+// fakeFundRecoverer records RecoverFundSaga calls.
+type fakeFundRecoverer struct {
+	calls []struct {
+		sagaID    string
+		contribID uint64
+	}
+	err error
+}
+
+func (f *fakeFundRecoverer) RecoverFundSaga(_ context.Context, sagaID string, contribID uint64) error {
+	f.calls = append(f.calls, struct {
+		sagaID    string
+		contribID uint64
+	}{sagaID, contribID})
+	return f.err
+}
+
+// Every stuck fund invest/redeem step must auto-resolve by delegating to the
+// fund recoverer — no human review — then mark the row terminal.
+func TestSagaRecovery_FundStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{
+		"debit_source", "credit_fund", "upsert_position",
+		"debit_fund", "credit_target", "credit_bank_fee",
+	} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 3131, 9001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeFundRecoverer{}
+
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
+				WithFundRecoverer(recvr)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].contribID != 3131 {
+				t.Fatalf("expected RecoverFundSaga(saga-1, 3131), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
+// fakeFillRecoverer records RecoverFillSaga calls.
+type fakeFillRecoverer struct {
+	calls []struct {
+		sagaID  string
+		orderID uint64
+		txnID   uint64
+	}
+	err error
+}
+
+func (f *fakeFillRecoverer) RecoverFillSaga(_ context.Context, sagaID string, order *model.Order, txn *model.OrderTransaction, _ bool) error {
+	f.calls = append(f.calls, struct {
+		sagaID  string
+		orderID uint64
+		txnID   uint64
+	}{sagaID, order.ID, txn.ID})
+	return f.err
+}
+
+// fakeTxnGetter is a minimal OrderTransactionGetter.
+type fakeTxnGetter struct{ txn *model.OrderTransaction }
+
+func (g *fakeTxnGetter) GetByID(id uint64) (*model.OrderTransaction, error) {
+	if g.txn == nil || g.txn.ID != id {
+		return nil, errors.New("not found")
+	}
+	return g.txn, nil
+}
+
+// fakeFillOrderRepo is a minimal RecoveryOrderRepo for fill dispatch tests.
+type fakeFillOrderRepo struct{ order *model.Order }
+
+func (r *fakeFillOrderRepo) GetByID(id uint64) (*model.Order, error) {
+	if r.order == nil || r.order.ID != id {
+		return nil, errors.New("not found")
+	}
+	return r.order, nil
+}
+
+// Stuck fill early steps (record_transaction / convert_amount) auto-resolve by
+// delegating to the fill recoverer with the loaded (order, txn).
+func TestSagaRecovery_FillStep_AutoResolvesViaRecoverer(t *testing.T) {
+	for _, stepName := range []string{"record_transaction", "convert_amount"} {
+		t.Run(stepName, func(t *testing.T) {
+			step := settleStep(1, 555, 8001, decimal.NewFromInt(1), stepName)
+			repo := newFakeRecoveryRepo(step)
+			stub := &fakeRecoveryAccountStub{}
+			client := newFakeRecoveryFillClient(stub)
+			recvr := &fakeFillRecoverer{}
+			orderRepo := &fakeFillOrderRepo{order: &model.Order{ID: 555, Direction: "buy", SecurityType: "stock"}}
+			txns := &fakeTxnGetter{txn: &model.OrderTransaction{ID: 8001, OrderID: 555}}
+
+			rec := NewSagaRecovery(repo, client, orderRepo, "", nil, nilRegistry()).
+				WithFillRecoverer(recvr, txns)
+			if err := rec.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" ||
+				recvr.calls[0].orderID != 555 || recvr.calls[0].txnID != 8001 {
+				t.Fatalf("expected RecoverFillSaga(saga-1, order=555, txn=8001), got %+v", recvr.calls)
+			}
+			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			}
+		})
+	}
+}
+
+// When no recoverer is wired (e.g. a bare test harness), exercise steps fall
+// back to log-and-leave: no UpdateStatus, no panic.
+func TestSagaRecovery_ExerciseStep_NoRecoverer_LeavesRow(t *testing.T) {
+	step := settleStep(1, 4242, 9001, decimal.NewFromInt(1), "mark_contract_exercised")
+	repo := newFakeRecoveryRepo(step)
+	stub := &fakeRecoveryAccountStub{}
+	client := newFakeRecoveryFillClient(stub)
+
+	rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(repo.updateCalls) != 0 {
+		t.Fatalf("expected no UpdateStatus without a recoverer, got %+v", repo.updateCalls)
 	}
 }
 

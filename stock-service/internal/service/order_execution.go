@@ -16,6 +16,15 @@ import (
 )
 
 // OrderFilledPublisher abstracts Kafka event publishing for order fill events.
+// maxConsecutiveFillFailures bounds how many times the engine retries a fill
+// that keeps failing before it gives up and aborts the order (releasing the
+// reservation). Sized to absorb brief transient downstream hiccups while still
+// terminating quickly on a persistent fault.
+const maxConsecutiveFillFailures = 8
+
+// fillRetryBackoff is the pause between consecutive failed fill attempts.
+const fillRetryBackoff = 250 * time.Millisecond
+
 type OrderFilledPublisher interface {
 	PublishOrderFilled(ctx context.Context, msg interface{}) error
 	PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error
@@ -110,6 +119,17 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 		delete(e.activeJobs, orderID)
 		e.mu.Unlock()
 	}()
+
+	// Bound consecutive fill failures. A fill can fail transiently (e.g. a
+	// momentary exchange-service or DB hiccup) and is safe to retry, but a
+	// *persistent* failure — an FX rate that has moved beyond the reservation
+	// buffer, a downstream that is hard-down, a data inconsistency — must not
+	// loop forever: doing so spins the goroutine, re-attempts indefinitely,
+	// and (before the orphan-cleanup below) littered the DB with a phantom
+	// order_transaction per attempt while the buyer's funds stayed reserved.
+	// After maxConsecutiveFillFailures, abort the order and release its
+	// reservation. A successful fill resets the counter.
+	consecutiveFailures := 0
 
 	for {
 		select {
@@ -222,9 +242,32 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 				fillErr = e.fillHandler.ProcessSellFill(order, txn)
 			}
 			if fillErr != nil {
-				log.Printf("WARN: order engine: order %d fill %d failed: %v — will retry next iteration", orderID, txn.ID, fillErr)
+				// The fill saga compensated its own steps, so this txn row
+				// represents nothing that happened — delete it so a failed
+				// attempt leaves no phantom transaction.
+				if delErr := e.txRepo.Delete(txn.ID); delErr != nil {
+					log.Printf("WARN: order engine: order %d cleanup of failed-fill txn %d: %v", orderID, txn.ID, delErr)
+				}
+				consecutiveFailures++
+				if consecutiveFailures >= maxConsecutiveFillFailures {
+					log.Printf("ERROR: order engine: order %d aborting after %d consecutive fill failures (last: %v) — releasing reservation",
+						orderID, consecutiveFailures, fillErr)
+					e.abortOrder(order)
+					return
+				}
+				log.Printf("WARN: order engine: order %d fill failed (%d/%d): %v — will retry next iteration",
+					orderID, consecutiveFailures, maxConsecutiveFillFailures, fillErr)
+				// Brief backoff so a hard-down downstream isn't hammered, and
+				// so failures don't hot-spin when calculateWaitTime rolls 0.
+				select {
+				case <-time.After(fillRetryBackoff):
+				case <-ctx.Done():
+					return
+				}
 				continue
 			}
+			// A fill succeeded — clear the transient-failure budget.
+			consecutiveFailures = 0
 		}
 
 		// Update order
@@ -469,6 +512,25 @@ func (e *OrderExecutionEngine) markDone(order *model.Order) {
 	if order.Direction == "buy" {
 		if err := e.fillHandler.ReleaseResidualReservation(e.baseCtx, order.ID); err != nil {
 			log.Printf("WARN: order engine: release residual reservation for order %d failed: %v", order.ID, err)
+		}
+	}
+}
+
+// abortOrder terminates an order that cannot make progress (persistent fill
+// failures). Any portions already filled stand; the unfilled remainder is
+// abandoned and the held funds are returned to the buyer by releasing the
+// residual reservation. The order is marked cancelled (the existing terminal
+// status) and done so the engine and any reader treat it as finished.
+func (e *OrderExecutionEngine) abortOrder(order *model.Order) {
+	order.IsDone = true
+	order.Status = "cancelled"
+	order.LastModification = time.Now()
+	if err := e.orderRepo.Update(order); err != nil {
+		log.Printf("WARN: order engine: failed to mark order %d aborted: %v", order.ID, err)
+	}
+	if order.Direction == "buy" {
+		if err := e.fillHandler.ReleaseResidualReservation(e.baseCtx, order.ID); err != nil {
+			log.Printf("WARN: order engine: release reservation for aborted order %d failed: %v", order.ID, err)
 		}
 	}
 }

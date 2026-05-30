@@ -39,8 +39,61 @@ func (r *FundHoldingRepository) Upsert(h *model.FundHolding) error {
 	}).Create(h).Error
 }
 
+// UpsertIdempotent is Upsert guarded by a HoldingCreditMarker so a replay
+// (saga retry / crash-recovery re-run) credits the fund's shares exactly once.
+// Mirrors HoldingRepository.UpsertIdempotent for the on-behalf-of-fund branch
+// of the OTC exercise buyer-credit step. Marker insert + upsert run in one
+// transaction; an already-present marker short-circuits to a no-op.
+func (r *FundHoldingRepository) UpsertIdempotent(h *model.FundHolding, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		marker := &model.HoldingCreditMarker{IdempotencyKey: idemKey}
+		res := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(marker)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return nil
+		}
+		return NewFundHoldingRepository(tx).Upsert(h)
+	})
+}
+
+// DecrementForFundSecurityIdempotent reverses an UpsertIdempotent fund credit.
+// No-op when the marker is absent (never credited or already reversed); when
+// present it decrements the fund holding and deletes the marker so a later
+// re-credit under the same key applies again.
+func (r *FundHoldingRepository) DecrementForFundSecurityIdempotent(fundID uint64, securityType string, securityID uint64, qty int64, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var marker model.HoldingCreditMarker
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("idempotency_key = ?", idemKey).First(&marker).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if derr := NewFundHoldingRepository(tx).DecrementForFundSecurity(fundID, securityType, securityID, qty); derr != nil {
+			return derr
+		}
+		return tx.Delete(&marker).Error
+	})
+}
+
 func (r *FundHoldingRepository) DecrementQuantity(holdingID uint64, q int64) error {
-	res := r.db.Model(&model.FundHolding{}).
+	// SkipHooks: the FundHolding BeforeUpdate hook adds `WHERE version = ?`
+	// using the (zero-value) receiver, i.e. `WHERE version = 0`, which matches
+	// no row once a holding has been upserted more than once — silently
+	// failing every fund sell/liquidation. The conditional `quantity >= ?` in
+	// the WHERE already guards against over-decrement (the UPDATE is atomic at
+	// the row level), and we bump version explicitly, so the version-check hook
+	// is both unnecessary and harmful here. (CLAUDE.md: intentional
+	// version-skipping bulk updates must use SkipHooks.)
+	res := r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.FundHolding{}).
 		Where("id = ? AND quantity >= ?", holdingID, q).
 		Updates(map[string]interface{}{
 			"quantity": gorm.Expr("quantity - ?", q),
@@ -72,6 +125,21 @@ func (r *FundHoldingRepository) ListBySecurityID(securityID uint64) ([]model.Fun
 		return nil, err
 	}
 	return out, nil
+}
+
+// DecrementForFundSecurity subtracts qty from a fund's holding for a security.
+// Backward compensator for an on-behalf-of-fund OTC-exercise buyer credit
+// (pivot removal — 2026-05-29). No-op if the holding row does not exist, so the
+// saga's backward pass is safe to retry.
+func (r *FundHoldingRepository) DecrementForFundSecurity(fundID uint64, securityType string, securityID uint64, qty int64) error {
+	h, err := r.GetByFundAndSecurity(fundID, securityType, securityID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	return r.DecrementQuantity(h.ID, qty)
 }
 
 func (r *FundHoldingRepository) GetByFundAndSecurity(fundID uint64, securityType string, securityID uint64) (*model.FundHolding, error) {

@@ -130,64 +130,16 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 		return nil, err
 	}
 
-	// Pre-compute deterministic memos / idempotency keys so forward and
-	// backward closures share them (account-service dedups by key).
-	debitMemo := fmt.Sprintf("Invest in fund #%d (saga=%s)", in.FundID, sagaID)
-	debitKey := fmt.Sprintf("invest-%s-debit-source", sagaID)
-	creditMemo := fmt.Sprintf("Contribution from %s #%d (saga=%s)", in.ActorSystemType, in.ActorUserID, sagaID)
-	creditKey := fmt.Sprintf("invest-%s-credit-fund", sagaID)
-	compSrcMemo := fmt.Sprintf("Comp invest src saga=%s", sagaID)
-	compSrcKey := fmt.Sprintf("invest-%s-comp-source", sagaID)
-	compFundMemo := fmt.Sprintf("Comp invest fund saga=%s", sagaID)
-	compFundKey := fmt.Sprintf("invest-%s-comp-fund", sagaID)
-
-	state := saga.NewState()
-	state.Set("step:debit_source:amount", in.Amount)
-	state.Set("step:debit_source:currency", in.Currency)
-	state.Set("step:credit_fund:amount", amountRSD)
-	state.Set("step:credit_fund:currency", "RSD")
-	state.Set("step:upsert_position:amount", amountRSD)
-	state.Set("step:upsert_position:currency", "RSD")
-
-	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(saga.Step{
-			Name: saga.StepDebitSource,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.DebitAccount(ctx, srcAcct.AccountNumber, in.Amount, debitMemo, debitKey)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, srcAcct.AccountNumber, in.Amount, compSrcMemo, compSrcKey)
-				return e
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepCreditFund,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, amountRSD, creditMemo, creditKey)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, amountRSD, compFundMemo, compFundKey)
-				return e
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepUpsertPosition,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				// Fix R2 (2026-05-16): pass contrib.ID so the repository's
-				// idempotency ledger (fund_position_settlements) can
-				// short-circuit a retry instead of double-counting.
-				return s.positions.IncrementContribution(in.FundID, posOwnerType, posOwnerID, amountRSD, contrib.ID)
-			},
-			// Last step: nothing to roll back to, so no Backward needed.
-		})
-
+	sg, state := s.buildInvestSaga(sagaID, investSagaParams{
+		fundID: in.FundID, contribID: contrib.ID,
+		posOwnerType: posOwnerType, posOwnerID: posOwnerID,
+		srcAcctNumber: srcAcct.AccountNumber, fundAcctNumber: fundAcct.AccountNumber,
+		amountNative: in.Amount, nativeCurrency: in.Currency, amountRSD: amountRSD,
+	})
 	if err := sg.Execute(ctx, state); err != nil {
 		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
 		return nil, err
 	}
-
 	if err := s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusCompleted); err != nil {
 		log.Printf("WARN: invest saga complete but contribution mark-completed failed: %v", err)
 	}
@@ -217,4 +169,79 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	}
 
 	return contrib, nil
+}
+
+// investSagaParams bundles what buildInvestSaga needs, so Invest (from the
+// request) and RecoverInvestSaga (from the persisted contribution) build the
+// identical saga.
+type investSagaParams struct {
+	fundID         uint64
+	contribID      uint64
+	posOwnerType   model.OwnerType
+	posOwnerID     *uint64
+	srcAcctNumber  string
+	fundAcctNumber string
+	amountNative   decimal.Decimal
+	nativeCurrency string
+	amountRSD      decimal.Decimal
+}
+
+// buildInvestSaga assembles the fund-invest saga under sagaID. All three steps
+// are idempotent (keyed debit/credit + contrib-id-keyed position upsert), so a
+// crash-recovery forward-resume replays safely. state["order_id"]=contribID so
+// saga_logs rows carry it for the recovery lookup.
+func (s *FundService) buildInvestSaga(sagaID string, p investSagaParams) (*saga.Saga, *saga.State) {
+	debitMemo := fmt.Sprintf("Invest in fund #%d (saga=%s)", p.fundID, sagaID)
+	debitKey := fmt.Sprintf("invest-%s-debit-source", sagaID)
+	creditMemo := fmt.Sprintf("Contribution to fund #%d (saga=%s)", p.fundID, sagaID)
+	creditKey := fmt.Sprintf("invest-%s-credit-fund", sagaID)
+	compSrcMemo := fmt.Sprintf("Comp invest src saga=%s", sagaID)
+	compSrcKey := fmt.Sprintf("invest-%s-comp-source", sagaID)
+	compFundMemo := fmt.Sprintf("Comp invest fund saga=%s", sagaID)
+	compFundKey := fmt.Sprintf("invest-%s-comp-fund", sagaID)
+
+	state := saga.NewState()
+	state.Set("order_id", p.contribID)
+	state.Set("step:debit_source:amount", p.amountNative)
+	state.Set("step:debit_source:currency", p.nativeCurrency)
+	state.Set("step:credit_fund:amount", p.amountRSD)
+	state.Set("step:credit_fund:currency", "RSD")
+	state.Set("step:upsert_position:amount", p.amountRSD)
+	state.Set("step:upsert_position:currency", "RSD")
+
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
+			Name: saga.StepDebitSource,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.DebitAccount(ctx, p.srcAcctNumber, p.amountNative, debitMemo, debitKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.CreditAccount(ctx, p.srcAcctNumber, p.amountNative, compSrcMemo, compSrcKey)
+				return e
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepCreditFund,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.CreditAccount(ctx, p.fundAcctNumber, p.amountRSD, creditMemo, creditKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *saga.State) error {
+				_, e := s.accounts.DebitAccount(ctx, p.fundAcctNumber, p.amountRSD, compFundMemo, compFundKey)
+				return e
+			},
+		}).
+		Add(saga.Step{
+			Name: saga.StepUpsertPosition,
+			Forward: func(ctx context.Context, _ *saga.State) error {
+				// Fix R2 (2026-05-16): pass contrib.ID so the repository's
+				// idempotency ledger (fund_position_settlements) can
+				// short-circuit a retry instead of double-counting.
+				return s.positions.IncrementContribution(p.fundID, p.posOwnerType, p.posOwnerID, p.amountRSD, p.contribID)
+			},
+			// Last step: nothing to roll back to, so no Backward needed.
+		})
+
+	return sg, state
 }

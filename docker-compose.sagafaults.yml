@@ -1,0 +1,17 @@
+# Test-only override: builds the gateway + stock-service with the `sagafaults`
+# tag so the SG-* saga fault-injection suite (SAGA_SG=1) can drive X-Saga-*
+# headers. stock-service additionally needs SAGA_FAULTS_OK=1 to start (its
+# defence-in-depth guard). NEVER use this override in production.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.sagafaults.yml up -d --build api-gateway stock-service
+services:
+  api-gateway:
+    build:
+      args:
+        GO_TAGS: sagafaults
+  stock-service:
+    build:
+      args:
+        GO_TAGS: sagafaults
+    environment:
+      SAGA_FAULTS_OK: "1"

@@ -26,6 +26,23 @@ func (r *OrderRepository) GetByID(id uint64) (*model.Order, error) {
 	return &order, nil
 }
 
+// GetBySagaID returns the order a placement saga created, or
+// gorm.ErrRecordNotFound if none exists yet. Used by placement-saga crash
+// recovery to rebuild the saga against the order its (possibly partial)
+// original run already persisted, so a forward-resume reuses that order instead
+// of minting a duplicate.
+func (r *OrderRepository) GetBySagaID(sagaID string) (*model.Order, error) {
+	if sagaID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var order model.Order
+	if err := r.db.Preload("Listing").Preload("Listing.Exchange").
+		Where("saga_id = ?", sagaID).First(&order).Error; err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
 // GetByIDWithOwner loads an order and verifies (owner_type, owner_id) ownership.
 // Use for /me/* endpoints. Returns gorm.ErrRecordNotFound on any mismatch so
 // callers can map the response to 404 without leaking order existence to a

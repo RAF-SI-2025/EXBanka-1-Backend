@@ -1110,6 +1110,9 @@ func (s *stubTransactionClient) GetTransfer(_ context.Context, in *transactionpb
 	}
 	return &transactionpb.TransferResponse{Id: in.Id}, nil
 }
+func (s *stubTransactionClient) ListSagaLogs(_ context.Context, _ *transactionpb.ListSagaLogsRequest, _ ...grpc.CallOption) (*transactionpb.ListSagaLogsResponse, error) {
+	return &transactionpb.ListSagaLogsResponse{}, nil
+}
 func (s *stubTransactionClient) GetTransferStatus(_ context.Context, in *transactionpb.GetTransferRequest, _ ...grpc.CallOption) (*transactionpb.TransferStatusResponse, error) {
 	if s.getTransferStatusFn != nil {
 		return s.getTransferStatusFn(in)
