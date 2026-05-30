@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/account-service/internal/repository"
+	"github.com/exbanka/contract/cronreg"
 )
 
 type SpendingCronService struct {

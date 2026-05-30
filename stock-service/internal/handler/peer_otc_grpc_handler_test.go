@@ -9,6 +9,7 @@ import (
 	"github.com/exbanka/stock-service/internal/handler"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -242,9 +243,13 @@ func TestPeerOTC_AcceptNegotiation_DispatchesViaPeerTx(t *testing.T) {
 			PricePerStock: "150.00", Currency: "USD",
 			Premium: "10.00", PremiumCurrency: "USD",
 			SettlementDate: "2026-12-31",
+			// Pinned buyer account number (money leg) — DISTINCT from the buyer
+			// participant id (option leg) so the test verifies each leg carries
+			// the right identifier.
+			BuyerAccountNumber: "111000000000000999",
 		},
-		BuyerId:  &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "buyer-acct"},
-		SellerId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "seller-acct"},
+		BuyerId:  &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-7"},
+		SellerId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-9"},
 	})
 
 	peerTx.resp = &transactionpb.SiTxInitiateResponse{TransactionId: "tx-99", Status: "initiated"}
@@ -277,21 +282,24 @@ func TestPeerOTC_AcceptNegotiation_DispatchesViaPeerTx(t *testing.T) {
 	}
 
 	postings := peerTx.gotReq.GetPostings()
-	// Posting 0: buyer DEBIT premium currency
-	if postings[0].GetDirection() != "DEBIT" || postings[0].GetAccountId() != "buyer-acct" || postings[0].GetAssetId() != "USD" {
+	// Posting 0: buyer DEBIT premium currency — MONEY leg carries the pinned
+	// buyer ACCOUNT NUMBER (so the executor debits the exact account).
+	if postings[0].GetDirection() != "DEBIT" || postings[0].GetAccountId() != "111000000000000999" || postings[0].GetAssetId() != "USD" {
 		t.Errorf("posting 0 mismatch: %+v", postings[0])
 	}
 	// Posting 1: seller CREDIT premium currency
-	if postings[1].GetDirection() != "CREDIT" || postings[1].GetAccountId() != "seller-acct" || postings[1].GetAssetId() != "USD" {
+	if postings[1].GetDirection() != "CREDIT" || postings[1].GetAccountId() != "client-9" || postings[1].GetAssetId() != "USD" {
 		t.Errorf("posting 1 mismatch: %+v", postings[1])
 	}
-	// Posting 2: seller DEBIT 1× option
-	if postings[2].GetDirection() != "DEBIT" || postings[2].GetAccountId() != "seller-acct" || postings[2].GetAmount() != "1" {
+	// Posting 2: seller DEBIT 1× option — OPTION leg carries the seller PARTICIPANT id.
+	if postings[2].GetDirection() != "DEBIT" || postings[2].GetAccountId() != "client-9" || postings[2].GetAmount() != "1" {
 		t.Errorf("posting 2 mismatch: %+v", postings[2])
 	}
-	// Posting 3: buyer CREDIT 1× option
-	if postings[3].GetDirection() != "CREDIT" || postings[3].GetAccountId() != "buyer-acct" || postings[3].GetAmount() != "1" {
-		t.Errorf("posting 3 mismatch: %+v", postings[3])
+	// Posting 3: buyer CREDIT 1× option — OPTION leg carries the buyer PARTICIPANT
+	// id ("client-7"), NOT the account number. This is the buyer_id that the
+	// contract stores and that the exercise share-credit + /me listing rely on.
+	if postings[3].GetDirection() != "CREDIT" || postings[3].GetAccountId() != "client-7" || postings[3].GetAmount() != "1" {
+		t.Errorf("posting 3 mismatch (option leg must carry buyer participant id, not account number): %+v", postings[3])
 	}
 	// Both option postings share the same asset_id (the JSON-encoded
 	// OptionDescription), distinct from the premium asset.
@@ -309,5 +317,129 @@ func TestPeerOTC_AcceptNegotiation_DispatchesViaPeerTx(t *testing.T) {
 	})
 	if getResp.GetStatus() != "accepted" {
 		t.Errorf("expected accepted, got %s", getResp.GetStatus())
+	}
+
+	// Concurrency guard: a SECOND accept of the same (now-accepted) negotiation
+	// must be rejected, not dispatch a second option-formation TX (which would
+	// double-charge the premium, double-reserve seller shares, and mint a
+	// duplicate contract).
+	peerTx.gotReq = nil
+	_, err2 := h.AcceptNegotiation(ctx, &stockpb.AcceptNegotiationRequest{
+		PeerBankCode:  "222",
+		NegotiationId: createResp.GetNegotiationId(),
+	})
+	if status.Code(err2) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition on second accept, got %v", err2)
+	}
+	if peerTx.gotReq != nil {
+		t.Errorf("second accept must NOT dispatch a second option-formation TX")
+	}
+}
+
+// TestValidatePeerOptionMoneyLeg_ForgedStrike is the receiver-side guard against
+// the forged-strike theft: an exercise whose money differs from the stored
+// contract's StrikePrice*Quantity must be denied, while the honest amount passes
+// and accept-intent legs are not (yet) enforced.
+func TestValidatePeerOptionMoneyLeg_ForgedStrike(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t) // ownRouting 111
+	// Stored seller-side contract: 2 MA @ strike 250 RSD → honest exercise pays 500.
+	if err := db.Create(&model.PeerOptionContract{
+		CrossbankTxID: "seed:1", PostingIndex: 0,
+		NegotiationRoutingNumber: 111, NegotiationID: "neg-1",
+		BuyerRoutingNumber: 222, BuyerID: "client-9",
+		SellerRoutingNumber: 111, SellerID: "client-1",
+		Ticker: "MA", Quantity: 2, StrikePrice: decimal.NewFromInt(250),
+		Currency: "RSD", SettlementDate: "2028-06-30T00:00:00Z",
+		Direction: "DEBIT", Status: "active",
+	}).Error; err != nil {
+		t.Fatalf("seed contract: %v", err)
+	}
+	base := func(money string) *stockpb.ValidatePeerOptionMoneyLegRequest {
+		return &stockpb.ValidatePeerOptionMoneyLegRequest{
+			NegotiationRouting: 111, NegotiationId: "neg-1", Direction: "DEBIT",
+			Intent: "exercise", Ticker: "MA", Quantity: 2, StrikePrice: "250",
+			MoneyAmount: money, Currency: "RSD",
+		}
+	}
+	ctx := context.Background()
+
+	// Forged low strike → DENY.
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, base("1")); err != nil || r.GetOk() {
+		t.Errorf("forged strike (1 vs 500) must be denied; got ok=%v reason=%q err=%v", r.GetOk(), r.GetReason(), err)
+	}
+	// Honest strike 250*2=500 → OK.
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, base("500")); err != nil || !r.GetOk() {
+		t.Errorf("honest strike (500) must pass; got ok=%v reason=%q err=%v", r.GetOk(), r.GetReason(), err)
+	}
+	// Quantity mismatch → DENY (claim 5 shares against a 2-share contract).
+	q := base("500")
+	q.Quantity = 5
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, q); r.GetOk() {
+		t.Errorf("quantity mismatch must be denied; got ok with reason=%q", r.GetReason())
+	}
+	// No stored contract for this negotiation → DENY.
+	nf := base("500")
+	nf.NegotiationId = "does-not-exist"
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, nf); r.GetOk() {
+		t.Errorf("missing contract must be denied; got ok")
+	}
+	// Replay defense: once the contract is exercised, even an honest-amount
+	// exercise must be denied (a forged second exercise would double-charge).
+	if err := db.Model(&model.PeerOptionContract{}).Where("negotiation_id = ?", "neg-1").Update("status", "exercised").Error; err != nil {
+		t.Fatalf("mark exercised: %v", err)
+	}
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, base("500")); r.GetOk() {
+		t.Errorf("exercise of an already-exercised contract must be denied; got ok with reason=%q", r.GetReason())
+	}
+}
+
+// TestValidatePeerOptionMoneyLeg_AcceptPremium guards the accept side: the
+// premium money must equal the stored negotiation's premium (per-currency), and
+// the option terms must match — a forged-low premium or forged terms is denied.
+func TestValidatePeerOptionMoneyLeg_AcceptPremium(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t) // ownRouting 111
+	// Stored negotiation: 2 MA, strike 250, premium 35 RSD. peer_bank_code is the
+	// counterparty's code ("222"); foreign_id is the negotiation UUID.
+	offer := `{"ticker":"MA","amount":2,"pricePerStock":"250","currency":"RSD","premium":"35","premiumCurrency":"RSD","settlementDate":"2028-06-30T00:00:00Z"}`
+	if err := db.Create(&model.PeerOtcNegotiation{
+		PeerBankCode: "222", ForeignID: "neg-A", BuyerRoutingNumber: 111, BuyerID: "client-1",
+		SellerRoutingNumber: 222, SellerID: "client-9", OfferJSON: offer, Status: "ongoing",
+	}).Error; err != nil {
+		t.Fatalf("seed negotiation: %v", err)
+	}
+	base := func(prem string) *stockpb.ValidatePeerOptionMoneyLegRequest {
+		return &stockpb.ValidatePeerOptionMoneyLegRequest{
+			NegotiationRouting: 222, NegotiationId: "neg-A", Direction: "CREDIT",
+			Intent: "accept", Ticker: "MA", Quantity: 2, StrikePrice: "250",
+			MoneyAmount: prem, Currency: "RSD", PeerBankCode: "222",
+		}
+	}
+	ctx := context.Background()
+	// Forged-low premium → DENY.
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, base("1")); r.GetOk() {
+		t.Errorf("forged-low premium (1 vs 35) must be denied; got ok reason=%q", r.GetReason())
+	}
+	// Honest premium → OK.
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, base("35")); err != nil || !r.GetOk() {
+		t.Errorf("honest premium (35) must pass; got ok=%v reason=%q err=%v", r.GetOk(), r.GetReason(), err)
+	}
+	// Forged quantity → DENY.
+	q := base("35")
+	q.Quantity = 99
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, q); r.GetOk() {
+		t.Errorf("forged quantity must be denied; got ok reason=%q", r.GetReason())
+	}
+	// No negotiation → DENY.
+	nf := base("35")
+	nf.NegotiationId = "nope"
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, nf); r.GetOk() {
+		t.Errorf("missing negotiation must be denied; got ok")
+	}
+	// Cross-currency premium (money currency != premium currency): not amount-
+	// checked, but a positive amount is accepted (documented residual).
+	cc := base("9999")
+	cc.Currency = "EUR"
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, cc); err != nil || !r.GetOk() {
+		t.Errorf("cross-currency positive premium should pass (residual); got ok=%v err=%v", r.GetOk(), err)
 	}
 }

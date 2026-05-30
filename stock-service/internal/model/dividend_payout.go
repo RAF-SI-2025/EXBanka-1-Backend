@@ -27,6 +27,6 @@ type DividendPayout struct {
 	NetAmountRSD      decimal.Decimal `gorm:"type:numeric(20,4);not null"`
 	CreditedAccountID uint64          `gorm:"not null"`
 	// "dividend-<payment_id>-<holding_id>" — unique to prevent double-payout
-	IdempotencyKey string    `gorm:"size:128;not null;uniqueIndex"`
+	IdempotencyKey string `gorm:"size:128;not null;uniqueIndex"`
 	CreatedAt      time.Time
 }

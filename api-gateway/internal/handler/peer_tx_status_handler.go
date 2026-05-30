@@ -51,10 +51,10 @@ func (h *PeerTxStatusHandler) GetTxStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"transaction_id":  txID,
-		"state":           resp.GetState(),
-		"our_role":        resp.GetOurRole(),
-		"last_action_at":  resp.GetLastActionAt(),
-		"last_error":      resp.GetLastError(),
+		"transaction_id": txID,
+		"state":          resp.GetState(),
+		"our_role":       resp.GetOurRole(),
+		"last_action_at": resp.GetLastActionAt(),
+		"last_error":     resp.GetLastError(),
 	})
 }

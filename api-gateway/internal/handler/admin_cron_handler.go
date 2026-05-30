@@ -7,9 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 
-	adminpb "github.com/exbanka/contract/adminpb"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	gatewaykafka "github.com/exbanka/api-gateway/internal/kafka"
+	adminpb "github.com/exbanka/contract/adminpb"
 )
 
 // AdminCronHandler serves the five /api/v3/admin/crons routes.
@@ -38,10 +38,10 @@ func (h *AdminCronHandler) serviceClient(service string) *grpcclients.AdminCronC
 
 // cronServiceResult is the per-service fragment of the List response.
 type cronServiceResult struct {
-	Service string        `json:"service"`
-	Status  string        `json:"status"` // "ok" | "unreachable"
+	Service string          `json:"service"`
+	Status  string          `json:"status"` // "ok" | "unreachable"
 	Crons   []*cronInfoJSON `json:"crons"`
-	Error   string        `json:"error,omitempty"`
+	Error   string          `json:"error,omitempty"`
 }
 
 // cronInfoJSON is the JSON representation of a CronInfoMsg.

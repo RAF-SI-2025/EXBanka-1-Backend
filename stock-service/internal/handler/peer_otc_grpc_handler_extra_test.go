@@ -12,6 +12,8 @@ import (
 
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
+	"github.com/exbanka/stock-service/internal/handler"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/service"
 )
@@ -615,6 +617,90 @@ func TestPeerOTC_InitiateOptionExercise_HappyPath(t *testing.T) {
 	}
 	if out.GetTransactionId() == "" {
 		t.Errorf("expected tx id")
+	}
+}
+
+// seedActiveBuyerContract records an active CREDIT-direction contract and
+// returns its id (helper for the exercise concurrency tests).
+func seedActiveBuyerContract(t *testing.T, h *handler.PeerOTCGRPCHandler, neg string) uint64 {
+	t.Helper()
+	optDesc := contractsitx.OptionDescription{
+		Ticker: "AAPL", Amount: 10, StrikePrice: decimal.NewFromInt(150), Currency: "USD",
+		SettlementDate: "2026-12-31",
+		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: 222, ID: neg},
+	}
+	optJSON, _ := json.Marshal(optDesc)
+	resp, err := h.RecordOptionContract(context.Background(), &stockpb.RecordOptionContractRequest{
+		CrossbankTxId:         "tx-" + neg,
+		PostingIndex:          0,
+		BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-7"},
+		SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-99"},
+		Direction:             contractsitx.DirectionCredit,
+		OptionDescriptionJson: string(optJSON),
+	})
+	if err != nil {
+		t.Fatalf("seed contract: %v", err)
+	}
+	return resp.GetContractId()
+}
+
+// TestPeerOTC_InitiateOptionExercise_SecondExerciseRejected verifies the
+// concurrency guard: once a contract is claimed for exercise (active →
+// exercising), a second exercise attempt is rejected instead of dispatching a
+// second strike-money payment (the double-charge bug).
+func TestPeerOTC_InitiateOptionExercise_SecondExerciseRejected(t *testing.T) {
+	h, _, peerTx, _ := newPeerOtcHandler(t)
+	h.SetHoldingReserver(&fakeReserver{})
+	cid := seedActiveBuyerContract(t, h, "neg-concurrent")
+
+	if _, err := h.InitiateOptionExercise(context.Background(), &stockpb.InitiateOptionExerciseRequest{
+		PeerOptionContractId: cid, BuyerAccountNumber: "BUYER-ACCT-1",
+	}); err != nil {
+		t.Fatalf("first exercise: %v", err)
+	}
+	dispatches := 0
+	if peerTx.gotReq != nil {
+		dispatches = 1
+	}
+	// Second attempt must be rejected (contract now "exercising"), NOT dispatched.
+	peerTx.gotReq = nil
+	_, err := h.InitiateOptionExercise(context.Background(), &stockpb.InitiateOptionExerciseRequest{
+		PeerOptionContractId: cid, BuyerAccountNumber: "BUYER-ACCT-1",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition on second exercise, got %v", err)
+	}
+	if peerTx.gotReq != nil {
+		t.Errorf("second exercise must NOT dispatch a strike-money TX (double charge)")
+	}
+	if dispatches != 1 {
+		t.Errorf("expected exactly 1 dispatch from the first exercise")
+	}
+}
+
+// TestPeerOTC_InitiateOptionExercise_DispatchFailureRevertsClaim verifies that a
+// synchronous dispatch failure (e.g. buyer can't afford the strike) releases the
+// exercise claim (exercising → active), preserves the gRPC code (FailedPrecondition,
+// not Internal), and leaves the contract retryable.
+func TestPeerOTC_InitiateOptionExercise_DispatchFailureRevertsClaim(t *testing.T) {
+	h, _, peerTx, _ := newPeerOtcHandler(t)
+	h.SetHoldingReserver(&fakeReserver{})
+	cid := seedActiveBuyerContract(t, h, "neg-revert")
+
+	peerTx.err = status.Error(codes.FailedPrecondition, "local reserve failed: INSUFFICIENT_ASSET")
+	_, err := h.InitiateOptionExercise(context.Background(), &stockpb.InitiateOptionExerciseRequest{
+		PeerOptionContractId: cid, BuyerAccountNumber: "BUYER-ACCT-1",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition (code preserved), got %v", err)
+	}
+	// Claim reverted → a retry (now funded) must succeed.
+	peerTx.err = nil
+	peerTx.resp = &transactionpb.SiTxInitiateResponse{TransactionId: "tx-retry", Status: "pending"}
+	if _, rerr := h.InitiateOptionExercise(context.Background(), &stockpb.InitiateOptionExerciseRequest{
+		PeerOptionContractId: cid, BuyerAccountNumber: "BUYER-ACCT-1",
+	}); rerr != nil {
+		t.Errorf("retry after revert should succeed, got %v", rerr)
 	}
 }
 

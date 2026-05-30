@@ -16,6 +16,8 @@ import (
 	"github.com/exbanka/transaction-service/internal/sitx"
 	"github.com/glebarez/sqlite"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
@@ -261,6 +263,63 @@ func TestInitiateOutboundTxWithPostings_HappyPath(t *testing.T) {
 	}
 	if resp.GetStatus() != "pending" {
 		t.Errorf("status: %s", resp.GetStatus())
+	}
+}
+
+// TestInitiateOutboundTxWithPostings_LocalCommitFailure_LeavesCommitting is the
+// saga-pivot regression: after a YES vote, a failing local commit step (here the
+// strike/premium settle) must leave the row in the forward-only `committing`
+// state — NEVER `pending` (which the cron could max-attempts-COMPENSATE,
+// stranding settled money) and never `rolled_back`.
+func TestInitiateOutboundTxWithPostings_LocalCommitFailure_LeavesCommitting(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var probe map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&probe)
+		if probe["messageType"] == "NEW_TX" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"type":"YES"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err := db.AutoMigrate(&model.PeerIdempotenceRecord{}, &model.OutboundPeerTx{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	stub := &stubAccountForHandler{}
+	// Force the local DEBIT-leg settle to fail — simulates account-service
+	// briefly unavailable during the commit phase.
+	stub.settleOutFn = func(ctx context.Context, in *accountpb.SettleOutgoingRequest, opts ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+		return nil, status.Error(codes.Unavailable, "account-service down")
+	}
+	idemRepo := repository.NewPeerIdempotenceRepository(db)
+	outRepo := repository.NewOutboundPeerTxRepository(db)
+	exec := sitx.NewPostingExecutor(stub, 111)
+	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
+	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
+		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
+	}
+	h := handler.NewPeerTxGRPCHandler(idemRepo, exec, stub, outRepo, httpClient, handler.PeerLookupFunc(peerLookup), 111)
+
+	resp, err := h.InitiateOutboundTxWithPostings(context.Background(), &transactionpb.SiTxInitiateWithPostingsRequest{
+		PeerBankCode: "222",
+		TxKind:       "otc-accept",
+		Postings: []*transactionpb.SiTxPosting{
+			{RoutingNumber: 111, AccountId: "111-A", AssetId: "RSD", Amount: "700", Direction: "DEBIT"},
+			{RoutingNumber: 222, AccountId: "222-A", AssetId: "RSD", Amount: "700", Direction: "CREDIT"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("InitiateOutboundTxWithPostings: %v", err)
+	}
+	row, gerr := outRepo.GetByIdempotenceKey(resp.GetTransactionId())
+	if gerr != nil {
+		t.Fatalf("get row: %v", gerr)
+	}
+	if row.Status != "committing" {
+		t.Errorf("after YES + local settle failure, row must be `committing` (forward-only), got %q", row.Status)
 	}
 }
 

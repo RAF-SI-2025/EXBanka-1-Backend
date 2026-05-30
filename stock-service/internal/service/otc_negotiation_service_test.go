@@ -541,3 +541,124 @@ func TestOwnerMatches(t *testing.T) {
 // SecondAcceptRejectedAfterFirstWins (parent FOR UPDATE serializes
 // accepts; second sees consumed status) and TestOpenNegotiation_
 // OneChainPerBidderEnforced (unique-index sentinel).
+
+// ---- Listing-audience authorization + cross-chain timeline ----
+
+// seedTwoChains opens chains for bidders 7 and 9 against a poster=1 listing,
+// then has the poster counter bidder 7's chain. Returns the listing.
+func seedTwoChainsWithCounter(t *testing.T, env *negTestEnv) *model.OTCOffer {
+	t.Helper()
+	ctx := context.Background()
+	listing := seedListing(t, env, 1, model.OTCDirectionSellInitiated, model.OTCOfferStatusOpen)
+	negA, err := env.svc.OpenNegotiation(ctx, sampleOpenInput(listing.ID, 7))
+	if err != nil {
+		t.Fatalf("open chain A: %v", err)
+	}
+	if _, err := env.svc.OpenNegotiation(ctx, sampleOpenInput(listing.ID, 9)); err != nil {
+		t.Fatalf("open chain B: %v", err)
+	}
+	if _, err := env.svc.CounterNegotiation(ctx, CounterNegotiationInput{
+		NegotiationID:       negA.ID,
+		CallerOwnerType:     model.OwnerClient,
+		CallerOwnerID:       u64p(1), // poster counters chain A
+		Quantity:            decimal.NewFromInt(10),
+		StrikePrice:         decimal.NewFromFloat(155.0),
+		Premium:             decimal.NewFromFloat(7.0),
+		SettlementDate:      time.Now().UTC().AddDate(0, 1, 0),
+		ActingPrincipalType: "client",
+		ActingPrincipalID:   1,
+	}); err != nil {
+		t.Fatalf("poster counter: %v", err)
+	}
+	return listing
+}
+
+func TestListByParentOffer_PosterAllowed(t *testing.T) {
+	env := newNegTestEnv(t)
+	listing := seedTwoChainsWithCounter(t, env)
+	rows, err := env.svc.ListByParentOffer(context.Background(), listing.ID, model.OwnerClient, u64p(1))
+	if err != nil {
+		t.Fatalf("poster ListByParentOffer: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Errorf("want 2 chains, got %d", len(rows))
+	}
+}
+
+func TestListByParentOffer_BidderForbidden(t *testing.T) {
+	env := newNegTestEnv(t)
+	listing := seedTwoChainsWithCounter(t, env)
+	// Bidder 7 is a party to one chain but is NOT the listing poster — they
+	// must not see every chain on the offer.
+	rows, err := env.svc.ListByParentOffer(context.Background(), listing.ID, model.OwnerClient, u64p(7))
+	if !errors.Is(err, ErrOTCListingAudienceForbidden) {
+		t.Fatalf("want ErrOTCListingAudienceForbidden, got %v", err)
+	}
+	if rows != nil {
+		t.Errorf("expected nil rows on forbidden, got %d", len(rows))
+	}
+}
+
+func TestListByParentOffer_EmployeeBankAllowed(t *testing.T) {
+	env := newNegTestEnv(t)
+	listing := seedTwoChainsWithCounter(t, env)
+	// Employee identity (owner_type="bank"); gateway already enforced
+	// otc.read.all, so the service trusts it.
+	rows, err := env.svc.ListByParentOffer(context.Background(), listing.ID, model.OwnerBank, nil)
+	if err != nil {
+		t.Fatalf("employee ListByParentOffer: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Errorf("want 2 chains, got %d", len(rows))
+	}
+}
+
+func TestListByParentOffer_OfferNotFound(t *testing.T) {
+	env := newNegTestEnv(t)
+	_, err := env.svc.ListByParentOffer(context.Background(), 999, model.OwnerBank, nil)
+	if !errors.Is(err, ErrOTCOfferNotFound) {
+		t.Fatalf("want ErrOTCOfferNotFound, got %v", err)
+	}
+}
+
+func TestOfferTimeline_MergesAllChainsAndSorts(t *testing.T) {
+	env := newNegTestEnv(t)
+	listing := seedTwoChainsWithCounter(t, env)
+	offer, items, err := env.svc.OfferTimeline(context.Background(), listing.ID, model.OwnerClient, u64p(1))
+	if err != nil {
+		t.Fatalf("OfferTimeline: %v", err)
+	}
+	if offer == nil || offer.ID != listing.ID {
+		t.Fatalf("offer mismatch: %+v", offer)
+	}
+	// Chain A: BID + COUNTER (2). Chain B: BID (1). Total 3 across all chains.
+	if len(items) != 3 {
+		t.Fatalf("want 3 timeline entries across all chains, got %d", len(items))
+	}
+	// Non-decreasing CreatedAt ordering.
+	for i := 1; i < len(items); i++ {
+		if items[i].Revision.CreatedAt.Before(items[i-1].Revision.CreatedAt) {
+			t.Errorf("timeline not sorted ascending at index %d", i)
+		}
+	}
+	// Every entry carries its chain's bidder identity (7 or 9), never the poster.
+	seenBidders := map[uint64]bool{}
+	for _, it := range items {
+		if it.Negotiation.BidderOwnerID == nil {
+			t.Fatalf("nil bidder id in timeline entry")
+		}
+		seenBidders[*it.Negotiation.BidderOwnerID] = true
+	}
+	if !seenBidders[7] || !seenBidders[9] {
+		t.Errorf("expected both chains (bidders 7 and 9) represented, got %v", seenBidders)
+	}
+}
+
+func TestOfferTimeline_BidderForbidden(t *testing.T) {
+	env := newNegTestEnv(t)
+	listing := seedTwoChainsWithCounter(t, env)
+	_, _, err := env.svc.OfferTimeline(context.Background(), listing.ID, model.OwnerClient, u64p(7))
+	if !errors.Is(err, ErrOTCListingAudienceForbidden) {
+		t.Fatalf("want ErrOTCListingAudienceForbidden, got %v", err)
+	}
+}

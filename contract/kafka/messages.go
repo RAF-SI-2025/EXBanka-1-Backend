@@ -788,9 +788,9 @@ const TopicAdminCronAction = "admin.cron-action"
 
 // AdminCronActionMessage carries the audit event for an admin cron control action.
 type AdminCronActionMessage struct {
-	Action     string    `json:"action"`              // "trigger" | "pause" | "resume"
-	Service    string    `json:"service"`             // e.g. "stock-service"
-	CronName   string    `json:"cron_name"`           // e.g. "tax-collection"
+	Action     string    `json:"action"`    // "trigger" | "pause" | "resume"
+	Service    string    `json:"service"`   // e.g. "stock-service"
+	CronName   string    `json:"cron_name"` // e.g. "tax-collection"
 	EmployeeID int64     `json:"employee_id"`
 	Timestamp  time.Time `json:"timestamp"`
 	Reason     string    `json:"reason,omitempty"`
@@ -811,8 +811,8 @@ const TopicWatchlistAlert = "notification.watchlist-alert"
 type WatchlistPriceMoveMessage struct {
 	UserID         uint64    `json:"user_id"`
 	Ticker         string    `json:"ticker"`
-	PercentMove    string    `json:"percent_move"`    // signed decimal string, e.g. "-6.4200"
-	CurrentPrice   string    `json:"current_price"`   // decimal string
+	PercentMove    string    `json:"percent_move"`  // signed decimal string, e.g. "-6.4200"
+	CurrentPrice   string    `json:"current_price"` // decimal string
 	Timestamp      time.Time `json:"timestamp"`
 	IdempotencyKey string    `json:"idempotency_key"` // "watchlist-alert-<uid>-<ticker>-<YYYYMMDD>"
 }

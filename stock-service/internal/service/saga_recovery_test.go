@@ -1020,3 +1020,13 @@ func TestSagaRecovery_CreditRetryFailure_IncrementsRetryCount(t *testing.T) {
 		t.Errorf("expected no UpdateStatus on failed retry, got %+v", repo.updateCalls)
 	}
 }
+
+func (*fakeRecoveryAccountStub) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*fakeRecoveryAccountStub) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*fakeRecoveryAccountStub) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}

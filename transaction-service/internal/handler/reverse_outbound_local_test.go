@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -9,12 +10,25 @@ import (
 	"google.golang.org/grpc"
 )
 
-// TestReverseOutboundLocal_Transfer_ReleasesSenderHold verifies that reversing
-// a simple-transfer outbound row releases the sender's outgoing HOLD with the
-// same idempotency key the inline NO-vote path uses, so the two paths can never
+// jsonStr renders s as a JSON string literal (quoted + escaped) so an
+// option-description JSON blob can be embedded as the assetId string value of a
+// posting in a postings-JSON fixture.
+func jsonStr(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// TestReverseOutboundLocal_Payment_ReleasesSenderHold verifies that reversing
+// a "payment" outbound row (the kind InitiateOutboundTx actually creates)
+// releases the sender's single outgoing HOLD "peer-out:<idem>" with the same
+// idempotency key the inline NO-vote path uses, so the two paths can never
 // double-act. Under reserve-then-settle the money never left, so this is a
 // hold release (no Balance movement), not a credit-back.
-func TestReverseOutboundLocal_Transfer_ReleasesSenderHold(t *testing.T) {
+//
+// Regression: rows are created with tx_kind="payment", but the recovery branch
+// previously matched only ""/"transfer" — so payment rows fell into the
+// per-posting executor branch and the real peer-out hold was never released.
+func TestReverseOutboundLocal_Payment_ReleasesSenderHold(t *testing.T) {
 	h, _, stub := newPeerTxHandler(t) // ownRouting 111
 
 	var releases []*accountpb.ReleaseOutgoingRequest
@@ -29,7 +43,7 @@ func TestReverseOutboundLocal_Transfer_ReleasesSenderHold(t *testing.T) {
 
 	row := &model.OutboundPeerTx{
 		IdempotenceKey: "idem-1",
-		TxKind:         "transfer",
+		TxKind:         "payment",
 		PostingsJSON:   `[{"routingNumber":111,"accountId":"111-A","assetId":"RSD","amount":"100","direction":"DEBIT"},{"routingNumber":222,"accountId":"222-B","assetId":"RSD","amount":"100","direction":"CREDIT"}]`,
 	}
 	if err := h.ReverseOutboundLocal(context.Background(), row); err != nil {
@@ -44,6 +58,118 @@ func TestReverseOutboundLocal_Transfer_ReleasesSenderHold(t *testing.T) {
 	}
 	if releases[0].GetIdempotencyKey() != "peer-out-release-idem-1" {
 		t.Errorf("release idem key = %q want peer-out-release-idem-1", releases[0].GetIdempotencyKey())
+	}
+}
+
+// TestCommitOutboundLocal_Payment_SettlesSenderHold verifies the commit-side
+// recovery: a "payment" row settles the single outgoing hold (the money leaves)
+// rather than falling into the per-posting executor branch. This is the exact
+// path the OutboundReplayCron / PeerTxReconciler take when they resolve a
+// crash-stranded payment row to committed.
+func TestCommitOutboundLocal_Payment_SettlesSenderHold(t *testing.T) {
+	h, _, stub := newPeerTxHandler(t) // ownRouting 111
+
+	var settles []*accountpb.SettleOutgoingRequest
+	stub.settleOutFn = func(_ context.Context, in *accountpb.SettleOutgoingRequest, _ ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+		settles = append(settles, in)
+		return &accountpb.SettleOutgoingResponse{}, nil
+	}
+	stub.updateFn = func(_ context.Context, in *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
+		return &accountpb.AccountResponse{}, nil
+	}
+
+	row := &model.OutboundPeerTx{
+		IdempotenceKey: "idem-pay-1",
+		TxKind:         "payment",
+		PostingsJSON:   `[{"routingNumber":111,"accountId":"111-A","assetId":"RSD","amount":"100","direction":"DEBIT"},{"routingNumber":222,"accountId":"222-B","assetId":"RSD","amount":"100","direction":"CREDIT"}]`,
+	}
+	if err := h.CommitOutboundLocal(context.Background(), row); err != nil {
+		t.Fatalf("commit local: %v", err)
+	}
+
+	if len(settles) != 1 {
+		t.Fatalf("expected exactly 1 hold settle, got %d", len(settles))
+	}
+	if settles[0].GetReservationKey() != "peer-out:idem-pay-1" {
+		t.Errorf("settle key = %q want peer-out:idem-pay-1", settles[0].GetReservationKey())
+	}
+	if settles[0].GetIdempotencyKey() != "peer-out-settle-idem-pay-1" {
+		t.Errorf("settle idem key = %q want peer-out-settle-idem-pay-1", settles[0].GetIdempotencyKey())
+	}
+}
+
+// TestCommitOutboundLocal_OTC_Exercise_SettlesHoldAndMaterialisesBuyerOption
+// is the deterministic counterpart of the live forward-recovery proof: when the
+// replay cron drives a `committing` otc-exercise row forward, CommitOutboundLocal
+// must (1) settle the sender's money DEBIT hold (the strike leaves the buyer) and
+// (2) re-materialise THIS bank's own CREDIT option leg (the buyer receives the
+// underlying + the contract transitions to exercised), with the intent flowing
+// through — and it must NEVER release/reverse anything (forward-only). The peer-
+// routing legs (idx 1 money CREDIT, idx 2 seller option DEBIT) are ignored locally.
+func TestCommitOutboundLocal_OTC_Exercise_SettlesHoldAndMaterialisesBuyerOption(t *testing.T) {
+	h, _, stub := newPeerTxHandler(t) // ownRouting 111
+	rec := &stubOptionRecorder{}
+	h.SetOptionRecorder(rec)
+
+	var settles []*accountpb.SettleOutgoingRequest
+	stub.settleOutFn = func(_ context.Context, in *accountpb.SettleOutgoingRequest, _ ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+		settles = append(settles, in)
+		return &accountpb.SettleOutgoingResponse{}, nil
+	}
+	stub.releaseOutFn = func(_ context.Context, in *accountpb.ReleaseOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		t.Errorf("forward commit must NEVER release a hold; got release of %q", in.GetReservationKey())
+		return &accountpb.ReleaseOutgoingResponse{}, nil
+	}
+	stub.releaseFn = func(_ context.Context, in *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+		t.Errorf("forward commit must NEVER release an incoming reservation; got %q", in.GetReservationKey())
+		return &accountpb.ReleaseIncomingResponse{}, nil
+	}
+	stub.updateFn = func(_ context.Context, in *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
+		return &accountpb.AccountResponse{}, nil
+	}
+
+	// Same OptionDescription string on both option legs so buyer/seller pairing
+	// matches; intent=exercise drives the buyer-credit transition.
+	od := `{"ticker":"MA","amount":2,"strikePrice":"250","currency":"RSD","intent":"exercise"}`
+	row := &model.OutboundPeerTx{
+		IdempotenceKey: "idem-otcx",
+		TxKind:         "otc-exercise",
+		PostingsJSON: `[` +
+			`{"routingNumber":111,"accountId":"111-BUY","assetId":"RSD","amount":"500","direction":"DEBIT"},` +
+			`{"routingNumber":222,"accountId":"222-SELL","assetId":"RSD","amount":"500","direction":"CREDIT"},` +
+			`{"routingNumber":222,"accountId":"client-1","assetId":` + jsonStr(od) + `,"amount":"1","direction":"DEBIT"},` +
+			`{"routingNumber":111,"accountId":"client-1","assetId":` + jsonStr(od) + `,"amount":"1","direction":"CREDIT"}` +
+			`]`,
+	}
+	if err := h.CommitOutboundLocal(context.Background(), row); err != nil {
+		t.Fatalf("commit local: %v", err)
+	}
+
+	// (1) Strike hold settled with the executor's per-posting key (ownRouting:idem:idx).
+	if len(settles) != 1 {
+		t.Fatalf("expected exactly 1 money-leg settle, got %d", len(settles))
+	}
+	if settles[0].GetReservationKey() != "111:idem-otcx:0" {
+		t.Errorf("settle key = %q want 111:idem-otcx:0", settles[0].GetReservationKey())
+	}
+	// (2) Exactly the buyer's own CREDIT option leg is materialised, intent carried.
+	if len(rec.calls) != 1 {
+		t.Fatalf("expected exactly 1 RecordOptionContract (own CREDIT leg), got %d", len(rec.calls))
+	}
+	c := rec.calls[0]
+	if c.GetDirection() != "CREDIT" {
+		t.Errorf("materialised leg direction = %q want CREDIT", c.GetDirection())
+	}
+	if c.GetIntent() != "exercise" {
+		t.Errorf("materialised leg intent = %q want exercise", c.GetIntent())
+	}
+	if c.GetCrossbankTxId() != "111:idem-otcx" {
+		t.Errorf("crossbank_tx_id = %q want 111:idem-otcx", c.GetCrossbankTxId())
+	}
+	if c.GetPostingIndex() != 3 {
+		t.Errorf("posting index = %d want 3 (the own CREDIT option leg)", c.GetPostingIndex())
 	}
 }
 

@@ -10591,7 +10591,9 @@ paths:
   /api/v3/otc/options/{id}/negotiations:
     get:
       description: Used by the listing's poster to see all incoming bids. Returns
-        chains in any status (active + terminal).
+        chains in any status (active + terminal). Restricted to the listing's poster
+        or an employee holding otc.read.all; competing bidders receive 403 and see
+        only their own chain via GET /api/v3/me/otc/options/negotiations.
       parameters:
       - description: parent OTCOffer listing id
         in: path
@@ -10606,9 +10608,50 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "403":
+          description: caller is neither the poster nor a permission-gated employee
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - BearerAuth: []
       summary: List every negotiation chain against a given OTC option listing
+      tags:
+      - OTCOptions
+  /api/v3/otc/options/{id}/timeline:
+    get:
+      description: Returns the offer plus every negotiation chain's revisions merged
+        into one chronological stream (oldest first). Each entry carries its chain's
+        negotiation_id and bidder identity so the frontend can render a single timeline
+        or regroup into per-bidder swimlanes. Restricted to the listing's poster or
+        an employee holding otc.read.all; competing bidders receive 403.
+      parameters:
+      - description: parent OTCOffer listing id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: caller is neither the poster nor a permission-gated employee
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: offer not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cross-chain interaction timeline for an OTC option offer
       tags:
       - OTCOptions
   /api/v3/otc/stocks/{id}/sell:

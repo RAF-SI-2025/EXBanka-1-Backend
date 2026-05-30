@@ -8156,9 +8156,67 @@ No funds or shares are unwound — none are reserved at listing-creation time; r
 
 #### GET /api/v3/otc/options/:id/negotiations
 
-List every negotiation chain against a listing (any status). Used by the listing's poster to see all incoming bids, and by bidders to see what competing counter-bids look like.
+List every negotiation chain against a listing (any status). Used by the listing's poster to see all incoming bids.
+
+**Authentication:** Any JWT + `ResolveIdentity`. **Restricted audience:** only the listing's poster (a client whose `principal_id` matches the offer's initiator) or an employee holding the `otc.read.all` permission may call this. A competing bidder — or any other client — receives **403**; bidders see only their own chain via `GET /api/v3/me/otc/options/negotiations`.
 
 **Response 200:** `{ "negotiations": [OTCNegotiationResponse...], "total": int }`.
+
+**Response 403:** Caller is neither the listing's poster nor a permission-gated employee.
+
+---
+
+#### GET /api/v3/otc/options/:id/timeline
+
+Cross-chain interaction timeline for an offer: the offer plus **every** negotiation chain's revisions, merged into a single stream sorted ascending by `created_at`. This is the offer-owner "front page" view — one call returns the whole offer's history across all bidders, so the frontend never needs to fan out per chain. Each entry carries its chain's `negotiation_id` and bidder identity, so the client can render one flat timeline or regroup into per-bidder swimlanes.
+
+**Authentication:** Any JWT + `ResolveIdentity`. **Restricted audience:** identical to `GET /api/v3/otc/options/:id/negotiations` — listing poster or employee with `otc.read.all` only. Competing bidders receive **403**.
+
+**Path:** `:id` — the parent OTCOffer listing id.
+
+**Response 200:**
+
+```json
+{
+  "offer": { /* OTCOfferResponse */ },
+  "timeline": [
+    {
+      "negotiation_id":           100,
+      "bidder_owner_type":        "client",
+      "bidder_owner_id":          7,
+      "revision_number":          1,
+      "action":                   "BID",
+      "quantity":                 "10",
+      "strike_price":             "150.00",
+      "premium":                  "5.00",
+      "settlement_date":          "2026-07-01T00:00:00Z",
+      "action_by_principal_type": "client",
+      "action_by_principal_id":   7,
+      "created_at":               "2026-06-01T12:00:00Z"
+    },
+    {
+      "negotiation_id":           100,
+      "bidder_owner_type":        "client",
+      "bidder_owner_id":          7,
+      "revision_number":          2,
+      "action":                   "COUNTER",
+      "quantity":                 "10",
+      "strike_price":             "155.00",
+      "premium":                  "7.00",
+      "settlement_date":          "2026-07-01T00:00:00Z",
+      "action_by_principal_type": "client",
+      "action_by_principal_id":   1,
+      "created_at":               "2026-06-01T12:05:00Z"
+    }
+  ]
+}
+```
+
+Entries are ordered by `created_at ASC`; ties break by `(negotiation_id, revision_number)` for deterministic ordering.
+
+**Response 403:** Caller is neither the listing's poster nor a permission-gated employee.
+
+**Response 404:** Offer not found.
 
 ---
 

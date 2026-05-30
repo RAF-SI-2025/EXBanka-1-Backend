@@ -29,6 +29,7 @@ type PeerTxReconciler struct {
 	httpClient   *sitx.PeerHTTPClient
 	peerLookup   PeerLookupFunc
 	reverseLocal LocalReversalFunc
+	commitLocal  LocalCommitFunc
 	tickInterval time.Duration
 	minAge       time.Duration
 	entry        *cronreg.Entry
@@ -74,6 +75,17 @@ func (r *PeerTxReconciler) WithLocalReversal(fn LocalReversalFunc) *PeerTxReconc
 	return r
 }
 
+// WithLocalCommit wires the local commit/settle callback used when the peer
+// reports a transaction as committed. Under reserve-then-settle this MUST be
+// set so the reconciler settles the sender's outgoing hold (the money actually
+// leaves) before marking the row committed — otherwise the hold lingers pending
+// and the timeout cron would later release it, refunding a sender whose
+// recipient was already credited. Optional only for tests that don't move money.
+func (r *PeerTxReconciler) WithLocalCommit(fn LocalCommitFunc) *PeerTxReconciler {
+	r.commitLocal = fn
+	return r
+}
+
 // Start launches the reconciler loop and an immediate startup tick.
 // Returns immediately; the loop runs until ctx cancels. Each tick is gated
 // by the cronreg Entry so the job can be paused / manually triggered.
@@ -113,9 +125,13 @@ func (r *PeerTxReconciler) Tick(ctx context.Context) { r.tick(ctx) }
 
 func (r *PeerTxReconciler) tick(ctx context.Context) {
 	cutoff := time.Now().UTC().Add(-r.minAge)
-	rows, err := r.outRepo.ListPendingOlderThan(cutoff)
+	// Resume pending AND committing rows. For committing rows the rollback
+	// branch is a no-op (MarkRolledBack is guarded to status='pending'), so a
+	// committing row can only be driven forward (peer "committed" → settle
+	// local + MarkCommitted) — never compensated.
+	rows, err := r.outRepo.ListResumableOlderThan(cutoff)
 	if err != nil {
-		log.Printf("peer-tx-reconciler: list pending err: %v", err)
+		log.Printf("peer-tx-reconciler: list resumable err: %v", err)
 		return
 	}
 	for i := range rows {
@@ -140,7 +156,25 @@ func (r *PeerTxReconciler) processRow(ctx context.Context, idem, peerCode string
 
 	switch statusResp.State {
 	case "committed":
-		// Peer has committed — mark our row committed to close the saga.
+		// Peer has committed → settle our local hold FIRST (reserve-then-settle:
+		// the money actually leaves now), THEN mark the row committed. Settling
+		// before marking means a settle failure leaves the row pending so a later
+		// tick (or OutboundReplayCron) retries — never a committed row with an
+		// un-settled hold (which the timeout cron would wrongly refund). commitLocal
+		// is idempotent, so racing OutboundReplayCron's own settle is harmless.
+		if r.commitLocal != nil {
+			row, dbErr := r.outRepo.GetByIdempotenceKey(idem)
+			if dbErr != nil {
+				log.Printf("peer-tx-reconciler: fetch row %s for local commit: %v", idem, dbErr)
+				return
+			}
+			if row != nil {
+				if cerr := r.commitLocal(ctx, row); cerr != nil {
+					log.Printf("peer-tx-reconciler: local commit/settle %s failed: %v (leaving pending for retry)", idem, cerr)
+					return
+				}
+			}
+		}
 		// MarkCommitted is guarded by AND status='pending', so a concurrent
 		// resolution by OutboundReplayCron will surface as ErrPeerTxAlreadyResolved
 		// (not an error worth logging at error level).
@@ -187,6 +221,9 @@ func (r *PeerTxReconciler) processRow(ctx context.Context, idem, peerCode string
 				log.Printf("peer-tx-reconciler: ALERT reversal %s failed after MarkRolledBack: %v — manual recovery required", idem, rerr)
 			}
 		}
+		// Tell the peer to release any reservation it still holds for this tx
+		// (idempotent no-op when it already rolled back / has no record).
+		dispatchPeerRollback(ctx, r.httpClient, r.peerLookup, peerCode, idem, "peer-tx-reconciler")
 
 	case "prepared":
 		// Peer is still processing — OutboundReplayCron handles re-send.

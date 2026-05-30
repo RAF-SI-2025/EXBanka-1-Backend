@@ -487,6 +487,19 @@ func (h *OTCOptionsHandler) ExercisePeerContract(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_number is required")
 		return
 	}
+	// OWNERSHIP GATE: the caller must own the account the strike money is debited
+	// from. Without this, a client could exercise a contract and charge the strike
+	// to ANOTHER client's account (verified theft vector). Resolve the account and
+	// enforce ownership before dispatch — the strike is the only caller-supplied
+	// account on this path.
+	acct, gerr := h.accounts.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{AccountNumber: req.BuyerAccountNumber})
+	if gerr != nil {
+		handleGRPCError(c, gerr)
+		return
+	}
+	if ownErr := enforceOwnership(c, acct.GetOwnerId()); ownErr != nil {
+		return // enforceOwnership already wrote the 404
+	}
 	resp, err := h.peerOTC.InitiateOptionExercise(c.Request.Context(), &stockpb.InitiateOptionExerciseRequest{
 		PeerOptionContractId: id,
 		BuyerAccountNumber:   req.BuyerAccountNumber,

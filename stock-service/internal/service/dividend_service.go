@@ -57,23 +57,23 @@ func NewDividendService(
 	accounts FundAccountClient,
 ) *DividendService {
 	return &DividendService{
-		db:              db,
-		paymentRepo:     paymentRepo,
-		payoutRepo:      payoutRepo,
-		fundPayoutRepo:  fundPayoutRepo,
-		holdingRepo:     holdingRepo,
-		fundHoldingRepo: fundHoldingRepo,
-		fundRepo:        fundRepo,
+		db:               db,
+		paymentRepo:      paymentRepo,
+		payoutRepo:       payoutRepo,
+		fundPayoutRepo:   fundPayoutRepo,
+		holdingRepo:      holdingRepo,
+		fundHoldingRepo:  fundHoldingRepo,
+		fundRepo:         fundRepo,
 		fundPositionRepo: fundPositionRepo,
-		accounts:        accounts,
+		accounts:         accounts,
 	}
 }
 
 // DividendPayoutSummary is the response returned by Payout.
 type DividendPayoutSummary struct {
-	PayoutsCreated  int
-	FundPayouts     int
-	TotalAmountRSD  decimal.Decimal
+	PayoutsCreated int
+	FundPayouts    int
+	TotalAmountRSD decimal.Decimal
 }
 
 // Declare creates a DividendPayment row. Idempotent on (security_id, payment_date):
