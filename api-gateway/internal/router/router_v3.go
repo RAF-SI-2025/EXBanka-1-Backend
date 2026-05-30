@@ -100,6 +100,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/payments/preview", h.Tx.PreviewPayment)
 		me.GET("/payments", h.Tx.ListMyPayments)
 		me.GET("/payments/:id", h.PeerTxDispatcher.GetPaymentByID)
+		me.GET("/payments/:id/status", h.Tx.GetMyPaymentStatus)
 		me.POST("/payments/:id/execute", h.Tx.ExecutePayment)
 
 		// Transfers are intra-bank, same-client only (e.g. between your own

@@ -12547,6 +12547,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/payments/{id}/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lightweight status of a payment the caller owns. Mirrors the transfer status route so the frontend can poll payments and transfers separately.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Get the status of one of the caller's payments",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "payment id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/peer-otc/negotiations": {
             "get": {
                 "security": [

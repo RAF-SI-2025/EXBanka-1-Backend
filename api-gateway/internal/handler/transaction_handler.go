@@ -682,6 +682,36 @@ func (h *TransactionHandler) GetMyPayment(c *gin.Context) {
 	c.JSON(http.StatusOK, paymentToJSON(resp))
 }
 
+// GetMyPaymentStatus godoc
+// @Summary      Get the status of one of the caller's payments
+// @Description  Lightweight status of a payment the caller owns. Mirrors the transfer status route so the frontend can poll payments and transfers separately.
+// @Tags         payments
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path int true "payment id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/payments/{id}/status [get]
+func (h *TransactionHandler) GetMyPaymentStatus(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.txClient.GetPayment(c.Request.Context(), &transactionpb.GetPaymentRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"payment_id": resp.Id,
+		"status":     resp.GetStatus(),
+	})
+}
+
 // ListMyTransfers serves GET /api/me/transfers.
 func (h *TransactionHandler) ListMyTransfers(c *gin.Context) {
 	userID, _ := c.Get("principal_id")

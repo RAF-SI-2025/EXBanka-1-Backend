@@ -39,6 +39,7 @@ func transactionRouter(h *handler.TransactionHandler, sysType string, uid int64)
 	r.DELETE("/api/v2/payment-recipients/:id", withCtx, h.DeletePaymentRecipient)
 	r.GET("/api/v2/me/payments", withCtx, h.ListMyPayments)
 	r.GET("/api/v2/me/payments/:id", withCtx, h.GetMyPayment)
+	r.GET("/api/v2/me/payments/:id/status", withCtx, h.GetMyPaymentStatus)
 	r.GET("/api/v2/me/transfers", withCtx, h.ListMyTransfers)
 	r.GET("/api/v2/me/transfers/:id", withCtx, h.GetMyTransfer)
 	r.GET("/api/v2/me/payment-recipients", withCtx, h.ListMyPaymentRecipients)
@@ -848,6 +849,41 @@ func TestTx_UpdateFee_BadTxType(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ── GetMyPaymentStatus ────────────────────────────────────────────────────────
+
+func TestTx_GetMyPaymentStatus_Success(t *testing.T) {
+	tx := &stubTransactionClient{
+		getPaymentFn: func(req *transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error) {
+			require.Equal(t, uint64(99), req.Id)
+			return &transactionpb.PaymentResponse{Id: 99, ClientId: 7, Status: "completed"}, nil
+		},
+	}
+	h := newTxHandler(tx, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	r := transactionRouter(h, "client", 7)
+	req := httptest.NewRequest("GET", "/api/v2/me/payments/99/status", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "completed", resp["status"])
+	require.EqualValues(t, 99, resp["payment_id"])
+}
+
+func TestTx_GetMyPaymentStatus_NotOwner_404(t *testing.T) {
+	tx := &stubTransactionClient{
+		getPaymentFn: func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error) {
+			return &transactionpb.PaymentResponse{Id: 99, ClientId: 999, Status: "completed"}, nil
+		},
+	}
+	h := newTxHandler(tx, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	r := transactionRouter(h, "client", 7) // caller is client 7, payment owned by 999
+	req := httptest.NewRequest("GET", "/api/v2/me/payments/99/status", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 }
 
 // ── PreviewPayment ────────────────────────────────────────────────────────────

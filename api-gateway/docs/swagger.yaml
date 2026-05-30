@@ -9447,6 +9447,34 @@ paths:
       summary: Get a payment by ID
       tags:
       - payments
+  /api/v3/me/payments/{id}/status:
+    get:
+      description: Lightweight status of a payment the caller owns. Mirrors the transfer
+        status route so the frontend can poll payments and transfers separately.
+      parameters:
+      - description: payment id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the status of one of the caller's payments
+      tags:
+      - payments
   /api/v3/me/payments/preview:
     post:
       consumes:

@@ -1753,6 +1753,19 @@ Preview what a payment would cost **before** creating it, so the frontend can sh
 
 ---
 
+### GET /api/v3/me/payments/:id/status
+
+Lightweight status of a payment the caller owns — mirrors `GET /api/v3/me/transfers/:id/status` so the frontend can poll payments and transfers separately. Returns `404` if the payment is not owned by the caller.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Response 200:**
+```json
+{ "payment_id": 99, "status": "completed" }
+```
+
+---
+
 ### POST /api/v3/me/payments/:id/execute
 
 Execute a pending payment after verification. The payment must have been created previously via `POST /api/v3/me/payments`. Verification is handled by the verification-service -- pass the `challenge_id` from the completed verification challenge.
