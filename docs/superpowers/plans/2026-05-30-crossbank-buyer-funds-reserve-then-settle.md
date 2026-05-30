@@ -1,6 +1,14 @@
 # Plan: cross-bank buyer/sender funds — reserve-then-settle + timeout release
 
-**Date:** 2026-05-30 · **Base:** Development
+**Date:** 2026-05-30 · **Base:** Development · **Status:** ✅ Implemented 2026-05-30
+
+> Implemented: `OutgoingReservation` model/repo/service + `OutgoingReservationTimeoutCron`
+> (account-service); `ReserveOutgoing`/`SettleOutgoing`/`ReleaseOutgoing` RPCs on internal
+> `AccountService`; `PostingExecutor.Reserve`/`ReverseLocal`/`SettleLocal` and
+> `PeerTxGRPCHandler` (`HandleCommitTx`/`HandleRollbackTx`/`InitiateOutboundTx`/
+> `CommitOutboundLocal`/`ReverseOutboundLocal`) converted from immediate-debit to
+> reserve-then-settle. Unit tests added/updated in both services; all suites + lint green.
+> `OUTGOING_RESERVATION_TTL` env (default 10m) wired in config + docker-compose.
 
 ## Context
 

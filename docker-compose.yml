@@ -418,6 +418,9 @@ services:
       REDIS_ADDR: redis:6379
       METRICS_PORT: "9105"
       OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      # Time-safety backstop for cross-bank money DEBIT holds: a reserve with no
+      # COMMIT/ROLLBACK from the peer is released after this TTL (Go duration).
+      OUTGOING_RESERVATION_TTL: "${OUTGOING_RESERVATION_TTL:-10m}"
     ports:
       - "50055:50055"
       - "9105:9105"

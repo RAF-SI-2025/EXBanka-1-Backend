@@ -22,11 +22,11 @@ import (
 // pending row first wins; the loser is a no-op. TTL is therefore chosen
 // comfortably longer than the worst-case dispatch+commit window.
 type OutgoingReservationTimeoutCron struct {
-	svc      *OutgoingReservationService
-	ttl      time.Duration
-	tick     time.Duration
-	batch    int
-	entry    *cronreg.Entry
+	svc   *OutgoingReservationService
+	ttl   time.Duration
+	tick  time.Duration
+	batch int
+	entry *cronreg.Entry
 }
 
 func NewOutgoingReservationTimeoutCron(svc *OutgoingReservationService, ttl time.Duration, registry *cronreg.Registry) *OutgoingReservationTimeoutCron {

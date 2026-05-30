@@ -217,16 +217,22 @@ func TestHandleRollbackTx_NoRecord_Idempotent_NoError(t *testing.T) {
 	}
 }
 
-// TestHandleRollbackTx_DebitsCreditedBack verifies the rollback path with
-// captured DebitedItems credits back the same accounts.
-func TestHandleRollbackTx_DebitsCreditedBack(t *testing.T) {
+// TestHandleRollbackTx_DebitHoldsReleased verifies the rollback path with
+// captured DebitedItems releases the same per-posting outgoing holds (no
+// Balance movement — reserve-then-settle).
+func TestHandleRollbackTx_DebitHoldsReleased(t *testing.T) {
 	h, _, stub := newPeerTxHandler(t)
-	var creditbackCalls []*accountpb.UpdateBalanceRequest
+	var releaseOutCalls []*accountpb.ReleaseOutgoingRequest
+	stub.releaseOutFn = func(ctx context.Context, in *accountpb.ReleaseOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+		releaseOutCalls = append(releaseOutCalls, in)
+		return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+	}
 	stub.updateFn = func(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-		creditbackCalls = append(creditbackCalls, in)
+		t.Errorf("UpdateBalance must NOT be called under reserve-then-settle; got %q", in.GetAmount())
 		return &accountpb.AccountResponse{}, nil
 	}
-	// Set up a NEW_TX with one DEBIT on our routing — that creates a DebitedItem.
+	// Set up a NEW_TX with one DEBIT on our routing — that creates a DebitedItem
+	// (an outgoing hold keyed by its per-posting tag).
 	_, err := h.HandleNewTx(context.Background(), &transactionpb.SiTxNewTxRequest{
 		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "k-rb"},
 		PeerBankCode:   "222",
@@ -238,21 +244,18 @@ func TestHandleRollbackTx_DebitsCreditedBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NEW_TX: %v", err)
 	}
-	// Filter the previous immediate-debit call — only the rollback creditback
-	// should land in the post-rollback assertion.
-	creditbackCalls = nil
 	if _, err := h.HandleRollbackTx(context.Background(), &transactionpb.SiTxRollbackRequest{
 		IdempotenceKey: &transactionpb.SiTxIdempotenceKey{RoutingNumber: 222, LocallyGeneratedKey: "k-rb"},
 		PeerBankCode:   "222",
 	}); err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if len(creditbackCalls) != 1 {
-		t.Fatalf("expected 1 creditback UpdateBalance call, got %d", len(creditbackCalls))
+	if len(releaseOutCalls) != 1 {
+		t.Fatalf("expected 1 ReleaseOutgoing call, got %d", len(releaseOutCalls))
 	}
-	// Amount on creditback is positive (no leading "-")
-	if creditbackCalls[0].Amount != "75" {
-		t.Errorf("expected +75 creditback, got %q", creditbackCalls[0].Amount)
+	// The hold is keyed by the per-posting tag "<peer>:<idem>:<index>".
+	if releaseOutCalls[0].GetReservationKey() != "222:k-rb:0" {
+		t.Errorf("expected release key 222:k-rb:0, got %q", releaseOutCalls[0].GetReservationKey())
 	}
 }
 
