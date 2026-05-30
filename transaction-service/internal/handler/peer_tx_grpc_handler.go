@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"strconv"
 	"time"
 
@@ -461,6 +462,8 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 			_ = h.outRepo.MarkAttempt(idem, reason+" (release failed, will retry: "+rErr.Error()+")")
 		} else {
 			_ = h.outRepo.MarkRolledBack(idem, reason)
+			// Release any reservation the peer placed before its NO vote.
+			h.rollbackPeer(ctx, target, idem)
 		}
 	}
 
@@ -590,34 +593,19 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		if len(vote.NoVotes) > 0 {
 			reason = "peer voted NO: " + vote.NoVotes[0].Reason
 		}
-		// Peer voted NO → release our local reservation + credit-back
-		// any DEBIT legs we already finalised locally. If any reversal step
-		// fails, keep the row pending (MarkAttempt) so OutboundReplayCron
-		// retries the reversal rather than stranding the locally-applied
-		// money in a terminal row. All reversal keys are idempotent.
-		reversalFailed := false
-		if _, rerr := h.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{
-			ReservationKey: localKey,
-			IdempotencyKey: "sitx-localrelease-" + localKey,
-		}); rerr != nil && status.Code(rerr) != codes.NotFound {
-			reason = reason + " (local release failed: " + rerr.Error() + ")"
-			reversalFailed = true
-		}
-		for _, d := range localResult.DebitedItems {
-			if _, cerr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber:   d.AccountNumber,
-				Amount:          d.Amount,
-				UpdateAvailable: true,
-				IdempotencyKey:  "sitx-localcreditback-" + d.IdempotencyTag,
-			}); cerr != nil {
-				reason = reason + " (local creditback " + d.IdempotencyTag + " failed: " + cerr.Error() + ")"
-				reversalFailed = true
-			}
-		}
-		if reversalFailed {
-			_ = h.outRepo.MarkAttempt(idem, reason+" (will retry reversal)")
+		// Peer voted NO → reverse our local legs via the executor: release the
+		// CREDIT-side reservation AND release each DEBIT-side outgoing HOLD
+		// (reserve-then-settle — the money never left, so this is a hold release,
+		// NOT a credit-back) plus any vote-time seller-share hold. ReverseLocal
+		// reuses the same per-posting keys, so it's idempotent and matches the
+		// OutboundReplayCron reversal path. If it fails, keep the row pending
+		// (MarkAttempt) so the cron retries rather than stranding held funds.
+		if rerr := h.executor.ReverseLocal(ctx, postings, ownPeerCode, idem); rerr != nil {
+			_ = h.outRepo.MarkAttempt(idem, reason+" (local reversal failed, will retry: "+rerr.Error()+")")
 		} else {
 			_ = h.outRepo.MarkRolledBack(idem, reason)
+			// Release any reservation the peer placed before its NO vote.
+			h.rollbackPeer(ctx, target, idem)
 		}
 	}
 
@@ -710,6 +698,28 @@ func (h *PeerTxGRPCHandler) CommitOutboundLocal(ctx context.Context, row *model.
 		return err
 	}
 	return h.executor.SettleLocal(ctx, postings, ownPeerCode, row.IdempotenceKey)
+}
+
+// rollbackPeer sends a best-effort, idempotent ROLLBACK_TX to the peer for a
+// transaction this bank is abandoning inline (peer voted NO). It releases any
+// reservation the peer placed before its NO (a multi-posting OTC NEW_TX can
+// reserve earlier legs — e.g. incoming premium or seller shares — before a
+// later posting fails). The peer's HandleRollbackTx is idempotent (release by
+// key, no-op when absent), so this is safe even when the peer reserved nothing.
+// Failure is logged, not fatal — the OutboundReplayCron/PeerTxReconciler and
+// the peer's own timeout sweeper are backstops.
+func (h *PeerTxGRPCHandler) rollbackPeer(ctx context.Context, target *sitx.PeerHTTPTarget, idem string) {
+	if h.httpClient == nil || target == nil {
+		return
+	}
+	env := contractsitx.Message[contractsitx.RollbackTransaction]{
+		IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
+		MessageType:    contractsitx.MessageTypeRollbackTx,
+		Message:        contractsitx.RollbackTransaction{TransactionID: idem},
+	}
+	if err := h.httpClient.PostRollbackTx(ctx, target, env); err != nil {
+		log.Printf("inline rollback: ROLLBACK_TX to %s for %s failed (peer may retain reservation until its sweeper): %v", target.BankCode, idem, err)
+	}
 }
 
 // GetTxStatus implements the Celina-5 CHECK_STATUS mechanism. A peer bank

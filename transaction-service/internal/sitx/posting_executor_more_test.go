@@ -200,6 +200,34 @@ func TestPostingExecutor_OptionItem_HoldingChecker_RejectsOnInsufficient(t *test
 	}
 }
 
+// TestPostingExecutor_OptionItem_ExerciseDoesNotReserve is the regression test
+// for the exercise over-reservation bug: an EXERCISE-intent DEBIT option leg
+// must NOT reserve seller shares at vote time (the shares were already held at
+// accept and are consumed at COMMIT). Reserving again orphaned a second hold
+// that nothing released, permanently locking those shares.
+func TestPostingExecutor_OptionItem_ExerciseDoesNotReserve(t *testing.T) {
+	stub := &stubAccountClient{}
+	exec := sitx.NewPostingExecutor(stub, 111)
+	hc := &stubHoldingChecker{resp: &stockpb.CheckSellerCanDeliverResponse{Ok: true}}
+	exec.SetHoldingChecker(hc)
+	// Option DEBIT on our routing 111 = WE are the seller; intent=exercise.
+	optDesc := `{"ticker":"MSFT","amount":3,"intent":"exercise"}`
+	postings := []contractsitx.Posting{
+		{RoutingNumber: 111, AccountID: "client-1", AssetID: optDesc, Amount: decimal.NewFromInt(3), Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: 222, AccountID: "client-2", AssetID: optDesc, Amount: decimal.NewFromInt(3), Direction: contractsitx.DirectionCredit},
+	}
+	res := exec.Reserve(context.Background(), postings, "222", "idem-EX")
+	if res.Vote.Type != contractsitx.VoteYes {
+		t.Fatalf("expected YES on exercise leg, got %+v", res.Vote)
+	}
+	if hc.reserveCalls != 0 {
+		t.Errorf("exercise must NOT reserve seller shares at vote; got %d reserve calls", hc.reserveCalls)
+	}
+	if len(res.OptionItems) != 1 {
+		t.Errorf("expected the exercise option leg still emitted as an OptionItem, got %d", len(res.OptionItems))
+	}
+}
+
 // TestPostingExecutor_OptionItem_HoldingChecker_OK verifies the YES path
 // when the seller has sufficient holdings.
 func TestPostingExecutor_OptionItem_HoldingChecker_OK(t *testing.T) {

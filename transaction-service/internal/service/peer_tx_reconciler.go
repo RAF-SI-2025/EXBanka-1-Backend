@@ -217,6 +217,9 @@ func (r *PeerTxReconciler) processRow(ctx context.Context, idem, peerCode string
 				log.Printf("peer-tx-reconciler: ALERT reversal %s failed after MarkRolledBack: %v — manual recovery required", idem, rerr)
 			}
 		}
+		// Tell the peer to release any reservation it still holds for this tx
+		// (idempotent no-op when it already rolled back / has no record).
+		dispatchPeerRollback(ctx, r.httpClient, r.peerLookup, peerCode, idem, "peer-tx-reconciler")
 
 	case "prepared":
 		// Peer is still processing — OutboundReplayCron handles re-send.

@@ -91,6 +91,10 @@ type SellerHoldingChecker interface {
 type optionDescriptionForCheck struct {
 	Ticker string `json:"ticker"`
 	Amount int64  `json:"amount"`
+	// Intent distinguishes accept (""/"accept") from exercise ("exercise").
+	// Only accept reserves seller shares at vote time; exercise consumes the
+	// existing accept-time hold at COMMIT (see Reserve).
+	Intent string `json:"intent"`
 }
 
 // PostingExecutor walks an accepted NEW_TX's postings and applies the
@@ -194,24 +198,34 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		// sell-between-vote-and-commit window.
 		if strings.HasPrefix(p.AssetID, "{") {
 			if p.Direction == contractsitx.DirectionDebit {
-				if e.holdingChecker == nil {
-					return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
-				}
 				var od optionDescriptionForCheck
-				if err := json.Unmarshal([]byte(p.AssetID), &od); err == nil && od.Ticker != "" && od.Amount > 0 {
-					seller := sellerByDesc[p.AssetID]
-					crossbankTxID := peerBankCode + ":" + locallyGeneratedKey
-					resp, err := e.holdingChecker.ReserveSellerSharesForNewTx(ctx, &stockpb.ReserveSellerSharesRequest{
-						SellerId: &stockpb.PeerForeignBankId{
-							RoutingNumber: seller.RoutingNumber,
-							Id:            seller.ID,
-						},
-						Ticker:        od.Ticker,
-						Quantity:      od.Amount,
-						CrossbankTxId: crossbankTxID,
-					})
-					if err != nil || resp == nil || !resp.GetOk() {
+				_ = json.Unmarshal([]byte(p.AssetID), &od)
+				// Reserve the seller's shares ONLY for accept-intent option
+				// formation. On EXERCISE (intent="exercise") the shares were
+				// already held at accept and are consumed/transferred at COMMIT
+				// via RecordOptionContract; reserving again here would orphan a
+				// second hold that the exercise never releases (it only touches
+				// the accept-time reservation), permanently locking those shares.
+				// This matches OptionDescription.Intent's documented contract.
+				if od.Intent != "exercise" {
+					if e.holdingChecker == nil {
 						return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
+					}
+					if od.Ticker != "" && od.Amount > 0 {
+						seller := sellerByDesc[p.AssetID]
+						crossbankTxID := peerBankCode + ":" + locallyGeneratedKey
+						resp, err := e.holdingChecker.ReserveSellerSharesForNewTx(ctx, &stockpb.ReserveSellerSharesRequest{
+							SellerId: &stockpb.PeerForeignBankId{
+								RoutingNumber: seller.RoutingNumber,
+								Id:            seller.ID,
+							},
+							Ticker:        od.Ticker,
+							Quantity:      od.Amount,
+							CrossbankTxId: crossbankTxID,
+						})
+						if err != nil || resp == nil || !resp.GetOk() {
+							return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
+						}
 					}
 				}
 			}

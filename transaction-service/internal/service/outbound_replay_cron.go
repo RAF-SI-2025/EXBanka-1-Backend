@@ -158,6 +158,9 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 		if rerr := c.reverse(ctx, row); rerr != nil {
 			reason += " (creditback failed: " + rerr.Error() + ")"
 		}
+		// Tell the peer to release any reservation it placed on a prior YES vote
+		// (it never got our COMMIT). Idempotent + best-effort.
+		dispatchPeerRollback(ctx, c.httpClient, c.peerLookup, row.PeerBankCode, row.IdempotenceKey, "outbound-replay")
 		_ = c.repo.MarkFailed(row.IdempotenceKey, reason)
 		return
 	}
@@ -238,6 +241,10 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 	if rerr := c.reverse(ctx, row); rerr != nil {
 		log.Printf("outbound-replay: ALERT reversal failed for %s after MarkRolledBack: %v — manual recovery required", row.IdempotenceKey, rerr)
 	}
+	// The peer received our NEW_TX and voted NO; if it partially reserved
+	// before the failing posting, ROLLBACK_TX releases it. Idempotent no-op
+	// otherwise.
+	dispatchPeerRollback(ctx, c.httpClient, c.peerLookup, row.PeerBankCode, row.IdempotenceKey, "outbound-replay")
 }
 
 // reverse credits back the local effects of an outbound row via the wired
@@ -254,4 +261,39 @@ func errString(err error) string {
 		return "nil"
 	}
 	return err.Error()
+}
+
+// dispatchPeerRollback sends a ROLLBACK_TX to the peer for a terminally
+// abandoned outbound row, so the peer releases any reservation it placed when
+// it voted YES on our NEW_TX (incoming-credit hold and/or seller-share hold).
+// Without this, a sender that dispatched NEW_TX (peer voted YES, reserved) and
+// then gave up — max-attempts `failed`, or a NO/rolled_back resolution — would
+// leave the peer holding a dangling reservation forever (real share locks on
+// the OTC path; benign-but-stale credit holds on the transfer path).
+//
+// Best-effort + idempotent: the peer's HandleRollbackTx releases by key and
+// is a no-op when there's no record or it already rolled back, so this is safe
+// to call on every terminal non-committed transition and safe to retry. A
+// dispatch failure is logged (the peer's own timeout sweeper is the backstop)
+// and never blocks the local terminal transition. Shared by OutboundReplayCron
+// and PeerTxReconciler.
+func dispatchPeerRollback(ctx context.Context, httpClient *sitx.PeerHTTPClient, peerLookup PeerLookupFunc, peerCode, idem, who string) {
+	if httpClient == nil || peerLookup == nil {
+		return
+	}
+	target, err := peerLookup(ctx, peerCode)
+	if err != nil || target == nil {
+		log.Printf("%s: ROLLBACK_TX peer lookup %s failed: %v (peer may retain reservation)", who, peerCode, err)
+		return
+	}
+	env := contractsitx.Message[contractsitx.RollbackTransaction]{
+		IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: target.OwnRouting, LocallyGeneratedKey: idem},
+		MessageType:    contractsitx.MessageTypeRollbackTx,
+		Message:        contractsitx.RollbackTransaction{TransactionID: idem},
+	}
+	if err := httpClient.PostRollbackTx(ctx, target, env); err != nil {
+		log.Printf("%s: ROLLBACK_TX to %s for %s failed (peer may retain reservation until its sweeper): %v", who, peerCode, idem, err)
+		return
+	}
+	log.Printf("%s: sent ROLLBACK_TX to %s for abandoned tx %s", who, peerCode, idem)
 }
