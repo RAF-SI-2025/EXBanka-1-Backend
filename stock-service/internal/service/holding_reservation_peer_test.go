@@ -252,3 +252,30 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_WeightedAvera
 		t.Errorf("buyer average_price=%s want %s (weighted avg)", got.AveragePrice, want)
 	}
 }
+
+// TestReserveForCrossBankNewTx_NoOverReservation is the regression for the
+// concurrent over-reservation bug: distinct crossbank tx ids must not reserve
+// more shares in aggregate than the holding owns. The atomic guarded UPDATE
+// re-checks availability in its WHERE, so a reserve that would exceed the
+// holding fails even with a fresh (insertable) tx id.
+func TestReserveForCrossBankNewTx_NoOverReservation(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t) // holding qty=100, ticker TEST, owner 1
+	uid := uint64(1)
+
+	r1, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-a", 60)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), r1.ReservedQuantity)
+
+	// Second reserve of 60 (distinct tx) must FAIL — only 40 free — and not inflate reserved.
+	_, err = svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-b", 60)
+	require.Error(t, err, "second reserve must fail: only 40 of 100 free")
+
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &uid, "stock", h.Ticker)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), got.ReservedQuantity, "reserved must stay 60, never exceed the 100 owned")
+
+	// A reserve that exactly fits the remaining 40 succeeds.
+	r3, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-c", 40)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), r3.ReservedQuantity)
+}

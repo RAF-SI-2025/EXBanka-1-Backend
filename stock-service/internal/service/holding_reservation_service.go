@@ -146,10 +146,27 @@ func (s *HoldingReservationService) Reserve(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		upd := tx.Model(&model.Holding{}).
+			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
+			UpdateColumns(map[string]any{
+				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
+				"version":           gorm.Expr("version + 1"),
+			})
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -392,10 +409,27 @@ func (s *HoldingReservationService) ReserveForPeerOptionContract(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		upd := tx.Model(&model.Holding{}).
+			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
+			UpdateColumns(map[string]any{
+				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
+				"version":           gorm.Expr("version + 1"),
+			})
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -466,10 +500,27 @@ func (s *HoldingReservationService) ReserveForOTCContract(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		upd := tx.Model(&model.Holding{}).
+			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
+			UpdateColumns(map[string]any{
+				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
+				"version":           gorm.Expr("version + 1"),
+			})
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -915,10 +966,27 @@ func (s *HoldingReservationService) ReserveForCrossBankNewTx(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		upd := tx.Model(&model.Holding{}).
+			Where("id = ? AND quantity - reserved_quantity >= ?", holding.ID, qty).
+			UpdateColumns(map[string]any{
+				"reserved_quantity": gorm.Expr("reserved_quantity + ?", qty),
+				"version":           gorm.Expr("version + 1"),
+			})
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
