@@ -8551,6 +8551,7 @@ Portfolios are identified by a URL-safe `portfolio_id` string:
       {
         "asset_type": "stock",
         "symbol": "AAPL",
+        "holding_id": 153,
         "quantity": 50,
         "avg_cost_rsd": "200.0000",
         "current_price_rsd": "220.0000",
@@ -8581,6 +8582,8 @@ Portfolios are identified by a URL-safe `portfolio_id` string:
   }
 }
 ```
+
+> **`holding_id` on security positions.** Each `securities` position carries `holding_id` — the numeric id of the underlying holdings row (`asset_type` `stock`/`option`/`future`). This is the id required by **make-public** (`POST /api/v3/me/otc/stocks` with `direction=sell`) and **exercise** (`POST /api/v3/me/portfolio/:id/exercise`), so a client can act on a position straight from this response without a separate lookup. Fund positions omit `holding_id` (they are keyed by `fund_id`, not a holding).
 
 ### 48.2 Portfolio by ID (generic form)
 

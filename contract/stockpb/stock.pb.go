@@ -4035,7 +4035,12 @@ type PortfolioPosition struct {
 	DividendsReceivedRsd string `protobuf:"bytes,19,opt,name=dividends_received_rsd,json=dividendsReceivedRsd,proto3" json:"dividends_received_rsd,omitempty"`
 	// fund_status — lifecycle status of the fund (investment_fund positions only).
 	// active|fundraising|matured|liquidated|open (passthrough from InvestmentFund.FundStatus).
-	FundStatus    string `protobuf:"bytes,20,opt,name=fund_status,json=fundStatus,proto3" json:"fund_status,omitempty"`
+	FundStatus string `protobuf:"bytes,20,opt,name=fund_status,json=fundStatus,proto3" json:"fund_status,omitempty"`
+	// holding_id — numeric id of the underlying holdings row for securities
+	// positions (stock/option/future). 0/omitted for fund positions (funds are
+	// keyed by fund_id, not a holding). Lets clients feed make-public/exercise,
+	// which require a holding_id, straight from this response.
+	HoldingId     uint64 `protobuf:"varint,21,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4208,6 +4213,13 @@ func (x *PortfolioPosition) GetFundStatus() string {
 		return x.FundStatus
 	}
 	return ""
+}
+
+func (x *PortfolioPosition) GetHoldingId() uint64 {
+	if x != nil {
+		return x.HoldingId
+	}
+	return 0
 }
 
 type PortfolioGroup struct {
@@ -18603,7 +18615,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x1aGetUnifiedPortfolioRequest\x12\x1d\n" +
 	"\n" +
 	"owner_type\x18\x01 \x01(\tR\townerType\x12\x19\n" +
-	"\bowner_id\x18\x02 \x01(\x04R\aownerId\"\xd3\x05\n" +
+	"\bowner_id\x18\x02 \x01(\x04R\aownerId\"\xf2\x05\n" +
 	"\x11PortfolioPosition\x12\x1d\n" +
 	"\n" +
 	"asset_type\x18\x01 \x01(\tR\tassetType\x12\x16\n" +
@@ -18630,7 +18642,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\flast_updated\x18\x12 \x01(\tR\vlastUpdated\x124\n" +
 	"\x16dividends_received_rsd\x18\x13 \x01(\tR\x14dividendsReceivedRsd\x12\x1f\n" +
 	"\vfund_status\x18\x14 \x01(\tR\n" +
-	"fundStatus\"\xc4\x01\n" +
+	"fundStatus\x12\x1d\n" +
+	"\n" +
+	"holding_id\x18\x15 \x01(\x04R\tholdingId\"\xc4\x01\n" +
 	"\x0ePortfolioGroup\x12&\n" +
 	"\x0ftotal_value_rsd\x18\x01 \x01(\tR\rtotalValueRsd\x12(\n" +
 	"\x10total_profit_rsd\x18\x02 \x01(\tR\x0etotalProfitRsd\x12(\n" +

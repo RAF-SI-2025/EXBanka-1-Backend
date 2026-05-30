@@ -563,6 +563,11 @@ message PortfolioPosition {
   // fund_status — lifecycle status of the fund (investment_fund positions only).
   // active|fundraising|matured|liquidated|open (passthrough from InvestmentFund.FundStatus).
   string fund_status            = 20;
+  // holding_id — numeric id of the underlying holdings row for securities
+  // positions (stock/option/future). 0/omitted for fund positions (funds are
+  // keyed by fund_id, not a holding). Lets clients feed make-public/exercise,
+  // which require a holding_id, straight from this response.
+  uint64 holding_id             = 21;
 }
 
 message PortfolioGroup {
