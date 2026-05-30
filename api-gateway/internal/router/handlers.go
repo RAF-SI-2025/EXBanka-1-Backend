@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/exbanka/api-gateway/internal/handler"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
+	"github.com/exbanka/api-gateway/internal/handler"
 	gatewaykafka "github.com/exbanka/api-gateway/internal/kafka"
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"

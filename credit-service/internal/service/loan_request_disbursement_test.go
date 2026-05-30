@@ -294,3 +294,13 @@ func TestApproveLoan_NilAccountClient(t *testing.T) {
 	db.Model(&model.Loan{}).Count(&count)
 	assert.Equal(t, int64(1), count, "loan must be created even when accountClient is nil")
 }
+
+func (*mockAccountClientForLoan) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClientForLoan) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClientForLoan) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}

@@ -27,9 +27,9 @@ import (
 type mockHoldingRepo struct {
 	holdings       map[uint64]*model.Holding
 	nextID         uint64
-	failNextUpsert error // if non-nil, next Upsert call will fail and clear this field
-	failNextUpdate error // if non-nil, next Update call will fail and clear this field
-	failNextDelete error // if non-nil, next Delete call will fail and clear this field
+	failNextUpsert error           // if non-nil, next Upsert call will fail and clear this field
+	failNextUpdate error           // if non-nil, next Update call will fail and clear this field
+	failNextDelete error           // if non-nil, next Delete call will fail and clear this field
 	upsertMarkers  map[string]bool // UpsertIdempotent applied keys
 	// txDB is a minimal sqlite-backed *gorm.DB returned by DB(). The
 	// in-memory mock data lives in `holdings` above — txDB exists ONLY
@@ -3055,4 +3055,14 @@ func TestProcessSellFill_ForexShortCircuits(t *testing.T) {
 	if len(mocks.exchangeClient.convertCalls) != 0 {
 		t.Errorf("forex short-circuit must not call Convert")
 	}
+}
+
+func (*mockAccountClient) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClient) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClient) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/exbanka/client-service/internal/repository"
 )
 
-
 // ChangelogService is a thin read-only wrapper around ChangelogRepository,
 // exposed via gRPC ListChangelog RPC for the API gateway.
 type ChangelogService struct {

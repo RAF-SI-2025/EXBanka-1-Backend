@@ -53,6 +53,51 @@ func (r *OutboundPeerTxRepository) ListPendingOlderThan(cutoff time.Time) ([]mod
 	return rows, nil
 }
 
+// ListResumableOlderThan returns non-terminal rows (pending OR committing) whose
+// last attempt is older than the cutoff. Both states are resumable: `pending`
+// rows are re-dispatched/compensated; `committing` rows (the YES-vote pivot was
+// crossed → money may have settled) are driven FORWARD to committed only, never
+// compensated. Used by OutboundReplayCron.
+func (r *OutboundPeerTxRepository) ListResumableOlderThan(cutoff time.Time) ([]model.OutboundPeerTx, error) {
+	var rows []model.OutboundPeerTx
+	err := r.db.
+		Where("status IN ('pending','committing') AND (last_attempt_at IS NULL OR last_attempt_at < ?)", cutoff).
+		Order("created_at ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// MarkCommitting transitions a pending row to the committing phase — the saga
+// PIVOT, recorded after a YES vote and BEFORE any local settle. Once committing,
+// the saga is forward-only (driven to committed; never compensated). Guarded to
+// status='pending'. Idempotent: returns nil if the row is already committing
+// (a concurrent worker pivoted it); returns ErrPeerTxAlreadyResolved only if the
+// row reached a terminal state.
+func (r *OutboundPeerTxRepository) MarkCommitting(key string) error {
+	result := r.db.Model(&model.OutboundPeerTx{}).
+		Where("idempotence_key = ? AND status = 'pending'", key).
+		Update("status", "committing")
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 1 {
+		return nil
+	}
+	// No pending row matched — already committing is fine (idempotent pivot);
+	// any other state is a conflicting concurrent resolution.
+	cur, err := r.GetByIdempotenceKey(key)
+	if err != nil {
+		return err
+	}
+	if cur.Status == "committing" {
+		return nil
+	}
+	return ErrPeerTxAlreadyResolved
+}
+
 // MarkAttempt increments attempt_count and stamps last_attempt_at + last_error.
 // Status is unchanged (still "pending"). Called after every dispatch attempt
 // regardless of outcome — terminal status changes are MarkCommitted /
@@ -68,14 +113,14 @@ func (r *OutboundPeerTxRepository) MarkAttempt(key, errMsg string) error {
 		}).Error
 }
 
-// MarkCommitted transitions a pending row to committed. The UPDATE is scoped
-// to "status = 'pending'" to guard against a concurrent resolution race
-// (e.g., OutboundReplayCron and PeerTxReconciler both acting on the same row).
-// Returns ErrPeerTxAlreadyResolved when RowsAffected == 0 (race lost or row
-// already in a terminal state).
+// MarkCommitted transitions a pending OR committing row to committed. The
+// UPDATE is scoped to those two non-terminal states to guard against a
+// concurrent resolution race (e.g., OutboundReplayCron and PeerTxReconciler both
+// acting on the same row) and to never resurrect a terminal row.
+// Returns ErrPeerTxAlreadyResolved when RowsAffected == 0.
 func (r *OutboundPeerTxRepository) MarkCommitted(key string) error {
 	result := r.db.Model(&model.OutboundPeerTx{}).
-		Where("idempotence_key = ? AND status = 'pending'", key).
+		Where("idempotence_key = ? AND status IN ('pending','committing')", key).
 		Updates(map[string]interface{}{"status": "committed", "last_error": ""})
 	if result.Error != nil {
 		return result.Error

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -889,9 +890,102 @@ func (s *OTCNegotiationService) ListMyNegotiations(
 }
 
 // ListByParentOffer returns every chain (any status) for a given listing.
-// Used by the listing's poster to see all incoming bids.
-func (s *OTCNegotiationService) ListByParentOffer(ctx context.Context, parentOfferID uint64) ([]model.OTCNegotiation, error) {
+// Authorization mirrors the timeline view: only the listing's poster (a
+// client matching the initiator) or a permission-gated employee
+// (owner_type="bank", already gated on otc.read.all at the gateway) may
+// see all incoming bids. A competing bidder receives PermissionDenied —
+// they see only their own chain via ListMyNegotiations.
+func (s *OTCNegotiationService) ListByParentOffer(
+	ctx context.Context,
+	parentOfferID uint64,
+	callerOwnerType model.OwnerType,
+	callerOwnerID *uint64,
+) ([]model.OTCNegotiation, error) {
+	if _, err := s.authorizeListingAudience(parentOfferID, callerOwnerType, callerOwnerID); err != nil {
+		return nil, err
+	}
 	return s.negRepo.ListByParentOffer(parentOfferID)
+}
+
+// authorizeListingAudience verifies the caller may see the full set of
+// chains on a listing (all bids, or the cross-chain timeline). Returns the
+// parent offer on success so callers can reuse it without a second fetch.
+//
+//   - owner_type="bank"  → employee; the gateway already enforced the
+//     otc.read.all permission, so trust it (gateway-enforces-permissions,
+//     service-enforces-ownership split, same as the rest of OTC).
+//   - owner_type="client" → must equal the listing's initiator (the poster).
+//   - anyone else (competing bidder) → ErrOTCListingAudienceForbidden.
+func (s *OTCNegotiationService) authorizeListingAudience(
+	parentOfferID uint64,
+	callerOwnerType model.OwnerType,
+	callerOwnerID *uint64,
+) (*model.OTCOffer, error) {
+	parent, err := s.offerRepo.GetByIDTx(s.db, parentOfferID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrOTCOfferNotFound
+		}
+		return nil, err
+	}
+	if callerOwnerType == model.OwnerBank {
+		return parent, nil
+	}
+	if ownerMatches(parent.InitiatorOwnerType, parent.InitiatorOwnerID, callerOwnerType, callerOwnerID) {
+		return parent, nil
+	}
+	return nil, ErrOTCListingAudienceForbidden
+}
+
+// OTCTimelineItem pairs a revision with its owning chain's bidder identity.
+// The poster's cross-chain audit view is a slice of these, merged across
+// every chain on the listing and sorted ascending by revision CreatedAt.
+type OTCTimelineItem struct {
+	Negotiation model.OTCNegotiation
+	Revision    model.OTCNegotiationRevision
+}
+
+// OfferTimeline returns the parent offer plus every chain's revisions
+// merged into a single chronological stream (oldest first). Authorization
+// is identical to ListByParentOffer: poster or permission-gated employee
+// only. Ties on CreatedAt break by (negotiation_id, revision_number) so the
+// ordering is deterministic.
+func (s *OTCNegotiationService) OfferTimeline(
+	ctx context.Context,
+	parentOfferID uint64,
+	callerOwnerType model.OwnerType,
+	callerOwnerID *uint64,
+) (*model.OTCOffer, []OTCTimelineItem, error) {
+	parent, err := s.authorizeListingAudience(parentOfferID, callerOwnerType, callerOwnerID)
+	if err != nil {
+		return nil, nil, err
+	}
+	chains, err := s.negRepo.ListByParentOffer(parentOfferID)
+	if err != nil {
+		return nil, nil, err
+	}
+	var items []OTCTimelineItem
+	for i := range chains {
+		chain := chains[i]
+		revs, rerr := s.negRepo.ListRevisions(chain.ID)
+		if rerr != nil {
+			return nil, nil, rerr
+		}
+		for j := range revs {
+			items = append(items, OTCTimelineItem{Negotiation: chain, Revision: revs[j]})
+		}
+	}
+	sort.SliceStable(items, func(a, b int) bool {
+		ra, rb := items[a].Revision, items[b].Revision
+		if !ra.CreatedAt.Equal(rb.CreatedAt) {
+			return ra.CreatedAt.Before(rb.CreatedAt)
+		}
+		if ra.NegotiationID != rb.NegotiationID {
+			return ra.NegotiationID < rb.NegotiationID
+		}
+		return ra.RevisionNumber < rb.RevisionNumber
+	})
+	return parent, items, nil
 }
 
 // ListRevisions returns the full revision history for a negotiation chain,

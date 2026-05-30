@@ -64,6 +64,9 @@ func (handlerHoldingChecker) ReserveSellerSharesForNewTx(ctx context.Context, in
 func (handlerHoldingChecker) ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error) {
 	return &stockpb.ReleaseSellerSharesResponse{}, nil
 }
+func (handlerHoldingChecker) ValidatePeerOptionMoneyLeg(ctx context.Context, in *stockpb.ValidatePeerOptionMoneyLegRequest, opts ...grpc.CallOption) (*stockpb.ValidatePeerOptionMoneyLegResponse, error) {
+	return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: true}, nil
+}
 
 // TestHandleNewTx_MissingIdempotenceKey_400 verifies the missing-key
 // validation branch.

@@ -1223,6 +1223,10 @@ service OTCOptionsService {
   rpc ListMyNegotiations(ListMyNegotiationsRequest)   returns (ListNegotiationsResponse);
   rpc ListNegotiationsByListing(ListNegotiationsByListingRequest) returns (ListNegotiationsResponse);
   rpc ListNegotiationRevisions(ListNegotiationRevisionsRequest) returns (ListNegotiationRevisionsResponse);
+  // GetOfferTimeline returns the offer plus every chain's revisions merged
+  // and sorted by created_at — the poster's cross-chain audit view. Same
+  // audience authorization as ListNegotiationsByListing.
+  rpc GetOfferTimeline(GetOfferTimelineRequest) returns (GetOfferTimelineResponse);
 }
 
 // OTCNegotiationResponse is the wire-form projection of an
@@ -1407,7 +1411,43 @@ message ListMyNegotiationsRequest {
 }
 
 message ListNegotiationsByListingRequest {
-  uint64 parent_offer_id = 1;
+  uint64 parent_offer_id   = 1;
+  // Caller identity for audience authorization. The poster of the parent
+  // listing may see every chain; an employee (owner_type="bank") reaches
+  // this RPC only after the gateway's otc.read.all permission gate. Any
+  // other client (e.g. a competing bidder) receives PermissionDenied.
+  string caller_owner_type = 2;  // "client" | "bank"
+  uint64 caller_owner_id   = 3;  // 0 when owner_type=="bank"
+}
+
+message GetOfferTimelineRequest {
+  uint64 parent_offer_id   = 1;
+  string caller_owner_type = 2;  // "client" | "bank"
+  uint64 caller_owner_id   = 3;  // 0 when owner_type=="bank"
+}
+
+// OTCTimelineEntry is one revision across any chain on a listing, enriched
+// with its chain's bidder identity. The full timeline is every chain's
+// revisions merged and sorted by created_at — the offer poster's
+// cross-chain audit view.
+message OTCTimelineEntry {
+  uint64 negotiation_id           = 1;
+  string bidder_owner_type        = 2;  // "client" | "bank"
+  uint64 bidder_owner_id          = 3;  // 0 when owner_type=="bank"
+  int32  revision_number          = 4;
+  string action                   = 5;  // BID|COUNTER|ACCEPT|REJECT
+  string quantity                 = 6;
+  string strike_price             = 7;
+  string premium                  = 8;
+  string settlement_date          = 9;  // ISO-8601
+  string action_by_principal_type = 10; // "client" | "employee"
+  uint64 action_by_principal_id   = 11;
+  string created_at               = 12; // ISO-8601
+}
+
+message GetOfferTimelineResponse {
+  OTCOfferResponse          offer    = 1;
+  repeated OTCTimelineEntry timeline = 2;
 }
 
 message ListNegotiationsResponse {
@@ -1806,6 +1846,16 @@ service PeerOTCService {
   // ReleaseSellerSharesForNewTx releases a vote-time share hold on ROLLBACK_TX
   // (or a partial NO mid-NEW_TX) when no contract was minted. Idempotent.
   rpc ReleaseSellerSharesForNewTx(ReleaseSellerSharesRequest) returns (ReleaseSellerSharesResponse);
+  // ValidatePeerOptionMoneyLeg is called by transaction-service at NEW_TX
+  // (vote) time for each option-asset posting on this bank's routing. It
+  // verifies that the paired MONEY leg the sender proposes equals THIS bank's
+  // own stored terms — never trusting the posting amount. For an exercise leg
+  // it looks up the stored peer_option_contract by (negotiation_id, direction)
+  // and requires money_amount == StrikePrice * Quantity (same currency, ticker,
+  // quantity, strike). ok=false → the receiver votes NO so no money/shares move.
+  // Closes the forged-strike theft (a peer crafting an exercise that delivers
+  // full shares for an under-stated strike). Idempotent / read-only.
+  rpc ValidatePeerOptionMoneyLeg(ValidatePeerOptionMoneyLegRequest) returns (ValidatePeerOptionMoneyLegResponse);
   rpc InitiateOptionExercise(InitiateOptionExerciseRequest) returns (InitiateOptionExerciseResponse);
 
   // Buyer-side mirror persistence so the buyer's bank also has a local
@@ -2126,6 +2176,27 @@ message ReserveSellerSharesResponse {
   bool ok = 1;                  // false → insufficient/none; caller votes NO
   int64 reserved_quantity = 2;  // holding's total reserved after the hold
   int64 available_quantity = 3; // holding's available after the hold
+}
+
+// ValidatePeerOptionMoneyLegRequest carries one option-asset leg plus the
+// total money the sender proposes to move for the same participant on this
+// bank, so the receiver can reject any mismatch against its OWN stored terms.
+message ValidatePeerOptionMoneyLegRequest {
+  int64 negotiation_routing = 1;   // negotiationId.routingNumber from the option description (used for exercise contract lookup)
+  string negotiation_id = 2;       // negotiationId.id (== negotiation foreign_id; used for both contract and negotiation lookup)
+  string direction = 3;            // this leg's direction on this bank: DEBIT (seller) or CREDIT (buyer)
+  string intent = 4;               // "exercise" or "accept"/""
+  string ticker = 5;               // claimed ticker (cross-checked vs stored)
+  int64 quantity = 6;              // claimed option quantity (cross-checked vs stored)
+  string strike_price = 7;         // claimed per-unit strike (cross-checked vs stored)
+  string money_amount = 8;         // total paired money for this participant on this bank (decimal string)
+  string currency = 9;             // money leg currency (premium currency on accept; strike currency on exercise)
+  string peer_bank_code = 10;      // the NEW_TX sender's bank code == receiver's negotiation peer_bank_code (accept lookup)
+}
+
+message ValidatePeerOptionMoneyLegResponse {
+  bool ok = 1;        // false → receiver votes NO (UNACCEPTABLE_ASSET)
+  string reason = 2;  // human-readable mismatch detail for logs
 }
 
 message ReleaseSellerSharesRequest {

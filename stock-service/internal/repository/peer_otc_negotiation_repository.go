@@ -29,6 +29,19 @@ func (r *PeerOtcNegotiationRepository) GetByPeerAndID(peerCode, foreignID string
 	return &neg, nil
 }
 
+// GetByForeignID looks up a negotiation by its foreign_id (the negotiation UUID,
+// identical on both banks) WITHOUT the peer_bank_code. Used by the SI-TX accept
+// money-leg validator, which can run on either the coordinator (own routing as
+// peer code) or the receiver (counterparty as peer code) — so the peer_bank_code
+// it sees is unreliable, but the UUID foreign_id is unique per bank.
+func (r *PeerOtcNegotiationRepository) GetByForeignID(foreignID string) (*model.PeerOtcNegotiation, error) {
+	var neg model.PeerOtcNegotiation
+	if err := r.db.Where("foreign_id = ?", foreignID).First(&neg).Error; err != nil {
+		return nil, err
+	}
+	return &neg, nil
+}
+
 func (r *PeerOtcNegotiationRepository) UpdateOffer(peerCode, foreignID, offerJSON string) error {
 	return r.db.Model(&model.PeerOtcNegotiation{}).
 		Where("peer_bank_code = ? AND foreign_id = ?", peerCode, foreignID).
@@ -39,6 +52,22 @@ func (r *PeerOtcNegotiationRepository) UpdateStatus(peerCode, foreignID, status 
 	return r.db.Model(&model.PeerOtcNegotiation{}).
 		Where("peer_bank_code = ? AND foreign_id = ?", peerCode, foreignID).
 		Updates(map[string]interface{}{"status": status}).Error
+}
+
+// CompareAndSetStatus atomically transitions a negotiation from `from` to `to`
+// in one guarded UPDATE, returning true iff exactly one row matched. Used to
+// claim a negotiation for acceptance (ongoing → accepted): the DB serialises
+// the UPDATE, so of two concurrent accepts only one observes a match and
+// dispatches the option-formation SI-TX — the loser is rejected, preventing a
+// double premium charge, double seller-share reservation, and duplicate contracts.
+func (r *PeerOtcNegotiationRepository) CompareAndSetStatus(peerCode, foreignID, from, to string) (bool, error) {
+	res := r.db.Model(&model.PeerOtcNegotiation{}).
+		Where("peer_bank_code = ? AND foreign_id = ? AND status = ?", peerCode, foreignID, from).
+		Updates(map[string]interface{}{"status": to})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
 }
 
 // ListBySellerAndParentOffer returns every ongoing negotiation under

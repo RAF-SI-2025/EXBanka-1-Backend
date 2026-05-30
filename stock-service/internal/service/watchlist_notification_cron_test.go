@@ -11,8 +11,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/cronreg"
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -63,13 +63,13 @@ func setupWatchlistCronFixture(t *testing.T) (*repository.WatchlistRepository, *
 func seedWatchlistItem(t *testing.T, db *gorm.DB, ownerID uint64, listingID, securityID uint64, secType string, price, change float64) {
 	t.Helper()
 	listing := &model.Listing{
-		ID:          listingID,
-		SecurityID:  securityID,
+		ID:           listingID,
+		SecurityID:   securityID,
 		SecurityType: secType,
-		ExchangeID:  1,
-		Price:       decimal.NewFromFloat(price),
-		Change:      decimal.NewFromFloat(change),
-		LastRefresh: time.Now(),
+		ExchangeID:   1,
+		Price:        decimal.NewFromFloat(price),
+		Change:       decimal.NewFromFloat(change),
+		LastRefresh:  time.Now(),
 	}
 	if err := db.Create(listing).Error; err != nil {
 		t.Fatalf("seed listing: %v", err)

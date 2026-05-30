@@ -323,3 +323,13 @@ func TestRejectLoanRequest_AlreadyRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrLoanRequestNotPending))
 }
+
+func (*mockAccountClientForRequest) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClientForRequest) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClientForRequest) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}

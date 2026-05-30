@@ -124,6 +124,17 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "premium.currency is required")
 		return
 	}
+	// Premium and strike (price_per_unit) must be positive — a negative/zero
+	// value would otherwise create a negotiation that only fails at accept/exercise
+	// time when the money leg is rejected. Validate up front.
+	if f, perr := strconv.ParseFloat(req.Premium.Amount, 64); perr != nil || f <= 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "premium.amount must be a positive number")
+		return
+	}
+	if f, perr := strconv.ParseFloat(req.PricePerUnit.Amount, 64); perr != nil || f <= 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "price_per_unit.amount must be a positive number")
+		return
+	}
 	if req.SellerBankCode == h.ownBankCode {
 		apiError(c, http.StatusBadRequest, ErrValidation, "seller_bank_code must be a peer bank, not own bank")
 		return

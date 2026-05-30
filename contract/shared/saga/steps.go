@@ -83,15 +83,15 @@ const (
 	StepCreditUserTo         StepKind = "credit_user_to"
 
 	// Loan disbursement (credit-service).
-	StepDebitBank       StepKind = "debit_bank"
-	StepCreditBorrower  StepKind = "credit_borrower"
-	StepMarkLoanActive  StepKind = "mark_loan_active"
+	StepDebitBank      StepKind = "debit_bank"
+	StepCreditBorrower StepKind = "credit_borrower"
+	StepMarkLoanActive StepKind = "mark_loan_active"
 
 	// OTC accept post-saga steps (stock-service, now inside saga).
-	StepMarkOfferAccepted      StepKind = "mark_offer_accepted"
+	StepMarkOfferAccepted       StepKind = "mark_offer_accepted"
 	StepRecordSellerPremiumGain StepKind = "record_seller_premium_gain"
 	StepRecordBuyerPremiumCost  StepKind = "record_buyer_premium_cost"
-	StepPublishOTCAccepted     StepKind = "publish_otc_accepted_event"
+	StepPublishOTCAccepted      StepKind = "publish_otc_accepted_event"
 
 	// OTC exercise post-saga steps (stock-service, now inside saga).
 	StepUpsertBuyerHolding      StepKind = "upsert_buyer_holding"
@@ -119,7 +119,7 @@ var allSteps = map[StepKind]struct{}{
 	StepDebitSender: {}, StepCreditRecipient: {}, StepCreditBankCommission: {},
 	StepDebitUserFrom: {}, StepCreditBankFrom: {}, StepDebitBankTo: {},
 	StepCreditUserTo: {},
-	StepDebitBank: {}, StepCreditBorrower: {}, StepMarkLoanActive: {},
+	StepDebitBank:    {}, StepCreditBorrower: {}, StepMarkLoanActive: {},
 	// OTC accept.
 	StepMarkOfferAccepted: {}, StepRecordSellerPremiumGain: {}, StepRecordBuyerPremiumCost: {},
 	StepPublishOTCAccepted: {},

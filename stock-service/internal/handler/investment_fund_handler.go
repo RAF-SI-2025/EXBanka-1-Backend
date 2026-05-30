@@ -407,9 +407,9 @@ func (h *InvestmentFundHandler) PayoutDividend(ctx context.Context, in *stockpb.
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &stockpb.PayoutDividendResponse{
-		PayoutsCreated:  int32(summary.PayoutsCreated),
-		FundPayouts:     int32(summary.FundPayouts),
-		TotalAmountRsd:  summary.TotalAmountRSD.StringFixed(2),
+		PayoutsCreated: int32(summary.PayoutsCreated),
+		FundPayouts:    int32(summary.FundPayouts),
+		TotalAmountRsd: summary.TotalAmountRSD.StringFixed(2),
 	}, nil
 }
 
@@ -436,16 +436,16 @@ func (h *InvestmentFundHandler) ListMyDividends(ctx context.Context, in *stockpb
 	out := &stockpb.ListDividendPayoutsResponse{Total: total}
 	for _, r := range rows {
 		item := &stockpb.DividendPayoutItem{
-			Id:                  r.ID,
-			DividendPaymentId:   r.DividendPaymentID,
-			HoldingOwnerType:    r.HoldingOwnerType,
-			HoldingId:           r.HoldingID,
-			Shares:              r.Shares,
-			GrossAmountRsd:      r.GrossAmountRSD.StringFixed(2),
-			TaxAmountRsd:        r.TaxAmountRSD.StringFixed(2),
-			NetAmountRsd:        r.NetAmountRSD.StringFixed(2),
-			CreditedAccountId:   r.CreditedAccountID,
-			CreatedAt:           r.CreatedAt.UTC().Format(time.RFC3339),
+			Id:                r.ID,
+			DividendPaymentId: r.DividendPaymentID,
+			HoldingOwnerType:  r.HoldingOwnerType,
+			HoldingId:         r.HoldingID,
+			Shares:            r.Shares,
+			GrossAmountRsd:    r.GrossAmountRSD.StringFixed(2),
+			TaxAmountRsd:      r.TaxAmountRSD.StringFixed(2),
+			NetAmountRsd:      r.NetAmountRSD.StringFixed(2),
+			CreditedAccountId: r.CreditedAccountID,
+			CreatedAt:         r.CreatedAt.UTC().Format(time.RFC3339),
 		}
 		if r.HoldingOwnerID != nil {
 			item.HoldingOwnerId = *r.HoldingOwnerID
@@ -486,14 +486,14 @@ func (h *InvestmentFundHandler) ListFundDividends(ctx context.Context, in *stock
 
 func toDividendPaymentResponse(dp *model.DividendPayment) *stockpb.DividendPaymentResponse {
 	r := &stockpb.DividendPaymentResponse{
-		Id:                     dp.ID,
-		SecurityId:             dp.SecurityID,
-		Ticker:                 dp.Ticker,
-		AmountPerShareRsd:      dp.AmountPerShareRSD.StringFixed(4),
-		PaymentDate:            dp.PaymentDate.Format("2006-01-02"),
-		Status:                 dp.Status,
-		DeclaredByEmployeeId:   dp.DeclaredByEmployeeID,
-		CreatedAt:              dp.CreatedAt.UTC().Format(time.RFC3339),
+		Id:                   dp.ID,
+		SecurityId:           dp.SecurityID,
+		Ticker:               dp.Ticker,
+		AmountPerShareRsd:    dp.AmountPerShareRSD.StringFixed(4),
+		PaymentDate:          dp.PaymentDate.Format("2006-01-02"),
+		Status:               dp.Status,
+		DeclaredByEmployeeId: dp.DeclaredByEmployeeID,
+		CreatedAt:            dp.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	if dp.PaidOutAt != nil {
 		r.PaidOutAt = dp.PaidOutAt.UTC().Format(time.RFC3339)

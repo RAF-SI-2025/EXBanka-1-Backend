@@ -15,9 +15,9 @@ import (
 // stubWatchlistNotifCreator records CreateWithIdempotency calls and
 // enforces dedup: a second call with the same key returns (false, nil).
 type stubWatchlistNotifCreator struct {
-	mu      sync.Mutex
-	created []*model.GeneralNotification
-	keys    map[string]struct{}
+	mu        sync.Mutex
+	created   []*model.GeneralNotification
+	keys      map[string]struct{}
 	createErr error
 }
 

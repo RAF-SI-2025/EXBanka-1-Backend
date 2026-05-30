@@ -92,6 +92,23 @@ func (r *PeerOptionContractRepository) SetStatus(id uint64, newStatus string) er
 	return r.db.Model(&model.PeerOptionContract{}).Where("id = ?", id).Update("status", newStatus).Error
 }
 
+// CompareAndSetStatus atomically transitions the contract from `from` to `to`
+// in a single guarded UPDATE, returning true iff exactly one row matched. Used
+// to claim a contract for exercise (active → exercising): the DB serialises the
+// UPDATE, so of two concurrent exercise attempts only one observes a match and
+// proceeds — the loser sees ok=false and is rejected, preventing a double strike
+// payment. NOTE: bypasses the optimistic-lock BeforeUpdate hook intentionally
+// (the WHERE status guard IS the concurrency control here).
+func (r *PeerOptionContractRepository) CompareAndSetStatus(id uint64, from, to string) (bool, error) {
+	res := r.db.Model(&model.PeerOptionContract{}).
+		Where("id = ? AND status = ?", id, from).
+		Update("status", to)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // ListExpiring returns up to limit ACTIVE peer option contracts whose
 // settlement_date is strictly before today (lex-compared as the
 // SI-TX-shaped ISO-8601 string). Used by the daily expiry cron.

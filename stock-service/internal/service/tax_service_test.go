@@ -987,3 +987,13 @@ func TestTaxService_CollectTax_CreditFailure_DoesNotLockInMissingCredit(t *testi
 		t.Fatalf("retry: expected 2 UpdateBalance calls, got %d", len(mocks.accountClient.updateBalCalls))
 	}
 }
+
+func (*mockTaxAccountClient) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockTaxAccountClient) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockTaxAccountClient) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}

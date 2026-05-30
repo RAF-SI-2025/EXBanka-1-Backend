@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -16,6 +17,18 @@ import (
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
+
+// syntheticSecurityID derives a stable, ticker-unique security id in a high
+// range (>= 9e12) for cross-bank holdings whose security this bank does not
+// carry in its local catalog. The high range can't collide with real catalog
+// ids (small) and distinct tickers map to distinct ids, so the
+// (owner_type, owner_id, security_type, security_id) unique index is satisfied
+// even when a buyer holds several un-listed cross-bank securities.
+func syntheticSecurityID(ticker string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strings.ToUpper(ticker)))
+	return 9_000_000_000_000 + (h.Sum64() % 1_000_000_000_000)
+}
 
 // HoldingReservationService owns the reserve / release / partial-settle
 // lifecycle of share quantities held on behalf of a sell-side client order.
@@ -146,10 +159,30 @@ func (s *HoldingReservationService) Reserve(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -392,10 +425,30 @@ func (s *HoldingReservationService) ReserveForPeerOptionContract(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -466,10 +519,30 @@ func (s *HoldingReservationService) ReserveForOTCContract(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -915,10 +988,30 @@ func (s *HoldingReservationService) ReserveForCrossBankNewTx(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -1078,7 +1171,9 @@ func (s *HoldingReservationService) ExerciseBuyerCreditForPeerOption(
 		if contract.Status == "exercised" {
 			return nil // already credited + exercised by a prior committed attempt
 		}
-		if contract.Status != "active" {
+		// "exercising" is the buyer-side claim set at InitiateOptionExercise to
+		// serialise concurrent exercises; "active" covers the unclaimed path.
+		if contract.Status != "active" && contract.Status != "exercising" {
 			return status.Errorf(codes.FailedPrecondition, "cannot exercise contract in status %q", contract.Status)
 		}
 		if err := creditBuyerHoldingTx(tx, ownerType, ownerID, ticker, qty, strikePrice); err != nil {
@@ -1127,19 +1222,31 @@ func creditBuyerHoldingTx(
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	// New holding row — populate the required scaffolding so the
-	// row passes existing not-null + unique constraints. Listing
-	// id and security id default to 0 here; subsequent reads will
-	// resolve them when the user interacts with the holding via
-	// portfolio endpoints. AveragePrice = strike: the user paid
-	// the strike per share to acquire these, so later sells use
-	// the strike as cost basis (premium tracked separately via
-	// the option CG row written at acceptance).
+	// New holding row. Resolve the real security_id from this bank's synced
+	// securities catalog by ticker — it MUST NOT default to 0, because the
+	// unique index idx_holding_per_owner_security is on
+	// (owner_type, owner_id, security_type, security_id): two different
+	// cross-bank tickers both stamped security_id=0 collide, so a buyer who
+	// exercises options on a SECOND ticker would fail with a duplicate-key
+	// error (verified: MA then XOM → 23505). The catalog is synced across the
+	// cohort, so even a security this bank doesn't actively list is resolvable;
+	// fall back to a deterministic ticker-derived id only if truly absent so
+	// distinct tickers still get distinct security_ids. AveragePrice = strike
+	// (premium tracked separately as an option CG row at acceptance).
+	var secID uint64
+	// Best-effort catalog resolve. On any error (catalog table absent in a
+	// minimal context) or a miss, fall back to a deterministic ticker-unique
+	// synthetic id — both paths yield a security_id that is distinct per ticker,
+	// satisfying the unique index; only the cosmetic catalog linkage differs.
+	_ = tx.Table("stocks").Select("id").Where("ticker = ?", ticker).Limit(1).Scan(&secID).Error
+	if secID == 0 {
+		secID = syntheticSecurityID(ticker)
+	}
 	newHolding := model.Holding{
 		OwnerType:        ownerType,
 		OwnerID:          ownerID,
 		SecurityType:     "stock",
-		SecurityID:       0,
+		SecurityID:       secID,
 		ListingID:        0,
 		Ticker:           ticker,
 		Name:             ticker,

@@ -10,6 +10,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -82,6 +83,10 @@ type SellerHoldingChecker interface {
 	CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error)
 	ReserveSellerSharesForNewTx(ctx context.Context, in *stockpb.ReserveSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReserveSellerSharesResponse, error)
 	ReleaseSellerSharesForNewTx(ctx context.Context, in *stockpb.ReleaseSellerSharesRequest, opts ...grpc.CallOption) (*stockpb.ReleaseSellerSharesResponse, error)
+	// ValidatePeerOptionMoneyLeg checks an option leg's paired money against the
+	// receiver's OWN stored terms (forged-strike defense — see the RPC doc). The
+	// executor calls it for seller-side (DEBIT) option legs on this bank's routing.
+	ValidatePeerOptionMoneyLeg(ctx context.Context, in *stockpb.ValidatePeerOptionMoneyLegRequest, opts ...grpc.CallOption) (*stockpb.ValidatePeerOptionMoneyLegResponse, error)
 }
 
 // optionDescriptionForCheck mirrors the fields of contract.sitx.OptionDescription
@@ -91,6 +96,10 @@ type SellerHoldingChecker interface {
 type optionDescriptionForCheck struct {
 	Ticker string `json:"ticker"`
 	Amount int64  `json:"amount"`
+	// Intent distinguishes accept (""/"accept") from exercise ("exercise").
+	// Only accept reserves seller shares at vote time; exercise consumes the
+	// existing accept-time hold at COMMIT (see Reserve).
+	Intent string `json:"intent"`
 }
 
 // PostingExecutor walks an accepted NEW_TX's postings and applies the
@@ -167,6 +176,43 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		}
 	}
 
+	// Forged-money validation pre-pass: validate every option leg on our routing
+	// against THIS bank's own stored terms BEFORE placing any reservation, so a
+	// forged-money envelope is rejected up-front and never leaves partial holds
+	// (an attacker could otherwise spam money-leg-then-NO envelopes to lock a
+	// victim's available balance until the timeout cron releases the holds). A
+	// DEBIT option leg = we hold the seller (RECEIVES the strike → money CREDIT);
+	// a CREDIT option leg = we hold the buyer (PAYS the strike → money DEBIT).
+	// On exercise the validator requires the paired money == StrikePrice*Quantity;
+	// mismatch / transient validator error → UNACCEPTABLE_ASSET NO vote. Skipped
+	// only when the checker isn't wired (tests / misconfig); production wires it.
+	if e.holdingChecker != nil {
+		for i := range postings {
+			p := postings[i]
+			if p.RoutingNumber != e.ownRouting || !strings.HasPrefix(p.AssetID, "{") {
+				continue
+			}
+			var full contractsitx.OptionDescription
+			_ = json.Unmarshal([]byte(p.AssetID), &full)
+			money, moneyCcy := pairedMoney(postings, e.ownRouting, string(p.Direction))
+			vresp, verr := e.holdingChecker.ValidatePeerOptionMoneyLeg(ctx, &stockpb.ValidatePeerOptionMoneyLegRequest{
+				NegotiationRouting: full.NegotiationID.RoutingNumber,
+				NegotiationId:      full.NegotiationID.ID,
+				Direction:          string(p.Direction),
+				Intent:             full.Intent,
+				Ticker:             full.Ticker,
+				Quantity:           full.Amount,
+				StrikePrice:        full.StrikePrice.String(),
+				MoneyAmount:        money.String(),
+				Currency:           moneyCcy,
+				PeerBankCode:       peerBankCode,
+			})
+			if verr != nil || vresp == nil || !vresp.GetOk() {
+				return noVote(contractsitx.NoVoteReasonUnacceptableAsset, i)
+			}
+		}
+	}
+
 	for i := range postings {
 		p := postings[i]
 		if p.RoutingNumber != e.ownRouting {
@@ -193,25 +239,37 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		// read-only CheckSellerCanDeliver pre-check (Fix #6) which left a
 		// sell-between-vote-and-commit window.
 		if strings.HasPrefix(p.AssetID, "{") {
+			// Money-leg validation already ran in the pre-pass above. Here we only
+			// place the seller-side vote-time share hold for accept-intent legs.
 			if p.Direction == contractsitx.DirectionDebit {
-				if e.holdingChecker == nil {
-					return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
-				}
 				var od optionDescriptionForCheck
-				if err := json.Unmarshal([]byte(p.AssetID), &od); err == nil && od.Ticker != "" && od.Amount > 0 {
-					seller := sellerByDesc[p.AssetID]
-					crossbankTxID := peerBankCode + ":" + locallyGeneratedKey
-					resp, err := e.holdingChecker.ReserveSellerSharesForNewTx(ctx, &stockpb.ReserveSellerSharesRequest{
-						SellerId: &stockpb.PeerForeignBankId{
-							RoutingNumber: seller.RoutingNumber,
-							Id:            seller.ID,
-						},
-						Ticker:        od.Ticker,
-						Quantity:      od.Amount,
-						CrossbankTxId: crossbankTxID,
-					})
-					if err != nil || resp == nil || !resp.GetOk() {
+				_ = json.Unmarshal([]byte(p.AssetID), &od)
+				// Reserve the seller's shares ONLY for accept-intent option
+				// formation. On EXERCISE (intent="exercise") the shares were
+				// already held at accept and are consumed/transferred at COMMIT
+				// via RecordOptionContract; reserving again here would orphan a
+				// second hold that the exercise never releases (it only touches
+				// the accept-time reservation), permanently locking those shares.
+				// This matches OptionDescription.Intent's documented contract.
+				if od.Intent != "exercise" {
+					if e.holdingChecker == nil {
 						return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
+					}
+					if od.Ticker != "" && od.Amount > 0 {
+						seller := sellerByDesc[p.AssetID]
+						crossbankTxID := peerBankCode + ":" + locallyGeneratedKey
+						resp, err := e.holdingChecker.ReserveSellerSharesForNewTx(ctx, &stockpb.ReserveSellerSharesRequest{
+							SellerId: &stockpb.PeerForeignBankId{
+								RoutingNumber: seller.RoutingNumber,
+								Id:            seller.ID,
+							},
+							Ticker:        od.Ticker,
+							Quantity:      od.Amount,
+							CrossbankTxId: crossbankTxID,
+						})
+						if err != nil || resp == nil || !resp.GetOk() {
+							return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
+						}
 					}
 				}
 			}
@@ -370,6 +428,47 @@ func (e *PostingExecutor) SettleLocal(ctx context.Context, postings []contractsi
 	return nil
 }
 
+// ExtractOwnOptionItems deterministically derives the OptionItems for option-
+// asset legs on THIS bank's routing, mirroring the option-collection pass inside
+// Reserve (no side effects). The buyer/seller maps are built from ALL postings
+// (CREDIT = buyer side, DEBIT = seller side, paired by OptionDescription JSON),
+// then items are emitted only for own-routing legs. Used by the replay cron's
+// CommitOutboundLocal so a sender-side option contract can still be materialised
+// after a crash between the inline Reserve() and the inline materialise — the
+// cron has only the persisted postings, not the in-memory ReserveResult.
+func (e *PostingExecutor) ExtractOwnOptionItems(postings []contractsitx.Posting) []OptionItem {
+	buyerByDesc := map[string]contractsitx.ForeignBankId{}
+	sellerByDesc := map[string]contractsitx.ForeignBankId{}
+	for i := range postings {
+		p := postings[i]
+		if !strings.HasPrefix(p.AssetID, "{") {
+			continue
+		}
+		party := contractsitx.ForeignBankId{RoutingNumber: p.RoutingNumber, ID: p.AccountID}
+		switch p.Direction {
+		case contractsitx.DirectionCredit:
+			buyerByDesc[p.AssetID] = party
+		case contractsitx.DirectionDebit:
+			sellerByDesc[p.AssetID] = party
+		}
+	}
+	var items []OptionItem
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber != e.ownRouting || !strings.HasPrefix(p.AssetID, "{") {
+			continue
+		}
+		items = append(items, OptionItem{
+			PostingIndex:          i,
+			Direction:             p.Direction,
+			OptionDescriptionJSON: p.AssetID,
+			Buyer:                 buyerByDesc[p.AssetID],
+			Seller:                sellerByDesc[p.AssetID],
+		})
+	}
+	return items
+}
+
 // resolveAccountForPosting maps an accountId string to a concrete bank
 // account number. Participant-ID strings ("client-<n>") are resolved
 // via account-service to the participant's first active account in the
@@ -398,6 +497,46 @@ func (e *PostingExecutor) resolveAccountForPosting(ctx context.Context, accountI
 		}
 	}
 	return "", fmt.Errorf("client %d has no active %s account", clientID, currency)
+}
+
+// pairedMoney totals the money this bank moves for an option leg of the given
+// direction and reports its currency, so it can be checked against stored terms.
+// A DEBIT option leg (we hold the seller, who RECEIVES the strike/premium) pairs
+// with the money CREDIT on our routing; a CREDIT option leg (we hold the buyer,
+// who PAYS it) pairs with the money DEBIT on our routing. In a cross-bank SI-TX
+// each routing carries exactly one side's money leg, so summing by direction on
+// our routing yields that participant's amount without needing to match the
+// participant id (the seller's money leg uses a participant id while the buyer's
+// uses a resolved account number, so id-matching is unreliable). The currency is
+// taken from the money leg itself (the premium currency on accept may differ from
+// the strike currency on a cross-currency trade, so it must NOT be assumed from
+// the option description). Option-asset legs (AssetID is a JSON blob) are skipped.
+// Returns ("0", "") when no paired money leg is present (a forged/degenerate
+// envelope), which fails downstream validation closed.
+func pairedMoney(postings []contractsitx.Posting, ownRouting int64, optionDirection string) (decimal.Decimal, string) {
+	wantMoneyDir := contractsitx.DirectionCredit // seller (DEBIT option) receives money
+	if optionDirection == contractsitx.DirectionCredit {
+		wantMoneyDir = contractsitx.DirectionDebit // buyer (CREDIT option) pays money
+	}
+	total := decimal.Zero
+	currency := ""
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber != ownRouting || p.Direction != wantMoneyDir {
+			continue
+		}
+		if strings.HasPrefix(p.AssetID, "{") { // option-asset leg, not money
+			continue
+		}
+		if currency != "" && p.AssetID != currency {
+			// Mixed currencies for one side is a forged/degenerate envelope —
+			// surface an empty currency so validation fails closed.
+			return total, ""
+		}
+		currency = p.AssetID
+		total = total.Add(p.Amount)
+	}
+	return total, currency
 }
 
 // hasOwnDebitOptionLeg reports whether the postings contain a DEBIT

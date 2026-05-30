@@ -10,8 +10,8 @@ import (
 // records which compensation rows were marked compensated.
 type completedSetRecorder struct {
 	NoopRecorder
-	completed   map[StepKind]bool
-	compensated []StepKind
+	completed    map[StepKind]bool
+	compensated  []StepKind
 	recordedComp []StepKind
 }
 
@@ -46,9 +46,9 @@ func TestCompensate_OnlyCompletedStepsInReverse(t *testing.T) {
 		}
 	}
 	rec := &completedSetRecorder{completed: map[StepKind]bool{
-		StepReserveStrike:       true,
-		StepSettleStrikeBuyer:   true,
-		StepCreditStrikeSeller:  false, // crashed here — never completed
+		StepReserveStrike:      true,
+		StepSettleStrikeBuyer:  true,
+		StepCreditStrikeSeller: false, // crashed here — never completed
 	}}
 	s := NewSagaWithID("saga-1", rec).
 		Add(mk(StepReserveStrike)).
@@ -88,9 +88,9 @@ func TestCompensate_HaltsAtPivot(t *testing.T) {
 		}
 	}
 	rec := &completedSetRecorder{completed: map[StepKind]bool{
-		StepReserveStrike:      true,
+		StepReserveStrike:        true,
 		StepConsumeSellerHolding: true, // pivot
-		StepUpsertBuyerHolding: true,
+		StepUpsertBuyerHolding:   true,
 	}}
 	s := NewSagaWithID("saga-2", rec).
 		Add(mk(StepReserveStrike, false)).

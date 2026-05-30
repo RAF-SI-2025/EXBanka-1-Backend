@@ -168,6 +168,31 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_NewBuyer(t *t
 	}
 }
 
+// TestHoldingReservationService_CreditBuyerHolding_TwoTickersNoCollision is the
+// regression for the duplicate-key bug: crediting a buyer two DIFFERENT
+// cross-bank tickers must create two holdings with distinct security_ids (not
+// both 0), or the (owner_type, owner_id, security_type, security_id) unique
+// index rejects the second with SQLSTATE 23505 and the exercise fails.
+func TestHoldingReservationService_CreditBuyerHolding_TwoTickersNoCollision(t *testing.T) {
+	svc, holdingRepo, _ := newHoldingReservationFixture(t)
+	buyerUID := uint64(99)
+	strike := decimal.NewFromInt(150)
+
+	require.NoError(t, svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, "ZZZA", 5, strike))
+	// Second, DIFFERENT ticker must NOT collide (was: duplicate key on security_id=0).
+	require.NoError(t, svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, "ZZZB", 7, strike),
+		"crediting a second cross-bank ticker must not collide on security_id")
+
+	a, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", "ZZZA")
+	require.NoError(t, err)
+	b, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", "ZZZB")
+	require.NoError(t, err)
+	require.Equal(t, int64(5), a.Quantity)
+	require.Equal(t, int64(7), b.Quantity)
+	require.NotEqual(t, a.SecurityID, b.SecurityID, "distinct tickers must get distinct security_ids")
+	require.NotZero(t, a.SecurityID, "security_id must not default to 0 (collision source)")
+}
+
 // TestHoldingReservationService_ExerciseBuyerCreditForPeerOption_Idempotent
 // is the Bug D regression: a replayed cross-bank exercise (duplicate
 // COMMIT_TX) must credit the buyer's shares exactly once. The contract
@@ -251,4 +276,35 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_WeightedAvera
 	if !got.AveragePrice.Equal(want) {
 		t.Errorf("buyer average_price=%s want %s (weighted avg)", got.AveragePrice, want)
 	}
+}
+
+// TestReserveForCrossBankNewTx_NoOverReservation is the regression for the
+// concurrent over-reservation bug: distinct crossbank tx ids must not reserve
+// more shares in aggregate than the holding owns. The atomic guarded UPDATE
+// re-checks availability in its WHERE, so a reserve that would exceed the
+// holding fails even with a fresh (insertable) tx id.
+func TestReserveForCrossBankNewTx_NoOverReservation(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t) // holding qty=100, ticker TEST, owner 1
+	uid := uint64(1)
+	// Force a non-zero version so the reserve must succeed against a real version
+	// — guards against the BeforeUpdate-hook regression where a zero-value model
+	// injected a stale `version = 0` predicate into the increment and matched 0 rows.
+	require.NoError(t, holdingRepo.DB().Exec("UPDATE holdings SET version = 7 WHERE id = ?", h.ID).Error)
+
+	r1, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-a", 60)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), r1.ReservedQuantity)
+
+	// Second reserve of 60 (distinct tx) must FAIL — only 40 free — and not inflate reserved.
+	_, err = svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-b", 60)
+	require.Error(t, err, "second reserve must fail: only 40 of 100 free")
+
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &uid, "stock", h.Ticker)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), got.ReservedQuantity, "reserved must stay 60, never exceed the 100 owned")
+
+	// A reserve that exactly fits the remaining 40 succeeds.
+	r3, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-c", 40)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), r3.ReservedQuantity)
 }
