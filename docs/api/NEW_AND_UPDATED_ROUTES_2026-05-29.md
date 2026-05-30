@@ -94,6 +94,7 @@ PeerAuth = `X-Api-Key` or HMAC bundle (`X-Bank-Code` + `X-Bank-Signature` + `X-T
 | POST | /api/v3/me/otc/options/:id/negotiations/:nid/accept | Accepts optional `on_behalf_of_fund_id` — when non-zero, places the accept on behalf of an investment fund; `acceptor_account_id` must equal the fund's RSD account; acting employee must be the fund manager | 545ab6c |
 | POST | /api/v3/otc/contracts/:id/exercise | Accepts optional `on_behalf_of_fund_id` — shares land in `fund_holdings` instead of personal holdings when set; fund manager validation applies | 545ab6c |
 | GET | /api/v3/me/portfolio (and /portfolio/*) | Each `PortfolioPosition` now carries `dividends_received_rsd` (cumulative net dividend received) and `fund_status` (for fund positions: `open`/`fundraising`/`active`/`matured`/`liquidated`) | f4cf9f5 |
+| GET | /api/v3/me/portfolio (and /portfolio/*) | Each securities `PortfolioPosition` now carries `holding_id` (uint64, the underlying holdings-row id) so clients can feed make-public (`POST /me/otc/stocks` direction=sell) and exercise (`POST /me/portfolio/:id/exercise`) straight from the response. Fund positions omit it (keyed by `fund_id`). | b66d4f0 |
 | POST | /api/v3/me/payments | Now rejects source accounts with `account_category=investment_fund` — returns 403 `fund_account_outflow_restricted`. Fund cash must exit via fund operations only. | 437fe23 |
 | POST | /api/v3/me/transfers | Same fund account outflow restriction as payments | 437fe23 |
 
