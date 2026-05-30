@@ -9371,6 +9371,34 @@ paths:
       summary: Cancel your own OTC stock sell or buy offer
       tags:
       - OTCStocks
+  /api/v3/me/otc/transactions/{txid}/status:
+    get:
+      description: Resolves the SI-TX transaction id from a cross-bank OTC trade's
+        poll_url to {transaction_id, status, role, last_action_at, last_error}.
+      parameters:
+      - description: SI-TX transaction id (UUID)
+        in: path
+        name: txid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cross-bank OTC transaction status (SI-TX)
+      tags:
+      - otc
   /api/v3/me/payments:
     post:
       consumes:

@@ -5647,6 +5647,19 @@ Exercise an options contract.
 
 The exercise route, contract list, contract detail, ratings, and negotiation-history routes from the old §30 are unchanged — they're still at their existing paths under `/me/otc/contracts/...`, `/me/otc/history`, and `/otc/traders/...`.
 
+### GET /api/v3/me/otc/transactions/:txid/status
+
+Status of a **cross-bank** OTC trade's underlying SI-TX transaction. When a cross-bank OTC accept/exercise is dispatched, transaction-service returns a `transaction_id` (UUID) and a `poll_url` of this form; this endpoint resolves it via `PeerTxService.GetTxStatus` (reads the `outbound_peer_txs` row). Same status shape as a cross-bank payment. The UUID is unguessable and only handed to the initiating side, so holding it authorizes reading its status.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Response 200:**
+```json
+{ "transaction_id": "aaaa-...-7777", "status": "committed", "role": "sender", "last_action_at": "2026-05-30T00:00:00Z", "last_error": "" }
+```
+
+> Note: the SI-TX transaction id flows through the (frozen) cross-bank protocol; surfacing it onto a client-visible OTC contract view so end clients can poll directly is a separate follow-up. This endpoint + the corrected `poll_url` are the working foundation.
+
 ---
 
 ## 31. Investment Funds (Celina 4)

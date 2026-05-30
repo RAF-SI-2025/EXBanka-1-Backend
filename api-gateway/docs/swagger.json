@@ -12375,6 +12375,48 @@
                 }
             }
         },
+        "/api/v3/me/otc/transactions/{txid}/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolves the SI-TX transaction id from a cross-bank OTC trade's poll_url to {transaction_id, status, role, last_action_at, last_error}.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "otc"
+                ],
+                "summary": "Cross-bank OTC transaction status (SI-TX)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SI-TX transaction id (UUID)",
+                        "name": "txid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/payments": {
             "post": {
                 "security": [

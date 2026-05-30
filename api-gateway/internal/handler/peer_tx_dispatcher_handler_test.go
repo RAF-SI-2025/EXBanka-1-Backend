@@ -40,6 +40,7 @@ func peerTxDispatcherRouter(t *testing.T, tx *stubTransactionClient, peerTx tran
 	r.POST("/api/v3/me/payments", withCtx, pd.CreatePayment)
 	r.GET("/api/v3/me/payments/:id", withCtx, pd.GetPaymentByID)
 	r.GET("/api/v3/me/payments/:id/status", withCtx, pd.GetPaymentStatusByID)
+	r.GET("/api/v3/me/otc/transactions/:txid/status", withCtx, pd.GetCrossBankTxStatus)
 	return r
 }
 
@@ -234,4 +235,26 @@ func TestPeerTxDispatcher_UUIDResolvesViaGetTxStatus(t *testing.T) {
 			require.Equal(t, "sender", resp["role"])
 		})
 	}
+}
+
+// The cross-bank OTC status endpoint (poll target for cross-bank OTC trades)
+// resolves the SI-TX transaction id via GetTxStatus.
+func TestPeerTxDispatcher_OTCCrossBankStatus(t *testing.T) {
+	const uuid = "aaaa1111-2222-3333-4444-555566667777"
+	peerTx := &stubPeerTxClient{
+		getTxStatusFn: func(_ context.Context, in *transactionpb.GetTxStatusRequest, _ ...grpc.CallOption) (*transactionpb.GetTxStatusResponse, error) {
+			require.Equal(t, uuid, in.GetTransactionId())
+			return &transactionpb.GetTxStatusResponse{State: "pending", OurRole: "sender"}, nil
+		},
+	}
+	r := peerTxDispatcherRouter(t, &stubTransactionClient{}, peerTx, "111", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/otc/transactions/"+uuid+"/status", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, uuid, resp["transaction_id"])
+	require.Equal(t, "pending", resp["status"])
 }

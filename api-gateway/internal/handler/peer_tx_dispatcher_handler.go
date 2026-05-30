@@ -161,6 +161,39 @@ func (h *PeerTxDispatcherHandler) GetPaymentByID(c *gin.Context) {
 	h.tx.GetMyPayment(c)
 }
 
+// GetCrossBankTxStatus resolves a cross-bank SI-TX transaction id (the UUID a
+// cross-bank OTC trade's poll_url carries) to its outbound status via
+// PeerTxService.GetTxStatus — the same lookup the payment status route uses.
+// The id is always a UUID here (no numeric/intra-bank form). Capability-based:
+// the UUID is only handed to the initiating side, so holding it authorizes
+// reading its status.
+//
+// GetCrossBankTxStatus godoc
+// @Summary      Cross-bank OTC transaction status (SI-TX)
+// @Description  Resolves the SI-TX transaction id from a cross-bank OTC trade's poll_url to {transaction_id, status, role, last_action_at, last_error}.
+// @Tags         otc
+// @Security     BearerAuth
+// @Produce      json
+// @Param        txid path string true "SI-TX transaction id (UUID)"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/transactions/{txid}/status [get]
+func (h *PeerTxDispatcherHandler) GetCrossBankTxStatus(c *gin.Context) {
+	id := c.Param("txid")
+	resp, err := h.peerTx.GetTxStatus(c.Request.Context(), &transactionpb.GetTxStatusRequest{TransactionId: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"transaction_id": id,
+		"status":         resp.GetState(),
+		"role":           resp.GetOurRole(),
+		"last_action_at": resp.GetLastActionAt(),
+		"last_error":     resp.GetLastError(),
+	})
+}
+
 // GetPaymentStatusByID is the status route's UUID-aware variant: a cross-bank
 // SI-TX id resolves via GetTxStatus, a numeric id delegates to the intra-bank
 // GetMyPaymentStatus.

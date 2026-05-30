@@ -540,9 +540,12 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		}
 	}
 
+	// OTC variant: postings come from a cross-bank OTC accept/exercise, so the
+	// poll URL points at the OTC transaction-status endpoint (resolves this
+	// idem via PeerTxService.GetTxStatus), not the payment endpoint.
 	return &transactionpb.SiTxInitiateResponse{
 		TransactionId: idem,
-		PollUrl:       "/api/v3/me/transfers/" + idem,
+		PollUrl:       "/api/v3/me/otc/transactions/" + idem + "/status",
 		Status:        "pending",
 	}, nil
 }

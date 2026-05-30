@@ -209,6 +209,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/otc/ratings", bankIfEmp, h.OTCOptions.SubmitRating)
 		me.GET("/otc/ratings/received", bankIfEmp, h.OTCOptions.ListMyReceivedRatings)
 		me.GET("/otc/contracts", bankIfEmp, h.OTCOptions.ListMyContracts)
+		// Cross-bank OTC trade status: resolve the SI-TX transaction id from a
+		// cross-bank trade's poll_url via PeerTxService.GetTxStatus.
+		me.GET("/otc/transactions/:txid/status", h.PeerTxDispatcher.GetCrossBankTxStatus)
 
 		// --- Phase 2: parallel-negotiation-chain marketplace ---
 		// Listing-poster sees all chains via the OPEN
