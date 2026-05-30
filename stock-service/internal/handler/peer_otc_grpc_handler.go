@@ -1109,9 +1109,22 @@ func (h *PeerOTCGRPCHandler) ValidatePeerOptionMoneyLeg(ctx context.Context, req
 		// offer.PremiumCurrency (no FX on the seller's receipt), so when the money
 		// leg is in the premium currency we require an exact match — this covers the
 		// seller side of every trade and the buyer side of a same-currency trade.
-		// A cross-currency BUYER premium is FX-converted at the live rate, which the
-		// receiver can't recompute here; we still reject a non-positive amount but
-		// don't enforce the exact value (documented residual).
+		//
+		// KNOWN RESIDUAL — cross-currency BUYER premium (low severity). When the
+		// money leg currency != offer.PremiumCurrency, the buyer paid an FX-converted
+		// premium (offer.Premium converted to the buyer's currency at the live rate at
+		// accept-compose time). The receiver can't reproduce that exact amount here
+		// (re-running the conversion would drift against the rate used at compose and
+		// REJECT legitimate accepts), so we only reject a non-positive amount and let
+		// any positive value through. This is bounded: the SELLER side is always exact
+		// (the underpayment victim), and the option TERMS (ticker/quantity/strike) are
+		// validated above regardless of currency — so the worst case is a buyer's own
+		// bank accepting an FX-mispriced premium debit, not seller theft or wrong terms.
+		// Exercise (the strike) has NO such residual: this codebase never FX-converts
+		// the strike, so it is exactly validated in every currency.
+		// TODO(crossbank-otc): close this by converting offer.Premium via
+		// exchange-service into req.currency and comparing within a small tolerance
+		// band (to absorb rate drift between accept-compose and this vote-time check).
 		if strings.EqualFold(req.GetCurrency(), offer.PremiumCurrency) {
 			if !money.Equal(offer.Premium) {
 				return deny(fmt.Sprintf("premium %s != negotiated %s", money, offer.Premium))
