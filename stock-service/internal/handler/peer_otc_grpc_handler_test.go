@@ -317,4 +317,20 @@ func TestPeerOTC_AcceptNegotiation_DispatchesViaPeerTx(t *testing.T) {
 	if getResp.GetStatus() != "accepted" {
 		t.Errorf("expected accepted, got %s", getResp.GetStatus())
 	}
+
+	// Concurrency guard: a SECOND accept of the same (now-accepted) negotiation
+	// must be rejected, not dispatch a second option-formation TX (which would
+	// double-charge the premium, double-reserve seller shares, and mint a
+	// duplicate contract).
+	peerTx.gotReq = nil
+	_, err2 := h.AcceptNegotiation(ctx, &stockpb.AcceptNegotiationRequest{
+		PeerBankCode:  "222",
+		NegotiationId: createResp.GetNegotiationId(),
+	})
+	if status.Code(err2) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition on second accept, got %v", err2)
+	}
+	if peerTx.gotReq != nil {
+		t.Errorf("second accept must NOT dispatch a second option-formation TX")
+	}
 }

@@ -713,6 +713,22 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		return nil, status.Errorf(codes.Internal, "decode offer: %v", err)
 	}
 
+	// Atomically claim the negotiation for acceptance (ongoing → accepted) BEFORE
+	// composing/dispatching the option-formation SI-TX. This serialises concurrent
+	// accepts of the same negotiation: only one wins the compare-and-set and
+	// dispatches; the loser is rejected. Without it, two simultaneous accepts each
+	// charged the buyer the premium, reserved the seller's shares again, and minted
+	// a duplicate contract. On a synchronous dispatch failure we revert the claim
+	// (accepted → ongoing) so the negotiation can be re-accepted.
+	claimed, cerr := h.negRepo.CompareAndSetStatus(req.GetPeerBankCode(), req.GetNegotiationId().GetId(), "ongoing", "accepted")
+	if cerr != nil {
+		return nil, status.Errorf(codes.Internal, "claim negotiation: %v", cerr)
+	}
+	if !claimed {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"negotiation %s is not acceptable (already accepted/cancelled or an accept is in progress)", req.GetNegotiationId().GetId())
+	}
+
 	// Compose the 4 postings:
 	// 1. Buyer debits premium (in premium currency)
 	// 2. Seller credits premium
@@ -769,6 +785,12 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		TxKind:       "otc-accept",
 	})
 	if err != nil {
+		// Dispatch failed — release the acceptance claim (accepted → ongoing) so
+		// the negotiation can be re-accepted after the cause is resolved.
+		if _, rerr := h.negRepo.CompareAndSetStatus(req.GetPeerBankCode(), req.GetNegotiationId().GetId(), "accepted", "ongoing"); rerr != nil {
+			log.Printf("WARN: peer-otc accept: failed to revert claim for %s/%s after dispatch error: %v",
+				req.GetPeerBankCode(), req.GetNegotiationId().GetId(), rerr)
+		}
 		// Preserve the underlying gRPC code so a business rejection (e.g. seller
 		// has insufficient shares → FailedPrecondition INSUFFICIENT_ASSET) surfaces
 		// as 409 at the gateway, not a misleading 500 internal_error.
@@ -777,14 +799,8 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		}
 		return nil, status.Errorf(codes.Internal, "dispatch: %v", err)
 	}
-
-	if uerr := h.negRepo.UpdateStatus(req.GetPeerBankCode(), req.GetNegotiationId().GetId(), "accepted"); uerr != nil {
-		// Status update failure is non-fatal — the TX has already been
-		// dispatched and the negotiation is functionally accepted.
-		// Background sweep can reconcile.
-		log.Printf("WARN: peer-otc accept status update failed for %s/%s: %v",
-			req.GetPeerBankCode(), req.GetNegotiationId().GetId(), uerr)
-	}
+	// Negotiation was already claimed as "accepted" before dispatch (the
+	// concurrency guard); no post-dispatch status update needed.
 
 	// Seller-side notification: this bank is the SELLER's bank (the
 	// inbound /accept lands here because the buyer's bank POSTed). The

@@ -41,6 +41,22 @@ func (r *PeerOtcNegotiationRepository) UpdateStatus(peerCode, foreignID, status 
 		Updates(map[string]interface{}{"status": status}).Error
 }
 
+// CompareAndSetStatus atomically transitions a negotiation from `from` to `to`
+// in one guarded UPDATE, returning true iff exactly one row matched. Used to
+// claim a negotiation for acceptance (ongoing → accepted): the DB serialises
+// the UPDATE, so of two concurrent accepts only one observes a match and
+// dispatches the option-formation SI-TX — the loser is rejected, preventing a
+// double premium charge, double seller-share reservation, and duplicate contracts.
+func (r *PeerOtcNegotiationRepository) CompareAndSetStatus(peerCode, foreignID, from, to string) (bool, error) {
+	res := r.db.Model(&model.PeerOtcNegotiation{}).
+		Where("peer_bank_code = ? AND foreign_id = ? AND status = ?", peerCode, foreignID, from).
+		Updates(map[string]interface{}{"status": to})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // ListBySellerAndParentOffer returns every ongoing negotiation under
 // the given seller whose parent_offer matches the supplied (routing,
 // id) tuple. Phase 10 cascade-cancel: when one chain is accepted, the
