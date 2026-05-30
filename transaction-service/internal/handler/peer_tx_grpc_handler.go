@@ -424,6 +424,15 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 	if vote, err := h.httpClient.PostNewTx(ctx, target, envelope); err != nil {
 		_ = h.outRepo.MarkAttempt(idem, err.Error())
 	} else if vote.Type == contractsitx.VoteYes {
+		// PIVOT into the forward-only commit phase BEFORE the peer commits or the
+		// hold settles. If anything below fails the row stays `committing` and
+		// OutboundReplayCron drives it to committed — it is NEVER compensated.
+		// Without the pivot, a settle failure after the peer already credited the
+		// recipient could be max-attempts-compensated (hold released → sender
+		// keeps the money) while the recipient is credited — i.e. money created.
+		if cerr := h.outRepo.MarkCommitting(idem); cerr != nil {
+			return &transactionpb.SiTxInitiateResponse{TransactionId: idem, PollUrl: "/api/v3/me/payments/" + idem, Status: "pending"}, nil
+		}
 		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
 			IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
 			MessageType:    contractsitx.MessageTypeCommitTx,
@@ -433,8 +442,8 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 			_ = h.outRepo.MarkAttempt(idem, "commit: "+err.Error())
 		} else {
 			// Peer committed → settle the hold (Balance -= amount, money leaves).
-			// If settle fails, keep the row pending so OutboundReplayCron retries;
-			// SettleOutgoing is idempotent on the key.
+			// If settle fails, keep the row `committing` so OutboundReplayCron
+			// retries; SettleOutgoing is idempotent on the key.
 			if _, serr := h.client.SettleOutgoing(ctx, &accountpb.SettleOutgoingRequest{
 				ReservationKey: outKey,
 				IdempotencyKey: "peer-out-settle-" + idem,
@@ -551,13 +560,20 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 	if vote, err := h.httpClient.PostNewTx(ctx, target, envelope); err != nil {
 		_ = h.outRepo.MarkAttempt(idem, err.Error())
 	} else if vote.Type == contractsitx.VoteYes {
-		// Peer voted YES → finalise ALL local legs, then tell the peer to commit,
-		// then mark committed — but ONLY if every step succeeds. Any local failure
-		// leaves the row `pending` (via MarkAttempt) so OutboundReplayCron retries
-		// the full sequence via CommitOutboundLocal (which redoes commit + settle +
-		// option materialisation, all idempotent). Previously a local failure was
-		// MarkAttempt'd but then unconditionally overwritten by MarkCommitted,
-		// silently stranding an un-settled hold or an un-materialised contract.
+		// PIVOT: the peer voted YES → it has reserved and will honor a COMMIT.
+		// Durably cross into the `committing` phase BEFORE any local settle, so
+		// any failure below leaves the row forward-only (OutboundReplayCron drives
+		// it to committed via CommitOutboundLocal — it is NEVER compensated/rolled
+		// back, which would strand settled money or desync from a committed peer).
+		if cerr := h.outRepo.MarkCommitting(idem); cerr != nil {
+			// Couldn't pivot (concurrent resolution / terminal) — leave it for the
+			// cron; do not attempt the commit inline.
+			return &transactionpb.SiTxInitiateResponse{TransactionId: idem, PollUrl: "/api/v3/me/otc/transactions/" + idem + "/status", Status: "pending"}, nil
+		}
+		// Finalise ALL local legs, then tell the peer to commit, then mark
+		// committed — but ONLY if every step succeeds. Any failure leaves the row
+		// `committing` (via MarkAttempt, which preserves status) so the cron
+		// retries the full idempotent sequence and drives it forward.
 		localOK := true
 		// 1. Finalise local CREDIT-leg reservations. NotFound is benign.
 		if _, cerr := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{

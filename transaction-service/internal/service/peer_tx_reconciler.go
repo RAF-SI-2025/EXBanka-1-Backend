@@ -125,9 +125,13 @@ func (r *PeerTxReconciler) Tick(ctx context.Context) { r.tick(ctx) }
 
 func (r *PeerTxReconciler) tick(ctx context.Context) {
 	cutoff := time.Now().UTC().Add(-r.minAge)
-	rows, err := r.outRepo.ListPendingOlderThan(cutoff)
+	// Resume pending AND committing rows. For committing rows the rollback
+	// branch is a no-op (MarkRolledBack is guarded to status='pending'), so a
+	// committing row can only be driven forward (peer "committed" → settle
+	// local + MarkCommitted) — never compensated.
+	rows, err := r.outRepo.ListResumableOlderThan(cutoff)
 	if err != nil {
-		log.Printf("peer-tx-reconciler: list pending err: %v", err)
+		log.Printf("peer-tx-reconciler: list resumable err: %v", err)
 		return
 	}
 	for i := range rows {

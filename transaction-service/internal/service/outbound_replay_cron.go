@@ -137,7 +137,9 @@ func (c *OutboundReplayCron) Tick(ctx context.Context) { c.tick(ctx) }
 
 func (c *OutboundReplayCron) tick(ctx context.Context) {
 	cutoff := time.Now().UTC().Add(-c.minRetryGap)
-	rows, err := c.repo.ListPendingOlderThan(cutoff)
+	// Resume both `pending` (prepare phase, may compensate) and `committing`
+	// (commit phase, forward-only) rows.
+	rows, err := c.repo.ListResumableOlderThan(cutoff)
 	if err != nil {
 		log.Printf("outbound-replay: list err: %v", err)
 		return
@@ -148,18 +150,24 @@ func (c *OutboundReplayCron) tick(ctx context.Context) {
 }
 
 func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.OutboundPeerTx) {
+	// COMMIT PHASE (pivot already crossed): forward-only. Money may have settled,
+	// so this row is NEVER compensated or rolled back — only driven to committed.
+	if row.Status == "committing" {
+		c.driveCommit(ctx, row)
+		return
+	}
+
+	// PREPARE PHASE (status == "pending"): no YES recorded yet → nothing has
+	// settled → safe to compensate.
 	if row.AttemptCount >= c.maxAttempts {
-		// Terminal failure after exhausting retries. The peer never
-		// committed, but the sender was debited at initiation — reverse
-		// that before parking the row in `failed`. If the reversal itself
-		// fails we still mark failed (we're out of retries) but record the
-		// reversal error so ops can recover the stranded money.
-		reason := "max retries exceeded"
+		// Terminal failure after exhausting retries during PREPARE only (every
+		// attempt errored before a YES; the peer never reserved/committed).
+		// Release the sender's prepare-time hold and tell the peer to drop any
+		// partial reservation, then park in `failed`.
+		reason := "max retries exceeded (prepare phase)"
 		if rerr := c.reverse(ctx, row); rerr != nil {
-			reason += " (creditback failed: " + rerr.Error() + ")"
+			reason += " (reversal failed: " + rerr.Error() + ")"
 		}
-		// Tell the peer to release any reservation it placed on a prior YES vote
-		// (it never got our COMMIT). Idempotent + best-effort.
 		dispatchPeerRollback(ctx, c.httpClient, c.peerLookup, row.PeerBankCode, row.IdempotenceKey, "outbound-replay")
 		_ = c.repo.MarkFailed(row.IdempotenceKey, reason)
 		return
@@ -188,31 +196,19 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 		return
 	}
 	if vote.Type == contractsitx.VoteYes {
-		// Finalise the local CREDIT-leg reservations BEFORE sending COMMIT_TX,
-		// mirroring the inline dispatch path. Without this, an OTC row resumed
-		// here would commit on the peer but leave the local reservation in
-		// "pending" forever — funds/shares locked with no auto-recovery.
-		// LocalCommitFunc is idempotent (uses the same key as the inline path)
-		// so this is safe even if the inline path already ran it.
-		if c.commitLocal != nil {
-			if cerr := c.commitLocal(ctx, row); cerr != nil {
-				_ = c.repo.MarkAttempt(row.IdempotenceKey, "local commit: "+cerr.Error())
-				return
+		// PIVOT: the peer voted YES → it has reserved and will honor a COMMIT.
+		// Durably cross into the commit phase BEFORE any local settle, so any
+		// failure from here leaves the row `committing` (forward-only) — never
+		// pending/compensated. Idempotent.
+		if cerr := c.repo.MarkCommitting(row.IdempotenceKey); cerr != nil {
+			if errors.Is(cerr, repository.ErrPeerTxAlreadyResolved) {
+				return // concurrent worker resolved it
 			}
-		}
-		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
-			IdempotenceKey: contractsitx.IdempotenceKey{
-				RoutingNumber:       target.OwnRouting,
-				LocallyGeneratedKey: row.IdempotenceKey,
-			},
-			MessageType: contractsitx.MessageTypeCommitTx,
-			Message:     contractsitx.CommitTransaction{TransactionID: row.IdempotenceKey},
-		}
-		if err := c.httpClient.PostCommitTx(ctx, target, commitEnvelope); err != nil {
-			_ = c.repo.MarkAttempt(row.IdempotenceKey, "commit_tx: "+err.Error())
+			_ = c.repo.MarkAttempt(row.IdempotenceKey, "pivot: "+cerr.Error())
 			return
 		}
-		_ = c.repo.MarkCommitted(row.IdempotenceKey)
+		row.Status = "committing"
+		c.driveCommit(ctx, row)
 		return
 	}
 	reason := "peer voted NO"
@@ -254,6 +250,54 @@ func (c *OutboundReplayCron) reverse(ctx context.Context, row *model.OutboundPee
 		return nil
 	}
 	return c.reverseLocal(ctx, row)
+}
+
+// driveCommit drives a `committing` row FORWARD to committed and ONLY forward:
+// finalise the local legs (LocalCommitFunc: commit incoming reservations, settle
+// outgoing holds, materialise option contracts — all idempotent), send COMMIT_TX
+// to the peer, then mark committed. This row crossed the YES pivot, so money may
+// have settled and the peer is committed-bound — it is NEVER compensated or
+// rolled back. On any failure the row stays `committing` and is retried on the
+// next tick; once it has been stuck past the attempt cap we emit a loud
+// dead-letter ALERT (manual completion needed) but keep retrying — refunding or
+// rolling back here would strand settled funds or desync from a committed peer.
+func (c *OutboundReplayCron) driveCommit(ctx context.Context, row *model.OutboundPeerTx) {
+	fail := func(stage, msg string) {
+		_ = c.repo.MarkAttempt(row.IdempotenceKey, stage+": "+msg)
+		if row.AttemptCount+1 >= c.maxAttempts {
+			log.Printf("outbound-replay: ALERT committing tx %s stuck in commit phase after %d attempts at %s (%s) — NOT compensating (money is committed-bound); will keep retrying, manual completion may be required",
+				row.IdempotenceKey, row.AttemptCount+1, stage, msg)
+		}
+	}
+	// 1. Finalise this bank's local legs (idempotent).
+	if c.commitLocal != nil {
+		if cerr := c.commitLocal(ctx, row); cerr != nil {
+			fail("local commit", cerr.Error())
+			return
+		}
+	}
+	// 2. Tell the peer to commit (idempotent on the peer).
+	target, err := c.peerLookup(ctx, row.PeerBankCode)
+	if err != nil || target == nil {
+		fail("peer lookup", errString(err))
+		return
+	}
+	commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
+		IdempotenceKey: contractsitx.IdempotenceKey{
+			RoutingNumber:       target.OwnRouting,
+			LocallyGeneratedKey: row.IdempotenceKey,
+		},
+		MessageType: contractsitx.MessageTypeCommitTx,
+		Message:     contractsitx.CommitTransaction{TransactionID: row.IdempotenceKey},
+	}
+	if cerr := c.httpClient.PostCommitTx(ctx, target, commitEnvelope); cerr != nil {
+		fail("commit_tx", cerr.Error())
+		return
+	}
+	// 3. Both sides committed → close the saga.
+	if merr := c.repo.MarkCommitted(row.IdempotenceKey); merr != nil && !errors.Is(merr, repository.ErrPeerTxAlreadyResolved) {
+		log.Printf("outbound-replay: committing tx %s MarkCommitted failed: %v (peer already committed; will retry)", row.IdempotenceKey, merr)
+	}
 }
 
 func errString(err error) string {
