@@ -209,9 +209,6 @@ func (s *stubOTCOptionsClient) ListNegotiationRevisions(_ context.Context, in *s
 	}
 	return &stockpb.ListNegotiationRevisionsResponse{}, nil
 }
-func (s *stubOTCOptionsClient) GetOfferTimeline(_ context.Context, _ *stockpb.GetOfferTimelineRequest, _ ...grpc.CallOption) (*stockpb.GetOfferTimelineResponse, error) {
-	return &stockpb.GetOfferTimelineResponse{}, nil
-}
 
 var _ stockpb.OTCOptionsServiceClient = (*stubOTCOptionsClient)(nil)
 
@@ -730,5 +727,93 @@ func TestOTCOpt_ListRevisions_GRPCError(t *testing.T) {
 	r := otcRevisionsRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("GET", "/me/otc/options/negotiations/5/revisions", nil))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// ---- ListNegotiationsOnListing + GetOfferTimeline gateway handler tests ----
+
+func otcListingRouter(h *handler.OTCOptionsHandler) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	withCli := setClientIdentity(42)
+	r.GET("/otc/options/:id/negotiations", withCli, h.ListNegotiationsOnListing)
+	r.GET("/otc/options/:id/timeline", withCli, h.GetOfferTimeline)
+	return r
+}
+
+// The listing handler must forward the caller's resolved identity to the
+// gRPC request so the service can run the poster/employee audience check.
+func TestOTCOpt_ListNegotiationsOnListing_ForwardsIdentity(t *testing.T) {
+	var got *stockpb.ListNegotiationsByListingRequest
+	cl := &stubOTCOptionsClient{
+		listByListingFn: func(in *stockpb.ListNegotiationsByListingRequest) (*stockpb.ListNegotiationsResponse, error) {
+			got = in
+			return &stockpb.ListNegotiationsResponse{}, nil
+		},
+	}
+	r := otcListingRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/otc/options/42/negotiations", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, got)
+	require.Equal(t, uint64(42), got.GetParentOfferId())
+	require.Equal(t, "client", got.GetCallerOwnerType())
+	require.Equal(t, uint64(42), got.GetCallerOwnerId())
+}
+
+// A 403 from the service (competing bidder) propagates as HTTP 403.
+func TestOTCOpt_ListNegotiationsOnListing_Forbidden(t *testing.T) {
+	cl := &stubOTCOptionsClient{
+		listByListingFn: func(*stockpb.ListNegotiationsByListingRequest) (*stockpb.ListNegotiationsResponse, error) {
+			return nil, status.Error(codes.PermissionDenied, "not the poster")
+		},
+	}
+	r := otcListingRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/otc/options/42/negotiations", nil))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// Timeline happy path: 200 with "offer" + "timeline" keys, identity forwarded.
+func TestOTCOpt_GetOfferTimeline_Success(t *testing.T) {
+	var got *stockpb.GetOfferTimelineRequest
+	cl := &stubOTCOptionsClient{
+		getTimelineFn: func(in *stockpb.GetOfferTimelineRequest) (*stockpb.GetOfferTimelineResponse, error) {
+			got = in
+			return &stockpb.GetOfferTimelineResponse{
+				Offer:    &stockpb.OTCOfferResponse{Id: in.GetParentOfferId()},
+				Timeline: []*stockpb.OTCTimelineEntry{{NegotiationId: 100, Action: "BID"}},
+			}, nil
+		},
+	}
+	r := otcListingRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/otc/options/42/timeline", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"timeline"`)
+	require.Contains(t, rec.Body.String(), `"offer"`)
+	require.NotNil(t, got)
+	require.Equal(t, "client", got.GetCallerOwnerType())
+	require.Equal(t, uint64(42), got.GetCallerOwnerId())
+}
+
+// Timeline: non-numeric id yields 400.
+func TestOTCOpt_GetOfferTimeline_BadID(t *testing.T) {
+	r := otcListingRouter(otcHandler(&stubOTCOptionsClient{}, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/otc/options/abc/timeline", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// Timeline: a 403 from the service propagates as HTTP 403.
+func TestOTCOpt_GetOfferTimeline_Forbidden(t *testing.T) {
+	cl := &stubOTCOptionsClient{
+		getTimelineFn: func(*stockpb.GetOfferTimelineRequest) (*stockpb.GetOfferTimelineResponse, error) {
+			return nil, status.Error(codes.PermissionDenied, "not the poster")
+		},
+	}
+	r := otcListingRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/otc/options/42/timeline", nil))
 	require.Equal(t, http.StatusForbidden, rec.Code)
 }
