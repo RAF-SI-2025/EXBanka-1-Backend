@@ -1069,15 +1069,59 @@ func (h *PeerOTCGRPCHandler) ValidatePeerOptionMoneyLeg(ctx context.Context, req
 		return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: false, Reason: reason}, nil
 	}
 
-	if !strings.EqualFold(req.GetIntent(), "exercise") {
-		// Accept/empty intent — premium-vs-negotiation validation not yet enforced.
-		return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: true, Reason: "accept money-leg validation not enforced"}, nil
-	}
-
 	money, err := decimal.NewFromString(req.GetMoneyAmount())
 	if err != nil {
 		return deny("unparseable money_amount: " + req.GetMoneyAmount())
 	}
+
+	if !strings.EqualFold(req.GetIntent(), "exercise") {
+		// ACCEPT intent: the contract doesn't exist on the receiver yet (minted at
+		// COMMIT), so validate the PREMIUM money against the stored NEGOTIATION.
+		// Look up by foreign_id alone (the negotiation UUID, identical on both
+		// banks and unique per bank) — NOT by peer_bank_code: this validator runs on
+		// both the coordinator (sees its OWN routing as the peer code) and the
+		// receiver (sees the counterparty), so the peer_bank_code is unreliable here.
+		neg, nerr := h.negRepo.GetByForeignID(req.GetNegotiationId())
+		if nerr != nil {
+			if errors.Is(nerr, gorm.ErrRecordNotFound) {
+				return deny("no stored negotiation for peer/id")
+			}
+			return nil, status.Errorf(codes.Internal, "lookup negotiation: %v", nerr)
+		}
+		var offer contractsitx.OtcOffer
+		if jerr := json.Unmarshal([]byte(neg.OfferJSON), &offer); jerr != nil {
+			return nil, status.Errorf(codes.Internal, "decode offer: %v", jerr)
+		}
+		// Option terms must match the agreed negotiation (rejects forged ticker/
+		// quantity/strike regardless of currency).
+		if req.GetQuantity() != offer.Amount {
+			return deny(fmt.Sprintf("quantity %d != negotiated %d", req.GetQuantity(), offer.Amount))
+		}
+		if req.GetTicker() != "" && !strings.EqualFold(req.GetTicker(), offer.Ticker) {
+			return deny(fmt.Sprintf("ticker %q != negotiated %q", req.GetTicker(), offer.Ticker))
+		}
+		if req.GetStrikePrice() != "" {
+			if sp, e := decimal.NewFromString(req.GetStrikePrice()); e == nil && !sp.Equal(offer.PricePerStock) {
+				return deny(fmt.Sprintf("strike %s != negotiated %s", sp, offer.PricePerStock))
+			}
+		}
+		// Premium money check. The seller ALWAYS receives offer.Premium in
+		// offer.PremiumCurrency (no FX on the seller's receipt), so when the money
+		// leg is in the premium currency we require an exact match — this covers the
+		// seller side of every trade and the buyer side of a same-currency trade.
+		// A cross-currency BUYER premium is FX-converted at the live rate, which the
+		// receiver can't recompute here; we still reject a non-positive amount but
+		// don't enforce the exact value (documented residual).
+		if strings.EqualFold(req.GetCurrency(), offer.PremiumCurrency) {
+			if !money.Equal(offer.Premium) {
+				return deny(fmt.Sprintf("premium %s != negotiated %s", money, offer.Premium))
+			}
+		} else if money.LessThanOrEqual(decimal.Zero) {
+			return deny("cross-currency premium must be positive")
+		}
+		return &stockpb.ValidatePeerOptionMoneyLegResponse{Ok: true}, nil
+	}
+
 	contract, err := h.peerOptionRepo.GetByNegotiationAndDirection(req.GetNegotiationRouting(), req.GetNegotiationId(), req.GetDirection())
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

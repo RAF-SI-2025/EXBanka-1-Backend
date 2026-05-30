@@ -194,7 +194,7 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 			}
 			var full contractsitx.OptionDescription
 			_ = json.Unmarshal([]byte(p.AssetID), &full)
-			pairedMoney := sumPairedMoney(postings, e.ownRouting, p.Direction, full.Currency)
+			money, moneyCcy := pairedMoney(postings, e.ownRouting, string(p.Direction))
 			vresp, verr := e.holdingChecker.ValidatePeerOptionMoneyLeg(ctx, &stockpb.ValidatePeerOptionMoneyLegRequest{
 				NegotiationRouting: full.NegotiationID.RoutingNumber,
 				NegotiationId:      full.NegotiationID.ID,
@@ -203,8 +203,9 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 				Ticker:             full.Ticker,
 				Quantity:           full.Amount,
 				StrikePrice:        full.StrikePrice.String(),
-				MoneyAmount:        pairedMoney.String(),
-				Currency:           full.Currency,
+				MoneyAmount:        money.String(),
+				Currency:           moneyCcy,
+				PeerBankCode:       peerBankCode,
 			})
 			if verr != nil || vresp == nil || !vresp.GetOk() {
 				return noVote(contractsitx.NoVoteReasonUnacceptableAsset, i)
@@ -498,22 +499,27 @@ func (e *PostingExecutor) resolveAccountForPosting(ctx context.Context, accountI
 	return "", fmt.Errorf("client %d has no active %s account", clientID, currency)
 }
 
-// sumPairedMoney totals the money this bank moves for an option leg of the given
-// direction, in the option's currency, so it can be checked against stored terms.
-// A DEBIT option leg (we hold the seller, who RECEIVES the strike) pairs with the
-// money CREDIT on our routing; a CREDIT option leg (we hold the buyer, who PAYS
-// the strike) pairs with the money DEBIT on our routing. In a cross-bank SI-TX
-// each routing carries exactly one side's money leg, so summing by direction +
-// currency on our routing yields that participant's strike without needing to
-// match the participant id (the seller's money leg uses a participant id while
-// the buyer's uses a resolved account number, so id-matching is unreliable).
-// Option-asset legs (AssetID is a JSON blob) are skipped.
-func sumPairedMoney(postings []contractsitx.Posting, ownRouting int64, optionDirection, currency string) decimal.Decimal {
+// pairedMoney totals the money this bank moves for an option leg of the given
+// direction and reports its currency, so it can be checked against stored terms.
+// A DEBIT option leg (we hold the seller, who RECEIVES the strike/premium) pairs
+// with the money CREDIT on our routing; a CREDIT option leg (we hold the buyer,
+// who PAYS it) pairs with the money DEBIT on our routing. In a cross-bank SI-TX
+// each routing carries exactly one side's money leg, so summing by direction on
+// our routing yields that participant's amount without needing to match the
+// participant id (the seller's money leg uses a participant id while the buyer's
+// uses a resolved account number, so id-matching is unreliable). The currency is
+// taken from the money leg itself (the premium currency on accept may differ from
+// the strike currency on a cross-currency trade, so it must NOT be assumed from
+// the option description). Option-asset legs (AssetID is a JSON blob) are skipped.
+// Returns ("0", "") when no paired money leg is present (a forged/degenerate
+// envelope), which fails downstream validation closed.
+func pairedMoney(postings []contractsitx.Posting, ownRouting int64, optionDirection string) (decimal.Decimal, string) {
 	wantMoneyDir := contractsitx.DirectionCredit // seller (DEBIT option) receives money
 	if optionDirection == contractsitx.DirectionCredit {
 		wantMoneyDir = contractsitx.DirectionDebit // buyer (CREDIT option) pays money
 	}
 	total := decimal.Zero
+	currency := ""
 	for i := range postings {
 		p := postings[i]
 		if p.RoutingNumber != ownRouting || p.Direction != wantMoneyDir {
@@ -522,12 +528,15 @@ func sumPairedMoney(postings []contractsitx.Posting, ownRouting int64, optionDir
 		if strings.HasPrefix(p.AssetID, "{") { // option-asset leg, not money
 			continue
 		}
-		if p.AssetID != currency {
-			continue
+		if currency != "" && p.AssetID != currency {
+			// Mixed currencies for one side is a forged/degenerate envelope —
+			// surface an empty currency so validation fails closed.
+			return total, ""
 		}
+		currency = p.AssetID
 		total = total.Add(p.Amount)
 	}
-	return total
+	return total, currency
 }
 
 // hasOwnDebitOptionLeg reports whether the postings contain a DEBIT

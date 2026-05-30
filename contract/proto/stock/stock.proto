@@ -2182,15 +2182,16 @@ message ReserveSellerSharesResponse {
 // total money the sender proposes to move for the same participant on this
 // bank, so the receiver can reject any mismatch against its OWN stored terms.
 message ValidatePeerOptionMoneyLegRequest {
-  int64 negotiation_routing = 1;   // negotiationId.routingNumber from the option description
-  string negotiation_id = 2;       // negotiationId.id
+  int64 negotiation_routing = 1;   // negotiationId.routingNumber from the option description (used for exercise contract lookup)
+  string negotiation_id = 2;       // negotiationId.id (== negotiation foreign_id; used for both contract and negotiation lookup)
   string direction = 3;            // this leg's direction on this bank: DEBIT (seller) or CREDIT (buyer)
   string intent = 4;               // "exercise" or "accept"/""
   string ticker = 5;               // claimed ticker (cross-checked vs stored)
   int64 quantity = 6;              // claimed option quantity (cross-checked vs stored)
   string strike_price = 7;         // claimed per-unit strike (cross-checked vs stored)
   string money_amount = 8;         // total paired money for this participant on this bank (decimal string)
-  string currency = 9;             // money leg currency
+  string currency = 9;             // money leg currency (premium currency on accept; strike currency on exercise)
+  string peer_bank_code = 10;      // the NEW_TX sender's bank code == receiver's negotiation peer_bank_code (accept lookup)
 }
 
 message ValidatePeerOptionMoneyLegResponse {

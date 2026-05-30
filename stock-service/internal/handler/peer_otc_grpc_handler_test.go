@@ -383,13 +383,6 @@ func TestValidatePeerOptionMoneyLeg_ForgedStrike(t *testing.T) {
 	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, nf); r.GetOk() {
 		t.Errorf("missing contract must be denied; got ok")
 	}
-	// Accept intent → not enforced (ok=true), behaviour unchanged.
-	ac := base("1")
-	ac.Intent = "accept"
-	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, ac); err != nil || !r.GetOk() {
-		t.Errorf("accept intent should not be blocked here; got ok=%v err=%v", r.GetOk(), err)
-	}
-
 	// Replay defense: once the contract is exercised, even an honest-amount
 	// exercise must be denied (a forged second exercise would double-charge).
 	if err := db.Model(&model.PeerOptionContract{}).Where("negotiation_id = ?", "neg-1").Update("status", "exercised").Error; err != nil {
@@ -397,5 +390,56 @@ func TestValidatePeerOptionMoneyLeg_ForgedStrike(t *testing.T) {
 	}
 	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, base("500")); r.GetOk() {
 		t.Errorf("exercise of an already-exercised contract must be denied; got ok with reason=%q", r.GetReason())
+	}
+}
+
+// TestValidatePeerOptionMoneyLeg_AcceptPremium guards the accept side: the
+// premium money must equal the stored negotiation's premium (per-currency), and
+// the option terms must match — a forged-low premium or forged terms is denied.
+func TestValidatePeerOptionMoneyLeg_AcceptPremium(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t) // ownRouting 111
+	// Stored negotiation: 2 MA, strike 250, premium 35 RSD. peer_bank_code is the
+	// counterparty's code ("222"); foreign_id is the negotiation UUID.
+	offer := `{"ticker":"MA","amount":2,"pricePerStock":"250","currency":"RSD","premium":"35","premiumCurrency":"RSD","settlementDate":"2028-06-30T00:00:00Z"}`
+	if err := db.Create(&model.PeerOtcNegotiation{
+		PeerBankCode: "222", ForeignID: "neg-A", BuyerRoutingNumber: 111, BuyerID: "client-1",
+		SellerRoutingNumber: 222, SellerID: "client-9", OfferJSON: offer, Status: "ongoing",
+	}).Error; err != nil {
+		t.Fatalf("seed negotiation: %v", err)
+	}
+	base := func(prem string) *stockpb.ValidatePeerOptionMoneyLegRequest {
+		return &stockpb.ValidatePeerOptionMoneyLegRequest{
+			NegotiationRouting: 222, NegotiationId: "neg-A", Direction: "CREDIT",
+			Intent: "accept", Ticker: "MA", Quantity: 2, StrikePrice: "250",
+			MoneyAmount: prem, Currency: "RSD", PeerBankCode: "222",
+		}
+	}
+	ctx := context.Background()
+	// Forged-low premium → DENY.
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, base("1")); r.GetOk() {
+		t.Errorf("forged-low premium (1 vs 35) must be denied; got ok reason=%q", r.GetReason())
+	}
+	// Honest premium → OK.
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, base("35")); err != nil || !r.GetOk() {
+		t.Errorf("honest premium (35) must pass; got ok=%v reason=%q err=%v", r.GetOk(), r.GetReason(), err)
+	}
+	// Forged quantity → DENY.
+	q := base("35")
+	q.Quantity = 99
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, q); r.GetOk() {
+		t.Errorf("forged quantity must be denied; got ok reason=%q", r.GetReason())
+	}
+	// No negotiation → DENY.
+	nf := base("35")
+	nf.NegotiationId = "nope"
+	if r, _ := h.ValidatePeerOptionMoneyLeg(ctx, nf); r.GetOk() {
+		t.Errorf("missing negotiation must be denied; got ok")
+	}
+	// Cross-currency premium (money currency != premium currency): not amount-
+	// checked, but a positive amount is accepted (documented residual).
+	cc := base("9999")
+	cc.Currency = "EUR"
+	if r, err := h.ValidatePeerOptionMoneyLeg(ctx, cc); err != nil || !r.GetOk() {
+		t.Errorf("cross-currency positive premium should pass (residual); got ok=%v err=%v", r.GetOk(), err)
 	}
 }

@@ -15929,15 +15929,16 @@ func (x *ReserveSellerSharesResponse) GetAvailableQuantity() int64 {
 // bank, so the receiver can reject any mismatch against its OWN stored terms.
 type ValidatePeerOptionMoneyLegRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	NegotiationRouting int64                  `protobuf:"varint,1,opt,name=negotiation_routing,json=negotiationRouting,proto3" json:"negotiation_routing,omitempty"` // negotiationId.routingNumber from the option description
-	NegotiationId      string                 `protobuf:"bytes,2,opt,name=negotiation_id,json=negotiationId,proto3" json:"negotiation_id,omitempty"`                 // negotiationId.id
+	NegotiationRouting int64                  `protobuf:"varint,1,opt,name=negotiation_routing,json=negotiationRouting,proto3" json:"negotiation_routing,omitempty"` // negotiationId.routingNumber from the option description (used for exercise contract lookup)
+	NegotiationId      string                 `protobuf:"bytes,2,opt,name=negotiation_id,json=negotiationId,proto3" json:"negotiation_id,omitempty"`                 // negotiationId.id (== negotiation foreign_id; used for both contract and negotiation lookup)
 	Direction          string                 `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"`                                              // this leg's direction on this bank: DEBIT (seller) or CREDIT (buyer)
 	Intent             string                 `protobuf:"bytes,4,opt,name=intent,proto3" json:"intent,omitempty"`                                                    // "exercise" or "accept"/""
 	Ticker             string                 `protobuf:"bytes,5,opt,name=ticker,proto3" json:"ticker,omitempty"`                                                    // claimed ticker (cross-checked vs stored)
 	Quantity           int64                  `protobuf:"varint,6,opt,name=quantity,proto3" json:"quantity,omitempty"`                                               // claimed option quantity (cross-checked vs stored)
 	StrikePrice        string                 `protobuf:"bytes,7,opt,name=strike_price,json=strikePrice,proto3" json:"strike_price,omitempty"`                       // claimed per-unit strike (cross-checked vs stored)
 	MoneyAmount        string                 `protobuf:"bytes,8,opt,name=money_amount,json=moneyAmount,proto3" json:"money_amount,omitempty"`                       // total paired money for this participant on this bank (decimal string)
-	Currency           string                 `protobuf:"bytes,9,opt,name=currency,proto3" json:"currency,omitempty"`                                                // money leg currency
+	Currency           string                 `protobuf:"bytes,9,opt,name=currency,proto3" json:"currency,omitempty"`                                                // money leg currency (premium currency on accept; strike currency on exercise)
+	PeerBankCode       string                 `protobuf:"bytes,10,opt,name=peer_bank_code,json=peerBankCode,proto3" json:"peer_bank_code,omitempty"`                 // the NEW_TX sender's bank code == receiver's negotiation peer_bank_code (accept lookup)
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -16031,6 +16032,13 @@ func (x *ValidatePeerOptionMoneyLegRequest) GetMoneyAmount() string {
 func (x *ValidatePeerOptionMoneyLegRequest) GetCurrency() string {
 	if x != nil {
 		return x.Currency
+	}
+	return ""
+}
+
+func (x *ValidatePeerOptionMoneyLegRequest) GetPeerBankCode() string {
+	if x != nil {
+		return x.PeerBankCode
 	}
 	return ""
 }
@@ -20128,7 +20136,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x1bReserveSellerSharesResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12+\n" +
 	"\x11reserved_quantity\x18\x02 \x01(\x03R\x10reservedQuantity\x12-\n" +
-	"\x12available_quantity\x18\x03 \x01(\x03R\x11availableQuantity\"\xc7\x02\n" +
+	"\x12available_quantity\x18\x03 \x01(\x03R\x11availableQuantity\"\xed\x02\n" +
 	"!ValidatePeerOptionMoneyLegRequest\x12/\n" +
 	"\x13negotiation_routing\x18\x01 \x01(\x03R\x12negotiationRouting\x12%\n" +
 	"\x0enegotiation_id\x18\x02 \x01(\tR\rnegotiationId\x12\x1c\n" +
@@ -20138,7 +20146,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\bquantity\x18\x06 \x01(\x03R\bquantity\x12!\n" +
 	"\fstrike_price\x18\a \x01(\tR\vstrikePrice\x12!\n" +
 	"\fmoney_amount\x18\b \x01(\tR\vmoneyAmount\x12\x1a\n" +
-	"\bcurrency\x18\t \x01(\tR\bcurrency\"L\n" +
+	"\bcurrency\x18\t \x01(\tR\bcurrency\x12$\n" +
+	"\x0epeer_bank_code\x18\n" +
+	" \x01(\tR\fpeerBankCode\"L\n" +
 	"\"ValidatePeerOptionMoneyLegResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"D\n" +
