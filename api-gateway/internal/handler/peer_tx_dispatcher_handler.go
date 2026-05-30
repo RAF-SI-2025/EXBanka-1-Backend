@@ -161,26 +161,41 @@ func (h *PeerTxDispatcherHandler) GetPaymentByID(c *gin.Context) {
 	h.tx.GetMyPayment(c)
 }
 
-// GetCrossBankTxStatus resolves a cross-bank SI-TX transaction id (the UUID a
-// cross-bank OTC trade's poll_url carries) to its outbound status via
-// PeerTxService.GetTxStatus — the same lookup the payment status route uses.
-// The id is always a UUID here (no numeric/intra-bank form). Capability-based:
-// the UUID is only handed to the initiating side, so holding it authorizes
-// reading its status.
+// GetCrossBankTxStatus resolves a cross-bank OTC trade's SI-TX transaction id to
+// its status via PeerTxService.GetTxStatus. The :txid accepts either form a
+// client may hold:
+//   - the bare idem (the poll_url returned at dispatch), or
+//   - the contract's `crossbank_tx_id` = "<peerCode>:<idem>" (from
+//     GET /api/v3/me/otc/contracts → peer_contracts[].crossbank_tx_id).
+//
+// The composite is split into (caller_peer_bank_code, transaction_id) so the
+// lookup resolves on BOTH banks: the dispatching (sender) bank via its outbound
+// row (bare idem), and the receiving bank via its inbound idempotence record
+// keyed by (peerCode, idem). Capability-based: the id is only known to the
+// trade's parties, so holding it authorizes reading its status.
 //
 // GetCrossBankTxStatus godoc
 // @Summary      Cross-bank OTC transaction status (SI-TX)
-// @Description  Resolves the SI-TX transaction id from a cross-bank OTC trade's poll_url to {transaction_id, status, role, last_action_at, last_error}.
+// @Description  Resolves a cross-bank OTC trade's transaction id (bare idem, or the contract's "peerCode:idem" crossbank_tx_id) to {transaction_id, status, role, last_action_at, last_error}.
 // @Tags         otc
 // @Security     BearerAuth
 // @Produce      json
-// @Param        txid path string true "SI-TX transaction id (UUID)"
+// @Param        txid path string true "SI-TX transaction id (bare idem or 'peerCode:idem')"
 // @Success      200 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Router       /api/v3/me/otc/transactions/{txid}/status [get]
 func (h *PeerTxDispatcherHandler) GetCrossBankTxStatus(c *gin.Context) {
 	id := c.Param("txid")
-	resp, err := h.peerTx.GetTxStatus(c.Request.Context(), &transactionpb.GetTxStatusRequest{TransactionId: id})
+	transactionID := id
+	callerCode := ""
+	if i := strings.IndexByte(id, ':'); i >= 0 {
+		callerCode = id[:i]
+		transactionID = id[i+1:]
+	}
+	resp, err := h.peerTx.GetTxStatus(c.Request.Context(), &transactionpb.GetTxStatusRequest{
+		TransactionId:      transactionID,
+		CallerPeerBankCode: callerCode,
+	})
 	if err != nil {
 		handleGRPCError(c, err)
 		return

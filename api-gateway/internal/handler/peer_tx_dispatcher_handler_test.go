@@ -238,23 +238,40 @@ func TestPeerTxDispatcher_UUIDResolvesViaGetTxStatus(t *testing.T) {
 }
 
 // The cross-bank OTC status endpoint (poll target for cross-bank OTC trades)
-// resolves the SI-TX transaction id via GetTxStatus.
+// resolves the SI-TX transaction id via GetTxStatus. It accepts both the bare
+// idem (poll_url) and the contract's "peerCode:idem" crossbank_tx_id, splitting
+// the latter into (caller_peer_bank_code, transaction_id) so it resolves on
+// both the sender and receiver banks.
 func TestPeerTxDispatcher_OTCCrossBankStatus(t *testing.T) {
 	const uuid = "aaaa1111-2222-3333-4444-555566667777"
-	peerTx := &stubPeerTxClient{
-		getTxStatusFn: func(_ context.Context, in *transactionpb.GetTxStatusRequest, _ ...grpc.CallOption) (*transactionpb.GetTxStatusResponse, error) {
-			require.Equal(t, uuid, in.GetTransactionId())
-			return &transactionpb.GetTxStatusResponse{State: "pending", OurRole: "sender"}, nil
-		},
+	cases := []struct {
+		name           string
+		pathID         string
+		wantTxnID      string
+		wantCallerCode string
+	}{
+		{name: "bare idem (poll_url)", pathID: uuid, wantTxnID: uuid, wantCallerCode: ""},
+		{name: "composite peerCode:idem (contract crossbank_tx_id)", pathID: "222:" + uuid, wantTxnID: uuid, wantCallerCode: "222"},
 	}
-	r := peerTxDispatcherRouter(t, &stubTransactionClient{}, peerTx, "111", nil)
-	req := httptest.NewRequest("GET", "/api/v3/me/otc/transactions/"+uuid+"/status", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			peerTx := &stubPeerTxClient{
+				getTxStatusFn: func(_ context.Context, in *transactionpb.GetTxStatusRequest, _ ...grpc.CallOption) (*transactionpb.GetTxStatusResponse, error) {
+					require.Equal(t, tc.wantTxnID, in.GetTransactionId())
+					require.Equal(t, tc.wantCallerCode, in.GetCallerPeerBankCode())
+					return &transactionpb.GetTxStatusResponse{State: "committed", OurRole: "sender"}, nil
+				},
+			}
+			r := peerTxDispatcherRouter(t, &stubTransactionClient{}, peerTx, "111", nil)
+			req := httptest.NewRequest("GET", "/api/v3/me/otc/transactions/"+tc.pathID+"/status", nil)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, uuid, resp["transaction_id"])
-	require.Equal(t, "pending", resp["status"])
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, tc.pathID, resp["transaction_id"])
+			require.Equal(t, "committed", resp["status"])
+		})
+	}
 }

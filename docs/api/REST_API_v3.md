@@ -5649,16 +5649,20 @@ The exercise route, contract list, contract detail, ratings, and negotiation-his
 
 ### GET /api/v3/me/otc/transactions/:txid/status
 
-Status of a **cross-bank** OTC trade's underlying SI-TX transaction. When a cross-bank OTC accept/exercise is dispatched, transaction-service returns a `transaction_id` (UUID) and a `poll_url` of this form; this endpoint resolves it via `PeerTxService.GetTxStatus` (reads the `outbound_peer_txs` row). Same status shape as a cross-bank payment. The UUID is unguessable and only handed to the initiating side, so holding it authorizes reading its status.
+Status of a **cross-bank** OTC trade's underlying SI-TX transaction, resolved via `PeerTxService.GetTxStatus`. The `:txid` accepts either id a client may hold:
+- the bare idem returned in a dispatch's `poll_url`; or
+- a cross-bank contract's **`crossbank_tx_id`** (form `"<peerCode>:<idem>"`), which `GET /api/v3/me/otc/contracts` already returns on every `peer_contracts[]` entry.
+
+The composite form is split into `(caller_peer_bank_code, transaction_id)` so the status resolves on **both** banks — the dispatching (sender) bank via its outbound row, the receiving bank via its inbound idempotence record. So a client can read their cross-bank contracts and poll each one's status directly, no extra plumbing. The id is only known to the trade's parties, so holding it authorizes reading its status.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Response 200:**
 ```json
-{ "transaction_id": "aaaa-...-7777", "status": "committed", "role": "sender", "last_action_at": "2026-05-30T00:00:00Z", "last_error": "" }
+{ "transaction_id": "222:aaaa-...-7777", "status": "committed", "role": "sender", "last_action_at": "2026-05-30T00:00:00Z", "last_error": "" }
 ```
 
-> Note: the SI-TX transaction id flows through the (frozen) cross-bank protocol; surfacing it onto a client-visible OTC contract view so end clients can poll directly is a separate follow-up. This endpoint + the corrected `poll_url` are the working foundation.
+> Protocol note: this is a local, client-facing read endpoint. It does **not** touch the (frozen, multi-team) cross-bank SI-TX protocol — the transaction id is already persisted locally on `peer_option_contracts.crossbank_tx_id` and the status is read via the existing `GetTxStatus` RPC.
 
 ---
 

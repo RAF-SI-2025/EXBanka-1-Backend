@@ -12388,7 +12388,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Resolves the SI-TX transaction id from a cross-bank OTC trade's poll_url to {transaction_id, status, role, last_action_at, last_error}.",
+                "description": "Resolves a cross-bank OTC trade's transaction id (bare idem, or the contract's \"peerCode:idem\" crossbank_tx_id) to {transaction_id, status, role, last_action_at, last_error}.",
                 "produces": [
                     "application/json"
                 ],
@@ -12399,7 +12399,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "SI-TX transaction id (UUID)",
+                        "description": "SI-TX transaction id (bare idem or 'peerCode:idem')",
                         "name": "txid",
                         "in": "path",
                         "required": true
