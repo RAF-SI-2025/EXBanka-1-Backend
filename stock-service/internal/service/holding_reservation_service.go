@@ -1078,7 +1078,9 @@ func (s *HoldingReservationService) ExerciseBuyerCreditForPeerOption(
 		if contract.Status == "exercised" {
 			return nil // already credited + exercised by a prior committed attempt
 		}
-		if contract.Status != "active" {
+		// "exercising" is the buyer-side claim set at InitiateOptionExercise to
+		// serialise concurrent exercises; "active" covers the unclaimed path.
+		if contract.Status != "active" && contract.Status != "exercising" {
 			return status.Errorf(codes.FailedPrecondition, "cannot exercise contract in status %q", contract.Status)
 		}
 		if err := creditBuyerHoldingTx(tx, ownerType, ownerID, ticker, qty, strikePrice); err != nil {

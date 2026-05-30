@@ -769,6 +769,12 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		TxKind:       "otc-accept",
 	})
 	if err != nil {
+		// Preserve the underlying gRPC code so a business rejection (e.g. seller
+		// has insufficient shares → FailedPrecondition INSUFFICIENT_ASSET) surfaces
+		// as 409 at the gateway, not a misleading 500 internal_error.
+		if st, ok := status.FromError(err); ok {
+			return nil, status.Errorf(st.Code(), "dispatch: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "dispatch: %v", err)
 	}
 
@@ -1136,7 +1142,10 @@ func (h *PeerOTCGRPCHandler) recordOptionExercise(ctx context.Context, req *stoc
 	if contract.Status == "exercised" {
 		return &stockpb.RecordOptionContractResponse{ContractId: contract.ID}, nil
 	}
-	if contract.Status != "active" {
+	// "active" (seller/DEBIT side, never claimed) and "exercising" (buyer/CREDIT
+	// side, claimed at InitiateOptionExercise to serialise concurrent exercises)
+	// are both valid pre-exercise states.
+	if contract.Status != "active" && contract.Status != "exercising" {
 		return nil, status.Errorf(codes.FailedPrecondition, "cannot exercise contract in status %q", contract.Status)
 	}
 
@@ -1243,8 +1252,21 @@ func (h *PeerOTCGRPCHandler) InitiateOptionExercise(ctx context.Context, req *st
 	if contract.Direction != contractsitx.DirectionCredit {
 		return nil, status.Error(codes.FailedPrecondition, "this bank does not hold the buyer side of the contract; only the buyer's bank can initiate exercise")
 	}
-	if contract.Status != "active" {
-		return nil, status.Errorf(codes.FailedPrecondition, "contract status %q is not exercisable", contract.Status)
+	// Atomically claim the contract for exercise (active → exercising). This is
+	// the concurrency guard: of two simultaneous exercise attempts only one wins
+	// the compare-and-set, so only one exercise SI-TX is ever dispatched and the
+	// buyer is charged the strike exactly once. Without it, both attempts pass a
+	// non-locked status read and each settles strike money — a double charge
+	// (the share delivery is idempotent, but the money leg was not). On any
+	// synchronous dispatch failure below we revert exercising → active so the
+	// buyer can retry (e.g. after funding their account).
+	claimed, cerr := h.peerOptionRepo.CompareAndSetStatus(contract.ID, "active", "exercising")
+	if cerr != nil {
+		return nil, status.Errorf(codes.Internal, "claim contract for exercise: %v", cerr)
+	}
+	if !claimed {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"contract status %q is not exercisable (already exercised, expired, or an exercise is already in progress)", contract.Status)
 	}
 
 	strikeAmount := contract.StrikePrice.Mul(decimal.NewFromInt(contract.Quantity)).String()
@@ -1288,6 +1310,18 @@ func (h *PeerOTCGRPCHandler) InitiateOptionExercise(ctx context.Context, req *st
 		TxKind:       "otc-exercise",
 	})
 	if err != nil {
+		// Dispatch failed synchronously (e.g. buyer can't afford the strike →
+		// INSUFFICIENT_ASSET) — release the exercise claim so the contract is
+		// exercisable again after the buyer funds their account.
+		if _, rerr := h.peerOptionRepo.CompareAndSetStatus(contract.ID, "exercising", "active"); rerr != nil {
+			log.Printf("WARN: peer-option contract %d: failed to revert exercise claim after dispatch error: %v", contract.ID, rerr)
+		}
+		// Preserve the underlying gRPC code (FailedPrecondition for a business
+		// rejection like insufficient funds) instead of masking it as Internal,
+		// so the gateway returns 409 not 500.
+		if st, ok := status.FromError(err); ok {
+			return nil, status.Errorf(st.Code(), "dispatch exercise: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "dispatch exercise: %v", err)
 	}
 	return &stockpb.InitiateOptionExerciseResponse{
