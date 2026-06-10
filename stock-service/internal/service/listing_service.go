@@ -184,7 +184,7 @@ func (s *ListingService) SnapshotIntradayPrices() {
 		log.Printf("WARN: intraday snapshot: failed to list listings: %v", err)
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC().Truncate(24 * time.Hour)
 	count := 0
 	for _, l := range listings {
 		info := &model.ListingDailyPriceInfo{
