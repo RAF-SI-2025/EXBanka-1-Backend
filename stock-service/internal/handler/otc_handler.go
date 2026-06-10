@@ -337,6 +337,7 @@ func (h *OTCHandler) ListUnifiedOptionOffers(ctx context.Context, req *pb.ListUn
 			ActiveChainsCount: o.ActiveChainsCount,
 			LocalId:           o.LocalID,
 			MeOwner:           otcMeOwner(actingOwnerType, actingOwnerID, o.Kind, o.SellerID),
+			HasPresetTerms:    o.HasPresetTerms,
 		}
 		// LOCAL offers: chain keyed by parent_offer_id == local offer id
 		// (== LocalID). REMOTE offers: chain keyed by the peer-hosted parent

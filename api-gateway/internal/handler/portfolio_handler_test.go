@@ -557,3 +557,37 @@ func TestPortfolio_ListOTCOptions_NoOwnerFilter(t *testing.T) {
 	require.NotNil(t, captured)
 	require.Equal(t, "", captured.OwnerOnlySellerId)
 }
+
+// has_preset_terms must be forwarded from the gRPC response into each
+// offer's JSON object (tag 23 on UnifiedOptionOffer).
+func TestPortfolio_ListOTCOptions_HasPresetTerms(t *testing.T) {
+	otc := &stubOTCClient{
+		listUnifiedOptionFn: func(_ *stockpb.ListUnifiedOptionOffersRequest) (*stockpb.ListUnifiedOptionOffersResponse, error) {
+			return &stockpb.ListUnifiedOptionOffersResponse{
+				Offers: []*stockpb.UnifiedOptionOffer{
+					{
+						OfferId:        "1",
+						Ticker:         "OPT-PRESET",
+						HasPresetTerms: true,
+					},
+					{
+						OfferId:        "2",
+						Ticker:         "OPT-SHELL",
+						HasPresetTerms: false,
+					},
+				},
+				TotalCount: 2,
+			}, nil
+		},
+	}
+	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{})
+	r := portfolioRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v3/otc/options", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	// Preset offer must carry has_preset_terms:true.
+	require.Contains(t, body, `"has_preset_terms":true`)
+	// Shell offer must carry has_preset_terms:false.
+	require.Contains(t, body, `"has_preset_terms":false`)
+}

@@ -74,6 +74,13 @@ type fakePeerDispatcher struct {
 	proxyStatus int
 	proxyErr    error
 	proxyByKey  map[string]proxyResult
+
+	// PublicStock capture (Bug-2 fix): freshness guard calls PublicStock instead
+	// of Proxy so the guard can't accidentally build /negotiations///public-stock.
+	publicStockResp   []byte
+	publicStockStatus int
+	publicStockErr    error
+	publicStockCalls  []string // peer bank codes fetched
 }
 
 type proxyCall struct {
@@ -99,6 +106,18 @@ func (f *fakePeerDispatcher) CreateNegotiation(_ context.Context, peerBankCode s
 		return 0, "", f.err
 	}
 	return f.routing, f.foreignID, nil
+}
+
+func (f *fakePeerDispatcher) PublicStock(_ context.Context, peerBankCode string) ([]byte, int, error) {
+	f.publicStockCalls = append(f.publicStockCalls, peerBankCode)
+	if f.publicStockErr != nil {
+		return nil, 0, f.publicStockErr
+	}
+	st := f.publicStockStatus
+	if st == 0 {
+		st = 200
+	}
+	return f.publicStockResp, st, nil
 }
 
 func (f *fakePeerDispatcher) Proxy(_ context.Context, peerBankCode, rid, foreignID, method, subpath string, body []byte) ([]byte, int, error) {
@@ -160,6 +179,7 @@ func seedRemoteOffer(t *testing.T, db *gorm.DB) uint64 {
 		NativeID:                    &nid,
 		InitiatorBankCode:           &bankCode,
 		RemoteSellerID:              &sellerID,
+		HasPresetTerms:              true, // preset: existing tests cover general dispatch, not shell freshness
 		InitiatorOwnerType:          model.OwnerBank,
 		Direction:                   model.OTCDirectionSellInitiated,
 		Ticker:                      "AAPL",

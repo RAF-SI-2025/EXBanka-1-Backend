@@ -396,6 +396,7 @@ func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySeller
 			"premium_currency": o.GetPremiumCurrency(),
 			"settlement_date":  o.GetSettlementDate(),
 			"created_at":       o.GetCreatedAt(),
+			"has_preset_terms": o.GetHasPresetTerms(),
 		}
 		// Part A 2026-05-16 best-bid/best-ask surface. Empty strings
 		// ⇒ no active competition (or remote peer doesn't publish).

@@ -151,8 +151,13 @@ func (h *OTCOptionsHandler) resolveRemoteNegAction(
 	}
 
 	return &remoteNegContext{
-		row:              row,
-		rid:              strconv.FormatInt(row.RoutingNumber, 10),
+		row: row,
+		// SI-TX path {rn} is ALWAYS the seller's routing (the seller mints the
+		// negotiation id). For a buyer-hosted chain sellerRouting == row.RoutingNumber,
+		// but for a SELLER-hosted chain (we minted the id) row.RoutingNumber holds the
+		// BUYER's bank — dispatching with it sends /negotiations/<buyer>/... and the peer
+		// rejects "routingNumber does not identify this negotiation". Always use seller.
+		rid:              strconv.FormatInt(sellerRouting, 10),
 		foreignID:        remoteNativeIDOf(row),
 		counterpartyCode: strconv.FormatInt(counterpartyRouting, 10),
 		offer:            offer,
@@ -217,6 +222,12 @@ func (h *OTCOptionsHandler) counterRemoteNegotiation(
 		// lastModifiedBy = the party we host placing the counter (stable row id).
 		"lastModifiedBy": map[string]any{"routingNumber": h.ownRouting, "id": hostedPartyID},
 	}
+	// buyerAccountNumber is an immutable cohort-extension field that some peers
+	// (e.g. Banka 4) REQUIRE echoed on every PUT counter (missing → 400). The
+	// create path already sends it; carry it through here from the stored offer.
+	if rc.offer.BuyerAccountNumber != "" {
+		offerBody["buyerAccountNumber"] = rc.offer.BuyerAccountNumber
+	}
 	// Preserve the cascade-cancel lot key when this chain carries one.
 	if rc.row.RemoteParentRouting != nil && rc.row.RemoteParentNativeID != nil {
 		offerBody["parentOfferId"] = map[string]any{
@@ -248,6 +259,10 @@ func (h *OTCOptionsHandler) counterRemoteNegotiation(
 		PremiumCurrency: rc.offer.PremiumCurrency,
 		SettlementDate:  settlementDate,
 		LastModifiedBy:  contractsitx.ForeignBankId{RoutingNumber: h.ownRouting, ID: hostedPartyID},
+		// Preserve the immutable buyerAccountNumber on the mirror so a SUBSEQUENT
+		// counter still echoes it to the peer (else the 2nd counter omits it and a
+		// peer that requires it — e.g. Banka 4 — rejects with 400).
+		BuyerAccountNumber: rc.offer.BuyerAccountNumber,
 	}
 	mirrorJSON, _ := json.Marshal(mirrorOffer)
 	// Record the counter as a revision (full-history parity). The mover is the

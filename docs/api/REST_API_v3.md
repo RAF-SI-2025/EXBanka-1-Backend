@@ -8640,7 +8640,7 @@ Revisions are ordered by `revision_number ASC`. For **remote** chains, `action_b
 
 #### GET /api/v3/me/otc/options
 
-Marketplace view of the caller's OWN open OTC option listings. Returns the **same response shape as `GET /api/v3/otc/options`** (`kind` / `bank_code` / `routing_number` / `offer_id` / `seller_id` / `direction` / `ticker` / `amount` / `strike_price` / `strike_currency` / `premium` / `premium_currency` / `settlement_date` / `created_at` / optional `best_bid` / optional `best_ask` / optional `active_chains_count`), filtered to listings whose seller id matches the caller's SI-TX identity (`client-<principal_id>` for clients, `bank` for bank-on-behalf calls). Only listings in an OPEN status appear here — the unified cache is open-only. For full history (cancelled / accepted / expired listings the caller posted) use `GET /api/v3/me/otc/options/posted`.
+Marketplace view of the caller's OWN open OTC option listings. Returns the **same response shape as `GET /api/v3/otc/options`** (`kind` / `bank_code` / `routing_number` / `offer_id` / `seller_id` / `direction` / `ticker` / `amount` / `strike_price` / `strike_currency` / `premium` / `premium_currency` / `settlement_date` / `created_at` / `has_preset_terms` / optional `best_bid` / optional `best_ask` / optional `active_chains_count`), filtered to listings whose seller id matches the caller's SI-TX identity (`client-<principal_id>` for clients, `bank` for bank-on-behalf calls). Only listings in an OPEN status appear here — the unified cache is open-only. For full history (cancelled / accepted / expired listings the caller posted) use `GET /api/v3/me/otc/options/posted`.
 
 **Query Parameters:** same `ticker` / `direction` / `page` / `page_size` as `GET /api/v3/otc/options`. `kind` and `bank_code` are accepted but redundant (results are always `kind=local` by definition).
 
@@ -8758,6 +8758,7 @@ Unified cross-bank discovery view: every open OTC option listing on this bank + 
       "premium_currency":    "USD",
       "settlement_date":     "2026-12-31T00:00:00Z",
       "created_at":          "2026-05-10T14:00:00Z",
+      "has_preset_terms":    true,
       "best_bid":            "850",
       "active_chains_count": 3,
       "my_negotiation_id":     88,
@@ -8781,6 +8782,7 @@ Unified cross-bank discovery view: every open OTC option listing on this bank + 
 | `bank_code` | string | 3-digit bank code. |
 | `local_id` | uint64 | Stable local surrogate id — the folded-in remote `OTCOffer.id` for remote rows (SP-2a); the numeric offer id for local rows. Use this as `:id` in `GET /api/v3/otc/options/:id`. |
 | `me_owner` | bool | `true` when the acting caller is the listing's poster/seller. Always `false` for remote rows. Omitted (falsy) when not owned. |
+| `has_preset_terms` | bool | `true` when the offer carries owner-set terms (strike price + premium), i.e. it originated from a `/public-option-offers` peer feed or is a local listing. `false` for negotiable shells synthesised from a peer's `/public-stock` feed (no preset strike/premium — fully buyer-negotiated). Always present on every row. |
 
 **SP-2b caller's-own-chain fields (2026-06-05):** Each item the authenticated caller has an own (bidder) negotiation chain against also carries:
 

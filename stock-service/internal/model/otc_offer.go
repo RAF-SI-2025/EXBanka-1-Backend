@@ -35,6 +35,10 @@ const (
 	OTCActionCounter = "COUNTER"
 	OTCActionAccept  = "ACCEPT"
 	OTCActionReject  = "REJECT"
+
+	// RemoteStockShellPrefix namespaces native_id for shells synthesized from a peer's
+	// /public-stock ("ps:<sellerRn>:<sellerId>:<ticker>"), distinct from option-offer rows.
+	RemoteStockShellPrefix = "ps:"
 )
 
 // IsOpenListing reports whether an OTCOffer is currently accepting
@@ -116,13 +120,17 @@ type OTCOffer struct {
 	//   RemoteSellerID — the SI-TX wire seller id ("client-<N>" | "bank").
 	//   LastSeenAt — last successful peer poll that listed the offer; the
 	//     reconcile flip (open->cancelled) keys off it.
-	StrikeCurrency  *string    `gorm:"size:8" json:"strike_currency,omitempty"`
-	PremiumCurrency *string    `gorm:"size:8" json:"premium_currency,omitempty"`
-	RemoteSellerID  *string    `gorm:"size:128" json:"remote_seller_id,omitempty"`
-	LastSeenAt      *time.Time `gorm:"index" json:"last_seen_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	Version         int64      `gorm:"not null;default:0" json:"-"`
+	StrikeCurrency  *string `gorm:"size:8" json:"strike_currency,omitempty"`
+	PremiumCurrency *string `gorm:"size:8" json:"premium_currency,omitempty"`
+	RemoteSellerID  *string `gorm:"size:128" json:"remote_seller_id,omitempty"`
+	// HasPresetTerms: true ⇔ the offer carries owner-set terms (a /public-option-offers
+	// listing — a negotiable "start position"). false ⇔ synthesized from /public-stock
+	// (no preset strike/premium; fully buyer-negotiated).
+	HasPresetTerms bool       `gorm:"not null;default:true" json:"has_preset_terms"`
+	LastSeenAt     *time.Time `gorm:"index" json:"last_seen_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	Version        int64      `gorm:"not null;default:0" json:"-"`
 }
 
 // BeforeCreate stamps the own routing number on local rows. Remote rows

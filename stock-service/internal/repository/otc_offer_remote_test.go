@@ -230,6 +230,116 @@ func TestReconcileRemoteNotSeen_EmptySeenCancelsAllForPeer(t *testing.T) {
 	}
 }
 
+func TestUpsertRemote_SetsHasPresetTerms(t *testing.T) {
+	db := newRemoteOfferTestDB(t)
+	r := NewOTCOfferRepository(db)
+	ncy := "USD"
+	native := "peer-offer-1"
+	row := &model.OTCOffer{
+		RoutingNumber:               222,
+		NativeID:                    &native,
+		InitiatorOwnerType:          model.OwnerBank,
+		Direction:                   model.OTCDirectionSellInitiated,
+		Ticker:                      "AAPL",
+		Quantity:                    decimal.NewFromInt(10),
+		StrikePrice:                 decimal.NewFromInt(150),
+		Premium:                     decimal.NewFromInt(2),
+		StrikeCurrency:              &ncy,
+		PremiumCurrency:             &ncy,
+		SettlementDate:              time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC),
+		HasPresetTerms:              true,
+		LastModifiedByPrincipalType: "system",
+	}
+	id, err := r.UpsertRemote(row, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	got, err := r.GetRemoteByID(id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.HasPresetTerms {
+		t.Fatalf("HasPresetTerms = false, want true")
+	}
+}
+
+func TestReconcile_NamespaceScoped(t *testing.T) {
+	db := newRemoteOfferTestDB(t)
+	r := NewOTCOfferRepository(db)
+	mk := func(native string, preset bool) uint64 {
+		n := native
+		id, err := r.UpsertRemote(&model.OTCOffer{
+			RoutingNumber:               222,
+			NativeID:                    &n,
+			InitiatorOwnerType:          model.OwnerBank,
+			Direction:                   model.OTCDirectionSellInitiated,
+			Ticker:                      "AAPL",
+			Quantity:                    decimal.NewFromInt(1),
+			HasPresetTerms:              preset,
+			LastModifiedByPrincipalType: "system",
+		}, time.Now().UTC())
+		if err != nil {
+			t.Fatalf("upsert %s: %v", native, err)
+		}
+		return id
+	}
+	optID := mk("peer-offer-1", true)
+	shellID := mk("ps:222:client-5:AAPL", false)
+
+	// Reconcile option-offers namespace (non-shell): should cancel optID but spare shellID.
+	if _, err := r.ReconcileRemoteNotSeen(222, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.GetRemoteByID(shellID); got.Status != model.OTCOfferStatusOpen {
+		t.Fatalf("shell cancelled by option reconcile: %s", got.Status)
+	}
+	if got, _ := r.GetRemoteByID(optID); got.Status != model.OTCOfferStatusCancelled {
+		t.Fatalf("option-offer not cancelled: %s", got.Status)
+	}
+	// Reconcile shells namespace: should now cancel shellID.
+	if _, err := r.ReconcileRemoteShellsNotSeen(222, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.GetRemoteByID(shellID); got.Status != model.OTCOfferStatusCancelled {
+		t.Fatalf("shell not cancelled by shell reconcile: %s", got.Status)
+	}
+}
+
+// TestUpsertRemote_ShellPersistsFalse guards against the GORM default-skip bug:
+// HasPresetTerms is bool with gorm tag `default:true`, so GORM omits the
+// zero-value false from the INSERT and the DB DEFAULT (true) would apply.
+// UpsertRemoteShell fixes this by forcing has_preset_terms after the upsert.
+func TestUpsertRemote_ShellPersistsFalse(t *testing.T) {
+	db := newRemoteOfferTestDB(t)
+	r := NewOTCOfferRepository(db)
+	native := "ps:222:client-5:AAPL"
+	bc := "222"
+	sid := "client-5"
+	row := &model.OTCOffer{
+		RoutingNumber:               222,
+		NativeID:                    &native,
+		InitiatorBankCode:           &bc,
+		RemoteSellerID:              &sid,
+		InitiatorOwnerType:          model.OwnerBank,
+		Direction:                   model.OTCDirectionSellInitiated,
+		Ticker:                      "AAPL",
+		Quantity:                    decimal.NewFromInt(1),
+		HasPresetTerms:              false,
+		LastModifiedByPrincipalType: "system",
+	}
+	id, err := r.UpsertRemoteShell(row, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	got, err := r.GetRemoteByID(id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.HasPresetTerms {
+		t.Fatalf("shell persisted HasPresetTerms=true, want false (GORM default-skip bug)")
+	}
+}
+
 func TestGetRemoteByID_RemoteRowAndLocalIsNotFound(t *testing.T) {
 	db := newRemoteOfferTestDB(t)
 	r := NewOTCOfferRepository(db)

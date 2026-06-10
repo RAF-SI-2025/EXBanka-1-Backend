@@ -71,6 +71,23 @@ func (d *Dispatcher) CreateNegotiation(ctx context.Context, peerBankCode string,
 // Non-2xx peer statuses are passed through as (body, status, nil) — the caller
 // relays them to the originating client. A gRPC/transport failure reaching
 // interbank is returned as (nil, 502, err).
+// PublicStock fetches the peer's /public-stock listing (SI-TX §3.1 bare array)
+// via interbank ProxyToPeer. Used by the freshness guard in openRemoteNegotiation
+// to verify a shell offer is still live before dispatching a doomed bid.
+// Unlike Proxy, this method routes directly to /public-stock and does not
+// attempt to build /negotiations/{rid}/{foreignID}{subpath}.
+func (d *Dispatcher) PublicStock(ctx context.Context, peerBankCode string) ([]byte, int, error) {
+	resp, err := d.egress.ProxyToPeer(ctx, &transactionpb.ProxyToPeerRequest{
+		PeerBankCode: peerBankCode,
+		Method:       http.MethodGet,
+		Path:         "/public-stock",
+	})
+	if err != nil {
+		return nil, http.StatusBadGateway, fmt.Errorf("peer dispatch: %w", err)
+	}
+	return resp.GetBody(), int(resp.GetStatusCode()), nil
+}
+
 func (d *Dispatcher) Proxy(ctx context.Context, peerBankCode, rid, foreignID, method, subpath string, body []byte) ([]byte, int, error) {
 	resp, err := d.egress.ProxyToPeer(ctx, &transactionpb.ProxyToPeerRequest{
 		PeerBankCode: peerBankCode,

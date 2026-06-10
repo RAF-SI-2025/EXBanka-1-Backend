@@ -104,6 +104,12 @@ type CrossBankExerciser interface {
 type PeerNegotiationDispatcher interface {
 	CreateNegotiation(ctx context.Context, peerBankCode string, offer map[string]any) (int64, string, error)
 	Proxy(ctx context.Context, peerBankCode, rid, foreignID, method, subpath string, body []byte) ([]byte, int, error)
+	// PublicStock fetches the peer's /public-stock listing (§3.1 bare array).
+	// Used by the freshness guard in openRemoteNegotiation to verify a shell
+	// offer is still live before dispatching a bid. This is a dedicated method
+	// rather than a Proxy call to avoid Proxy's hardcoded
+	// /negotiations/{rid}/{foreignID}{subpath} path construction.
+	PublicStock(ctx context.Context, peerBankCode string) ([]byte, int, error)
 }
 
 // RemoteNegotiationOps is the cross-bank negotiation-mirror surface the

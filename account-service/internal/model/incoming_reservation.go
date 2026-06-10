@@ -27,13 +27,17 @@ const (
 // differs: incoming reservations key off the inter-bank transactionId
 // (string UUID), whereas debit reservations key off a numeric OrderID.
 type IncomingReservation struct {
-	ID             uint64          `gorm:"primaryKey;autoIncrement"`
-	AccountNumber  string          `gorm:"size:32;not null;index"`
-	Amount         decimal.Decimal `gorm:"type:numeric(20,4);not null"`
-	Currency       string          `gorm:"size:8;not null"`
-	ReservationKey string          `gorm:"size:64;not null;uniqueIndex"`
-	Status         string          `gorm:"size:16;not null;index"`
-	CreatedAt      time.Time       `gorm:"index"`
+	ID            uint64          `gorm:"primaryKey;autoIncrement"`
+	AccountNumber string          `gorm:"size:32;not null;index"`
+	Amount        decimal.Decimal `gorm:"type:numeric(20,4);not null"`
+	Currency      string          `gorm:"size:8;not null"`
+	// size:160 (matches OutgoingReservation): the key is the composite
+	// "<peerRoutingNumber>:<locallyGeneratedKey>" and SI-TX allows
+	// locallyGeneratedKey up to 64 bytes, so 64 here overflowed on cross-bank
+	// OTC exercise (incoming strike credit). Mirrors outgoing_reservation.go.
+	ReservationKey string    `gorm:"size:160;not null;uniqueIndex"`
+	Status         string    `gorm:"size:16;not null;index"`
+	CreatedAt      time.Time `gorm:"index"`
 	UpdatedAt      time.Time
 	Version        int64 `gorm:"not null;default:0"`
 }

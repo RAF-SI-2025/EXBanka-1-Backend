@@ -54,6 +54,11 @@ type OptionOffer struct {
 	SettlementDate  string // RFC3339 UTC
 	CreatedAt       string // RFC3339 UTC
 
+	// HasPresetTerms: true for /public-option-offers rows (offer carries
+	// owner-set strike + premium). false for shells synthesized from
+	// /public-stock (fully buyer-negotiated, no preset terms).
+	HasPresetTerms bool
+
 	// Best-bid / best-ask aggregation (Part A 2026-05-16). Empty
 	// strings ⇒ no active chains OR a remote peer that doesn't
 	// publish these fields. ActiveChainsCount == 0 carries the same
@@ -85,7 +90,12 @@ type AggregateActiveBidsFn func(offerIDs []uint64) (map[uint64]OfferAggregate, e
 // *repository.OTCOfferRepository satisfies it (SP-2a).
 type RemoteOfferMirror interface {
 	UpsertRemote(o *model.OTCOffer, seenAt time.Time) (uint64, error)
+	// UpsertRemoteShell is like UpsertRemote but guarantees has_preset_terms is
+	// persisted as the struct value even when it is false (zero). Use this for
+	// /public-stock shells where HasPresetTerms must be false.
+	UpsertRemoteShell(o *model.OTCOffer, seenAt time.Time) (uint64, error)
 	ReconcileRemoteNotSeen(peerRouting int64, seenNativeIDs []string) (int64, error)
+	ReconcileRemoteShellsNotSeen(peerRouting int64, seenNativeIDs []string) (int64, error)
 }
 
 type OptionSnapshot struct {
@@ -248,15 +258,27 @@ func (r *OptionRefresher) refresh(ctx context.Context) {
 			wg.Add(1)
 			go func(peer *transactionpb.PeerBank) {
 				defer wg.Done()
-				peerOffers, err := r.fetchPeer(cycleCtx, peer)
-				if err != nil {
+				// fetchPeer (option-offers) and fetchPeerStocks (/public-stock
+				// shells) are INDEPENDENT: a peer that 404s /public-option-offers
+				// (base-spec peer, no proprietary extension) must still have its
+				// shells ingested. The early-return on fetchPeer failure was the
+				// Bug-1 root cause — fixed by restructuring to if/else.
+				if peerOffers, err := r.fetchPeer(cycleCtx, peer); err != nil {
 					log.Printf("otccache(options): peer %s fetch failed: %v", peer.GetBankCode(), err)
-					return
+				} else {
+					mu.Lock()
+					offers = append(offers, peerOffers...)
+					peersReached++
+					mu.Unlock()
 				}
-				mu.Lock()
-				offers = append(offers, peerOffers...)
-				peersReached++
-				mu.Unlock()
+
+				if shells, serr := r.fetchPeerStocks(cycleCtx, peer); serr != nil {
+					log.Printf("otccache(stock-shells): peer %s fetch failed: %v", peer.GetBankCode(), serr)
+				} else {
+					mu.Lock()
+					offers = append(offers, shells...)
+					mu.Unlock()
+				}
 			}(p)
 		}
 		wg.Wait()
@@ -311,6 +333,7 @@ func (r *OptionRefresher) fetchLocal() ([]OptionOffer, error) {
 			PremiumCurrency: currency,
 			SettlementDate:  o.SettlementDate.UTC().Format(time.RFC3339),
 			CreatedAt:       o.CreatedAt.UTC().Format(time.RFC3339),
+			HasPresetTerms:  true,
 		}
 		// Pick the side relevant to the parent's direction. A buyer-
 		// posted listing (buy_initiated) has sellers bidding their ask
@@ -350,6 +373,25 @@ func (r *OptionRefresher) fetchPeer(ctx context.Context, peer *transactionpb.Pee
 		return nil, err
 	}
 	return r.buildAndMirrorRemoteOffers(peer.GetBankCode(), peerRoutingOf(peer), resp.Offers), nil
+}
+
+func (r *OptionRefresher) fetchPeerStocks(ctx context.Context, peer *transactionpb.PeerBank) ([]OptionOffer, error) {
+	proxyResp, err := r.egress.ProxyToPeer(ctx, &transactionpb.ProxyToPeerRequest{
+		PeerBankCode: peer.GetBankCode(),
+		Method:       http.MethodGet,
+		Path:         "/public-stock",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if proxyResp.GetStatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("status %d: %s", proxyResp.GetStatusCode(), string(proxyResp.GetBody()))
+	}
+	var resp sitx.PublicStocksResponse
+	if err := json.Unmarshal(proxyResp.GetBody(), &resp); err != nil {
+		return nil, err
+	}
+	return r.buildAndMirrorRemoteStockShells(peer.GetBankCode(), peerRoutingOf(peer), resp), nil
 }
 
 // buildAndMirrorRemoteOffers converts a peer's public option offers into
@@ -412,6 +454,7 @@ func (r *OptionRefresher) buildAndMirrorRemoteOffers(peerBankCode string, peerRo
 			BestBid:           o.BestBid,
 			BestAsk:           o.BestAsk,
 			ActiveChainsCount: o.ActiveChainsCount,
+			HasPresetTerms:    true,
 		}
 		if r.mirror != nil {
 			nativeID := o.OfferID.ID
@@ -440,6 +483,9 @@ func (r *OptionRefresher) buildAndMirrorRemoteOffers(peerBankCode string, peerRo
 				PremiumCurrency: &premiumCcy,
 				SettlementDate:  parseRFC3339OrZero(o.SettlementDate),
 				Status:          model.OTCOfferStatusOpen,
+				// HasPresetTerms = true: a /public-option-offers listing always
+				// carries owner-set strike and premium terms.
+				HasPresetTerms: true,
 				// NOT-NULL audit columns: the refresher is the actor for
 				// remote rows. "system"/0 marks a machine-written row.
 				LastModifiedByPrincipalType: "system",
@@ -460,6 +506,84 @@ func (r *OptionRefresher) buildAndMirrorRemoteOffers(peerBankCode string, peerRo
 			log.Printf("otccache(options): reconcile peer=%s failed: %v", peerBankCode, err)
 		} else if n > 0 {
 			log.Printf("otccache(options): reconciled %d cancelled offers from peer=%s", n, peerBankCode)
+		}
+	}
+	return out
+}
+
+// buildAndMirrorRemoteStockShells converts a peer's /public-stock listings into
+// biddable sell_initiated SHELL rows (no preset terms — buyer proposes
+// strike/premium/settlement on bid). native_id = "ps:<sellerRouting>:<sellerId>:<ticker>"
+// where sellerRouting is the individual seller's routing number (s.Seller.RoutingNumber),
+// NOT the peer gateway routing. This avoids collisions when sellers from different
+// origin banks appear in a single peer's /public-stock response.
+// Call ONLY after a successful peer fetch.
+func (r *OptionRefresher) buildAndMirrorRemoteStockShells(peerBankCode string, peerRouting int64, stocks []sitx.PublicStock) []OptionOffer {
+	if peerRouting == model.OwnRouting() {
+		log.Printf("WARN otccache(stock-shells): peer bank_code=%s routing=%d collides with own routing — skipping", peerBankCode, peerRouting)
+		return nil
+	}
+	now := time.Now().UTC()
+	seen := make([]string, 0)
+	out := make([]OptionOffer, 0)
+	for i := range stocks {
+		ticker := stocks[i].Stock.Ticker
+		if ticker == "" {
+			continue
+		}
+		for _, s := range stocks[i].Sellers {
+			if s.Seller.RoutingNumber == model.OwnRouting() || s.Seller.ID == "" {
+				continue
+			}
+			native := fmt.Sprintf("%s%d:%s:%s", model.RemoteStockShellPrefix, s.Seller.RoutingNumber, s.Seller.ID, ticker)
+			row := OptionOffer{
+				Kind:           "remote",
+				BankCode:       peerBankCode,
+				RoutingNumber:  peerRouting,
+				OfferID:        native,
+				SellerID:       s.Seller.ID,
+				Direction:      model.OTCDirectionSellInitiated,
+				Ticker:         ticker,
+				Amount:         s.Amount,
+				HasPresetTerms: false,
+			}
+			if r.mirror != nil {
+				n := native
+				bc := peerBankCode
+				sid := s.Seller.ID
+				remoteRow := &model.OTCOffer{
+					RoutingNumber:               peerRouting,
+					NativeID:                    &n,
+					InitiatorBankCode:           &bc,
+					RemoteSellerID:              &sid,
+					InitiatorOwnerType:          model.OwnerBank,
+					Direction:                   model.OTCDirectionSellInitiated,
+					Ticker:                      ticker,
+					Quantity:                    decimal.NewFromInt(s.Amount),
+					StrikePrice:                 decimal.Zero,
+					Premium:                     decimal.Zero,
+					StrikeCurrency:              nil,
+					PremiumCurrency:             nil,
+					HasPresetTerms:              false,
+					Status:                      model.OTCOfferStatusOpen,
+					LastModifiedByPrincipalType: "system",
+					LastModifiedByPrincipalID:   0,
+				}
+				if id, err := r.mirror.UpsertRemoteShell(remoteRow, now); err != nil {
+					log.Printf("otccache(stock-shells): upsert peer=%s %s failed: %v", peerBankCode, native, err)
+				} else {
+					row.LocalID = id
+					seen = append(seen, native)
+				}
+			}
+			out = append(out, row)
+		}
+	}
+	if r.mirror != nil {
+		if n, err := r.mirror.ReconcileRemoteShellsNotSeen(peerRouting, seen); err != nil {
+			log.Printf("otccache(stock-shells): reconcile peer=%s failed: %v", peerBankCode, err)
+		} else if n > 0 {
+			log.Printf("otccache(stock-shells): reconciled %d vanished shells from peer=%s", n, peerBankCode)
 		}
 	}
 	return out

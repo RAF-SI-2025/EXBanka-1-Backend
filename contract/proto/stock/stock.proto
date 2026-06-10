@@ -885,6 +885,11 @@ message UnifiedOptionOffer {
   // my_negotiation_status carries that chain's status. (SP-2b)
   uint64 my_negotiation_id     = 21;
   string my_negotiation_status = 22;
+  // has_preset_terms is true when the offer carries owner-set terms
+  // (strike + premium) — i.e. it came from /public-option-offers or is a
+  // local offer. false for negotiable shells synthesised from a peer's
+  // /public-stock listing (no preset strike/premium).
+  bool has_preset_terms = 23;
 }
 
 message ListUnifiedOptionOffersRequest {
