@@ -222,6 +222,16 @@ func (s *OTCNegotiationService) publishNotif(
 	}
 }
 
+// NotifyOTCParticipant publishes a best-effort OTC general notification to a LOCAL
+// client participant (no-op for bank/employee recipients or when the notifier is
+// unwired). Exported so the cross-bank OUTBOUND accept handler
+// (acceptRemoteNegotiation) can notify the local ACCEPTOR of an OTC_CONTRACT_CREATED
+// — the counterparty is notified by their own bank's inbound AcceptNegotiation, so
+// the two together match the local accept path's dual-party notify.
+func (s *OTCNegotiationService) NotifyOTCParticipant(ctx context.Context, recipientType model.OwnerType, recipientID *uint64, notifType string, data map[string]string, refType string, refID uint64) {
+	s.publishNotif(ctx, recipientType, recipientID, notifType, data, refType, refID)
+}
+
 // otherParty returns the (type, id) of whoever in the chain is NOT the
 // caller. Used for Counter/Reject — the recipient is always the side
 // that didn't act.

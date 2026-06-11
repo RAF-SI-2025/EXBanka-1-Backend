@@ -572,6 +572,11 @@ message PortfolioPosition {
   // keyed by fund_id, not a holding). Lets clients feed make-public/exercise,
   // which require a holding_id, straight from this response.
   uint64 holding_id             = 21;
+  // Securities positions (stock/option/future): reserved = shares locked by formed
+  // OTC option contracts; available = quantity - reserved (free to trade/list).
+  // 0/omitted for fund positions.
+  int64 reserved_quantity       = 22;
+  int64 available_quantity      = 23;
 }
 
 message PortfolioGroup {
@@ -605,6 +610,8 @@ message Holding {
   reserved 9; // was public_quantity (OTC stock marketplace, removed 2026-06-11)
   uint64 account_id = 10;
   string last_modified = 11;
+  int64 reserved_quantity = 12;  // shares reserved by formed OTC option contracts
+  int64 available_quantity = 13; // quantity - reserved_quantity (free to trade/list)
 }
 
 message ListHoldingsRequest {

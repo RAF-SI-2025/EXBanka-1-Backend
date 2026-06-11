@@ -16,7 +16,6 @@ import (
 	"github.com/exbanka/api-gateway/internal/cache"
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
-	"github.com/exbanka/api-gateway/internal/handler"
 	"github.com/exbanka/api-gateway/internal/jwks"
 	gatewaykafka "github.com/exbanka/api-gateway/internal/kafka"
 	"github.com/exbanka/api-gateway/internal/middleware"
@@ -232,10 +231,8 @@ func main() {
 	}
 	defer notificationConn.Close()
 
-	wsHandler := handler.NewWebSocketHandler(authClient)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	wsHandler.StartKafkaConsumer(ctx, cfg.KafkaBrokers)
 
 	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -406,7 +403,7 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down API Gateway gracefully...")
-	cancel() // stop WebSocket Kafka consumer
+	cancel() // cancel background context (JWKS refresher, etc.)
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

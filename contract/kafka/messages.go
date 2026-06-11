@@ -521,7 +521,6 @@ const (
 	TopicVerificationChallengeCreated  = "verification.challenge-created"
 	TopicVerificationChallengeVerified = "verification.challenge-verified"
 	TopicVerificationChallengeFailed   = "verification.challenge-failed"
-	TopicMobilePush                    = "notification.mobile-push"
 )
 
 // VerificationChallengeCreatedMessage is published when a new verification challenge is created.
@@ -554,14 +553,6 @@ type VerificationChallengeFailedMessage struct {
 	SourceService string `json:"source_service"`
 	SourceID      uint64 `json:"source_id"`
 	Reason        string `json:"reason"` // "max_attempts_exceeded", "expired"
-}
-
-// MobilePushMessage is published by notification-service when a mobile inbox item is stored.
-// api-gateway consumes this to push via WebSocket to connected mobile devices.
-type MobilePushMessage struct {
-	UserID  uint64 `json:"user_id"`
-	Type    string `json:"type"`    // "verification_challenge"
-	Payload string `json:"payload"` // JSON string
 }
 
 // Changelog event topic constants -- one per service for downstream consumption.

@@ -4328,6 +4328,8 @@ Cancel a pending order. See [Section 26: Orders](#26-orders) for full request/re
 
 List authenticated user's holdings. See [Section 27: Portfolio](#27-portfolio) for full request/response details.
 
+Each securities position (`asset_type` `stock`/`option`/`future`) additionally carries `reserved_quantity` (shares locked by formed OTC option contracts) and `available_quantity` (`quantity - reserved_quantity`, free to trade/list). Both are `0`/omitted for fund positions. The `Holding` shape on `GET /api/v3/me/holdings`-style reads exposes the same two fields. (VERSION 4.3.0; additive — existing clients unaffected.)
+
 ---
 
 ### GET /api/v3/me/portfolio/summary

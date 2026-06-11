@@ -659,3 +659,49 @@ func buildRemoteNegForTest(
 		RemoteSellerID:            &sID,
 	}
 }
+
+// TestInbound_AcceptNegotiation_NotifiesLocalBuyer: when WE host the BUYER (the
+// bidder, who last proposed) and the remote seller accepts, the local buyer must
+// receive OTC_CONTRACT_CREATED. Regression — the cross-bank bidder previously got
+// NO notification when their bid/counter was accepted (the inbound path notified
+// only the seller). The accepting (remote) party is notified by their own bank's
+// OUTBOUND acceptRemoteNegotiation.
+func TestInbound_AcceptNegotiation_NotifiesLocalBuyer(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t) // ownRouting 111
+	notif := &peerNotifCapture{}
+	h = h.WithNotifier(notif)
+
+	offer := contractsitx.OtcOffer{
+		Ticker: "AAPL", Amount: 5,
+		PricePerStock:   decimal.RequireFromString("150"),
+		Currency:        "USD",
+		Premium:         decimal.RequireFromString("20"),
+		PremiumCurrency: "USD",
+		SettlementDate:  "2026-12-31",
+		LastModifiedBy:  contractsitx.ForeignBankId{RoutingNumber: 111, ID: "client-9"},
+	}
+	offerJSON, _ := json.Marshal(offer)
+	repo := repository.NewOTCNegotiationRepository(db)
+	// buyer local (111/client-9), seller remote (222/client-7); the remote seller's
+	// bank (222) POSTs GET /accept to us.
+	row := buildRemoteNegForTest(222, "neg-buyerlocal", offer, string(offerJSON),
+		111, "client-9", 222, "client-7")
+	if err := repo.UpsertRemoteNeg(row); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if _, err := h.AcceptNegotiation(context.Background(), &stockpb.AcceptNegotiationRequest{
+		PeerBankCode:  "222",
+		NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "neg-buyerlocal"},
+	}); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	got := notif.byType("OTC_CONTRACT_CREATED")
+	if got == nil {
+		t.Fatalf("expected OTC_CONTRACT_CREATED for the local buyer, got %+v", notif.snapshot())
+	}
+	if got.UserID != 9 {
+		t.Errorf("recipient = %d, want 9 (the local buyer)", got.UserID)
+	}
+}

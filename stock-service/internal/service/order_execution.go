@@ -502,15 +502,27 @@ func execPriceAllowed(order *model.Order, execPrice decimal.Decimal) bool {
 // getExecutionPrice so the trigger check and the price calc agree on which
 // number is "the current ask" / "the current bid".
 func sideQuotes(listing *model.Listing) (decimal.Decimal, decimal.Decimal) {
-	ask := listing.High
-	if ask.IsZero() {
-		ask = listing.Price
+	// In this single-price simulation the tradeable quote is listing.Price for BOTH
+	// sides. Using listing.High as the ask / listing.Low as the bid was a bug: the
+	// generated source sets High=max(price,base) / Low=min(price,base) — an envelope
+	// pinned to the SEED price — so the "ask" never fell below base and the "bid"
+	// never rose above it. A buy-limit BELOW the seed price (or a sell-limit ABOVE
+	// it) could therefore never trigger or fill even as the live price oscillated
+	// across it (the common "limit order never fills" bug). High/Low remain the
+	// displayed intraday range; order triggering + fill pricing track the live price.
+	if listing.Price.IsZero() {
+		// Defensive fallback for a not-yet-priced listing.
+		ask := listing.High
+		if ask.IsZero() {
+			ask = listing.Price
+		}
+		bid := listing.Low
+		if bid.IsZero() {
+			bid = listing.Price
+		}
+		return ask, bid
 	}
-	bid := listing.Low
-	if bid.IsZero() {
-		bid = listing.Price
-	}
-	return ask, bid
+	return listing.Price, listing.Price
 }
 
 // getExecutionPrice returns the price the next fill will execute at: the live

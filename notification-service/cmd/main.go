@@ -84,7 +84,6 @@ func main() {
 		"notification.send-email",
 		"notification.email-sent",
 		"verification.challenge-created",
-		"notification.mobile-push",
 		"notification.general",
 		"notification.watchlist-alert",
 		"admin.cron-action",

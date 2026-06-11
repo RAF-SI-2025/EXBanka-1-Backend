@@ -79,13 +79,15 @@ func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHolding
 		// Part C: strip average_price / current_price / profit. Use the
 		// Part-B transactions endpoint for per-purchase details.
 		pbHoldings[i] = &pb.Holding{
-			Id:           hld.ID,
-			SecurityType: hld.SecurityType,
-			Ticker:       hld.Ticker,
-			Name:         hld.Name,
-			Quantity:     hld.Quantity,
-			AccountId:    hld.AccountID,
-			LastModified: hld.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			Id:                hld.ID,
+			SecurityType:      hld.SecurityType,
+			Ticker:            hld.Ticker,
+			Name:              hld.Name,
+			Quantity:          hld.Quantity,
+			ReservedQuantity:  hld.ReservedQuantity,
+			AvailableQuantity: hld.Quantity - hld.ReservedQuantity,
+			AccountId:         hld.AccountID,
+			LastModified:      hld.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 	}
 
@@ -164,14 +166,16 @@ func (h *PortfolioHandler) GetHolding(ctx context.Context, req *pb.GetHoldingReq
 	}
 	return &pb.HoldingWithOwner{
 		Holding: &pb.Holding{
-			Id:           holding.ID,
-			SecurityType: holding.SecurityType,
-			Ticker:       holding.Ticker,
-			Name:         holding.Name,
-			Quantity:     holding.Quantity,
-			AveragePrice: holding.AveragePrice.StringFixed(2),
-			AccountId:    holding.AccountID,
-			LastModified: holding.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			Id:                holding.ID,
+			SecurityType:      holding.SecurityType,
+			Ticker:            holding.Ticker,
+			Name:              holding.Name,
+			Quantity:          holding.Quantity,
+			ReservedQuantity:  holding.ReservedQuantity,
+			AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+			AveragePrice:      holding.AveragePrice.StringFixed(2),
+			AccountId:         holding.AccountID,
+			LastModified:      holding.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		},
 		OwnerType: string(holding.OwnerType),
 		OwnerId:   ownerID,
@@ -336,6 +340,8 @@ func mapGroupToProto(g service.PortfolioGroup) *pb.PortfolioGroup {
 			FundStatus:           p.FundStatus,
 			ContractId:           p.ContractID,
 			Quantity:             p.Quantity,
+			ReservedQuantity:     p.ReservedQuantity,
+			AvailableQuantity:    p.AvailableQuantity,
 			AvgCostRsd:           p.AvgCostRSD.StringFixed(4),
 			CurrentPriceRsd:      p.CurrentPriceRSD.StringFixed(4),
 			CurrentValueRsd:      p.CurrentValueRSD.StringFixed(4),

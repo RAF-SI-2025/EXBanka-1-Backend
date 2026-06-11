@@ -4052,9 +4052,14 @@ type PortfolioPosition struct {
 	// positions (stock/option/future). 0/omitted for fund positions (funds are
 	// keyed by fund_id, not a holding). Lets clients feed make-public/exercise,
 	// which require a holding_id, straight from this response.
-	HoldingId     uint64 `protobuf:"varint,21,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	HoldingId uint64 `protobuf:"varint,21,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
+	// Securities positions (stock/option/future): reserved = shares locked by formed
+	// OTC option contracts; available = quantity - reserved (free to trade/list).
+	// 0/omitted for fund positions.
+	ReservedQuantity  int64 `protobuf:"varint,22,opt,name=reserved_quantity,json=reservedQuantity,proto3" json:"reserved_quantity,omitempty"`
+	AvailableQuantity int64 `protobuf:"varint,23,opt,name=available_quantity,json=availableQuantity,proto3" json:"available_quantity,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PortfolioPosition) Reset() {
@@ -4230,6 +4235,20 @@ func (x *PortfolioPosition) GetFundStatus() string {
 func (x *PortfolioPosition) GetHoldingId() uint64 {
 	if x != nil {
 		return x.HoldingId
+	}
+	return 0
+}
+
+func (x *PortfolioPosition) GetReservedQuantity() int64 {
+	if x != nil {
+		return x.ReservedQuantity
+	}
+	return 0
+}
+
+func (x *PortfolioPosition) GetAvailableQuantity() int64 {
+	if x != nil {
+		return x.AvailableQuantity
 	}
 	return 0
 }
@@ -4411,19 +4430,21 @@ func (x *UnifiedPortfolioResponse) GetFunds() *PortfolioGroup {
 }
 
 type Holding struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	SecurityType  string                 `protobuf:"bytes,2,opt,name=security_type,json=securityType,proto3" json:"security_type,omitempty"`
-	Ticker        string                 `protobuf:"bytes,3,opt,name=ticker,proto3" json:"ticker,omitempty"`
-	Name          string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
-	Quantity      int64                  `protobuf:"varint,5,opt,name=quantity,proto3" json:"quantity,omitempty"`
-	AveragePrice  string                 `protobuf:"bytes,6,opt,name=average_price,json=averagePrice,proto3" json:"average_price,omitempty"`
-	CurrentPrice  string                 `protobuf:"bytes,7,opt,name=current_price,json=currentPrice,proto3" json:"current_price,omitempty"`
-	Profit        string                 `protobuf:"bytes,8,opt,name=profit,proto3" json:"profit,omitempty"`
-	AccountId     uint64                 `protobuf:"varint,10,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	LastModified  string                 `protobuf:"bytes,11,opt,name=last_modified,json=lastModified,proto3" json:"last_modified,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	SecurityType      string                 `protobuf:"bytes,2,opt,name=security_type,json=securityType,proto3" json:"security_type,omitempty"`
+	Ticker            string                 `protobuf:"bytes,3,opt,name=ticker,proto3" json:"ticker,omitempty"`
+	Name              string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Quantity          int64                  `protobuf:"varint,5,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	AveragePrice      string                 `protobuf:"bytes,6,opt,name=average_price,json=averagePrice,proto3" json:"average_price,omitempty"`
+	CurrentPrice      string                 `protobuf:"bytes,7,opt,name=current_price,json=currentPrice,proto3" json:"current_price,omitempty"`
+	Profit            string                 `protobuf:"bytes,8,opt,name=profit,proto3" json:"profit,omitempty"`
+	AccountId         uint64                 `protobuf:"varint,10,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	LastModified      string                 `protobuf:"bytes,11,opt,name=last_modified,json=lastModified,proto3" json:"last_modified,omitempty"`
+	ReservedQuantity  int64                  `protobuf:"varint,12,opt,name=reserved_quantity,json=reservedQuantity,proto3" json:"reserved_quantity,omitempty"`    // shares reserved by formed OTC option contracts
+	AvailableQuantity int64                  `protobuf:"varint,13,opt,name=available_quantity,json=availableQuantity,proto3" json:"available_quantity,omitempty"` // quantity - reserved_quantity (free to trade/list)
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Holding) Reset() {
@@ -4524,6 +4545,20 @@ func (x *Holding) GetLastModified() string {
 		return x.LastModified
 	}
 	return ""
+}
+
+func (x *Holding) GetReservedQuantity() int64 {
+	if x != nil {
+		return x.ReservedQuantity
+	}
+	return 0
+}
+
+func (x *Holding) GetAvailableQuantity() int64 {
+	if x != nil {
+		return x.AvailableQuantity
+	}
+	return 0
 }
 
 type ListHoldingsRequest struct {
@@ -17521,7 +17556,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x1aGetUnifiedPortfolioRequest\x12\x1d\n" +
 	"\n" +
 	"owner_type\x18\x01 \x01(\tR\townerType\x12\x19\n" +
-	"\bowner_id\x18\x02 \x01(\x04R\aownerId\"\xf2\x05\n" +
+	"\bowner_id\x18\x02 \x01(\x04R\aownerId\"\xce\x06\n" +
 	"\x11PortfolioPosition\x12\x1d\n" +
 	"\n" +
 	"asset_type\x18\x01 \x01(\tR\tassetType\x12\x16\n" +
@@ -17550,7 +17585,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vfund_status\x18\x14 \x01(\tR\n" +
 	"fundStatus\x12\x1d\n" +
 	"\n" +
-	"holding_id\x18\x15 \x01(\x04R\tholdingId\"\xc4\x01\n" +
+	"holding_id\x18\x15 \x01(\x04R\tholdingId\x12+\n" +
+	"\x11reserved_quantity\x18\x16 \x01(\x03R\x10reservedQuantity\x12-\n" +
+	"\x12available_quantity\x18\x17 \x01(\x03R\x11availableQuantity\"\xc4\x01\n" +
 	"\x0ePortfolioGroup\x12&\n" +
 	"\x0ftotal_value_rsd\x18\x01 \x01(\tR\rtotalValueRsd\x12(\n" +
 	"\x10total_profit_rsd\x18\x02 \x01(\tR\x0etotalProfitRsd\x12(\n" +
@@ -17569,7 +17606,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\n" +
 	"securities\x18\b \x01(\v2\x15.stock.PortfolioGroupR\n" +
 	"securities\x12+\n" +
-	"\x05funds\x18\t \x01(\v2\x15.stock.PortfolioGroupR\x05funds\"\xb2\x02\n" +
+	"\x05funds\x18\t \x01(\v2\x15.stock.PortfolioGroupR\x05funds\"\x8e\x03\n" +
 	"\aHolding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12#\n" +
 	"\rsecurity_type\x18\x02 \x01(\tR\fsecurityType\x12\x16\n" +
@@ -17582,7 +17619,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\n" +
 	"account_id\x18\n" +
 	" \x01(\x04R\taccountId\x12#\n" +
-	"\rlast_modified\x18\v \x01(\tR\flastModifiedJ\x04\b\t\x10\n" +
+	"\rlast_modified\x18\v \x01(\tR\flastModified\x12+\n" +
+	"\x11reserved_quantity\x18\f \x01(\x03R\x10reservedQuantity\x12-\n" +
+	"\x12available_quantity\x18\r \x01(\x03R\x11availableQuantityJ\x04\b\t\x10\n" +
 	"\"\xa5\x01\n" +
 	"\x13ListHoldingsRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12#\n" +

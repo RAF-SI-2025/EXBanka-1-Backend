@@ -1021,21 +1021,23 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		}
 	}
 
-	// Seller-side notification: this bank is the SELLER's bank (the
-	// inbound /accept lands here because the buyer's bank POSTed). The
-	// local user is the seller. The buyer's bank emits its own
-	// OTC_CONTRACT_CREATED notification independently when it processes
-	// the SI-TX postings on its side.
+	// Notify the LOCAL counterparty that a contract formed. The inbound /accept
+	// lands on the bank of the side that LAST PROPOSED (guarded above) — which may
+	// be the BUYER or the SELLER, so notify whichever is local (cross-bank: at most
+	// one side is on this bank). The accepting party is notified separately by
+	// their own bank's OUTBOUND acceptRemoteNegotiation. Previously only the seller
+	// was notified, so a local BIDDER whose counter was accepted got nothing.
+	ccData := map[string]string{
+		"ticker":       offer.Ticker,
+		"quantity":     strconv.FormatInt(offer.Amount, 10),
+		"strike_price": offer.PricePerStock.String(),
+		"premium_paid": offer.Premium.String(),
+	}
 	if uid, ok := h.localClientUserID(sellerRouting, sellerID); ok {
-		h.publishPeerNotif(ctx, uid, "OTC_CONTRACT_CREATED",
-			map[string]string{
-				"ticker":       offer.Ticker,
-				"quantity":     strconv.FormatInt(offer.Amount, 10),
-				"strike_price": offer.PricePerStock.String(),
-				"premium_paid": offer.Premium.String(),
-			},
-			"otc_negotiation", row.ID,
-		)
+		h.publishPeerNotif(ctx, uid, "OTC_CONTRACT_CREATED", ccData, "otc_negotiation", row.ID)
+	}
+	if uid, ok := h.localClientUserID(buyerRouting, buyerID); ok {
+		h.publishPeerNotif(ctx, uid, "OTC_CONTRACT_CREATED", ccData, "otc_negotiation", row.ID)
 	}
 
 	return &stockpb.AcceptNegotiationResponse{
@@ -2129,6 +2131,23 @@ func (h *PeerOTCGRPCHandler) InitiateOptionExercise(ctx context.Context, req *st
 		}
 		return nil, status.Errorf(codes.Internal, "dispatch exercise: %v", err)
 	}
+
+	// Settlement-outcome gate (mirrors the accept path). InitiateOutboundTxWithPostings
+	// returns the SI-TX row's terminal status. A peer NO vote (e.g. the seller bank
+	// can't deliver, or the buyer can't afford the strike on the OTHER bank's check)
+	// is a valid protocol outcome — NOT a transport error — so the err==nil branch
+	// above does not catch it. Without this gate the claim stayed "exercising" and the
+	// contract was permanently un-exercisable ("contract status \"exercising\" is not
+	// exercisable", the user's bug). On rolled_back/failed, revert exercising → active
+	// so the buyer can retry, and surface a clear 409.
+	if txStatus := resp.GetStatus(); txStatus == "rolled_back" || txStatus == "failed" {
+		if _, rerr := h.peerOptionRepo.CompareAndSetRemoteContractStatus(contract.ID, "exercising", "active"); rerr != nil {
+			log.Printf("WARN: peer-option contract %d: failed to revert exercise claim after %s settlement: %v", contract.ID, txStatus, rerr)
+		}
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"cross-bank exercise settlement did not commit (%s): contract not exercised", txStatus)
+	}
+
 	return &stockpb.InitiateOptionExerciseResponse{
 		TransactionId: resp.GetTransactionId(),
 		Status:        resp.GetStatus(),

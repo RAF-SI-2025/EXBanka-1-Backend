@@ -426,6 +426,25 @@ func (h *OTCOptionsHandler) acceptRemoteNegotiation(
 		}
 	}
 
+	// Notify the LOCAL ACCEPTOR that the contract formed (parity with the local
+	// accept path, which notifies BOTH parties). The counterparty is notified by
+	// their own bank's inbound AcceptNegotiation; here we notify the side WE host —
+	// the acceptor — resolved from the stable wire id. No-op for a bank/employee
+	// acceptor (client-only notifications). Best-effort: a notif failure never
+	// affects the already-formed contract.
+	if h.negotiations != nil {
+		if ot, oid, perr := parseSellerOwner(rc.hostedPartyID); perr == nil {
+			h.negotiations.NotifyOTCParticipant(ctx, ot, oid, "OTC_CONTRACT_CREATED",
+				map[string]string{
+					"ticker":       rc.offer.Ticker,
+					"quantity":     strconv.FormatInt(rc.offer.Amount, 10),
+					"strike_price": rc.offer.PricePerStock.String(),
+					"premium_paid": rc.offer.Premium.String(),
+				},
+				"otc_negotiation", rc.row.ID)
+		}
+	}
+
 	// Re-read the accepted row for the winning projection.
 	winningRow, gerr := h.remoteNegOps.GetRemoteNegByID(rc.row.ID)
 	if gerr != nil {

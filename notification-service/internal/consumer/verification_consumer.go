@@ -134,26 +134,10 @@ func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event k
 	if err := c.inboxRepo.Create(item); err != nil {
 		return err // transient DB failure — retry (atomic insert, safe to re-run)
 	}
-
-	// The inbox row is the source of truth (polled via GetPendingMobileItems);
-	// the push is a best-effort nudge. A push failure must NOT trigger a retry,
-	// which would re-insert the inbox row (no idempotency key yet) — so swallow it.
-	payloadJSON, _ := json.Marshal(map[string]interface{}{
-		"challenge_id": event.ChallengeID,
-		"method":       event.Method,
-		"display_data": event.DisplayData,
-		"expires_at":   event.ExpiresAt,
-	})
-	pushMsg := kafkamsg.MobilePushMessage{
-		UserID:  event.UserID,
-		Type:    "verification_challenge",
-		Payload: string(payloadJSON),
-	}
-	if err := c.producer.Publish(ctx, kafkamsg.TopicMobilePush, pushMsg); err != nil {
-		log.Printf("verification consumer: mobile push publish error (best-effort, not retried): %v", err)
-	} else {
-		svc.NotificationMobilePushTotal.Inc()
-	}
+	// The inbox row is the source of truth — the mobile app polls it via
+	// GET /api/v3/mobile/verifications/pending (GetPendingMobileItems). The old
+	// best-effort WebSocket "push nudge" (notification.mobile-push) was removed
+	// 2026-06-11 along with the unused api-gateway WebSocket handler.
 	return nil
 }
 

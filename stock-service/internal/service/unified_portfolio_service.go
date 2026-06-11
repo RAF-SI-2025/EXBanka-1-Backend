@@ -89,12 +89,17 @@ type PortfolioPosition struct {
 	// (stock/option/future). Zero for fund positions, which are keyed by FundID.
 	// Surfaced so clients can call make-public/exercise (which require a
 	// holding_id) directly from the unified portfolio.
-	HoldingID         uint64
-	FundID            uint64
-	FundName          string
-	FundStatus        string // for investment_fund positions — passthrough from FundStatus
-	ContractID        uint64
-	Quantity          int64
+	HoldingID  uint64
+	FundID     uint64
+	FundName   string
+	FundStatus string // for investment_fund positions — passthrough from FundStatus
+	ContractID uint64
+	Quantity   int64
+	// ReservedQuantity / AvailableQuantity (security positions only): shares
+	// reserved by formed OTC option contracts, and the free remainder
+	// (Quantity - ReservedQuantity). Zero for fund positions.
+	ReservedQuantity  int64
+	AvailableQuantity int64
 	AvgCostRSD        decimal.Decimal
 	CurrentPriceRSD   decimal.Decimal
 	CurrentValueRSD   decimal.Decimal
@@ -342,16 +347,18 @@ func composeHoldingPosition(h model.Holding, prices map[uint64]decimal.Decimal) 
 	pl := currentValue.Sub(totalCost)
 
 	return PortfolioPosition{
-		AssetType:       mapSecurityType(h.SecurityType),
-		Symbol:          h.Ticker,
-		HoldingID:       h.ID,
-		Quantity:        h.Quantity,
-		AvgCostRSD:      h.AveragePrice,
-		CurrentPriceRSD: currentPrice,
-		CurrentValueRSD: currentValue,
-		PLRSD:           pl,
-		PLPct:           pctCalc(pl, totalCost),
-		LastUpdated:     h.UpdatedAt,
+		AssetType:         mapSecurityType(h.SecurityType),
+		Symbol:            h.Ticker,
+		HoldingID:         h.ID,
+		Quantity:          h.Quantity,
+		ReservedQuantity:  h.ReservedQuantity,
+		AvailableQuantity: h.Quantity - h.ReservedQuantity,
+		AvgCostRSD:        h.AveragePrice,
+		CurrentPriceRSD:   currentPrice,
+		CurrentValueRSD:   currentValue,
+		PLRSD:             pl,
+		PLPct:             pctCalc(pl, totalCost),
+		LastUpdated:       h.UpdatedAt,
 	}
 }
 

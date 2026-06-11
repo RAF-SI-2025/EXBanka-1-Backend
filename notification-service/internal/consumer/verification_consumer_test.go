@@ -132,14 +132,9 @@ func TestVerificationConsumer_MobileDelivery_HappyPath(t *testing.T) {
 	assert.JSONEq(t, string(display), string(item.DisplayData))
 	assert.WithinDuration(t, mustParseRFC(t, expiresAt), item.ExpiresAt, time.Second)
 
-	// One push message published on the mobile-push topic.
-	require.Equal(t, 1, pub.callCount())
-	assert.Equal(t, kafkamsg.TopicMobilePush, pub.topics[0])
-	pushMsg, ok := pub.payloads[0].(kafkamsg.MobilePushMessage)
-	require.True(t, ok, "expected MobilePushMessage payload")
-	assert.Equal(t, uint64(11), pushMsg.UserID)
-	assert.Equal(t, "verification_challenge", pushMsg.Type)
-	assert.NotEmpty(t, pushMsg.Payload)
+	// No mobile-push publish — the inbox row is the sole delivery channel; the
+	// WebSocket "push nudge" (notification.mobile-push) was removed 2026-06-11.
+	assert.Equal(t, 0, pub.callCount())
 
 	// Email path untouched.
 	assert.Equal(t, 0, sender.sentCount())

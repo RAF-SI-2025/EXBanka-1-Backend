@@ -141,11 +141,6 @@ func (s *SecuritySyncService) SeedAll(ctx context.Context, futuresSeedPath strin
 func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 	start := time.Now()
 
-	if s.isTestingMode() {
-		log.Println("testing mode enabled — skipping external API price refresh")
-		return
-	}
-
 	src := s.Source()
 	sourceName := ""
 	if src != nil {
@@ -154,8 +149,18 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 
 	switch sourceName {
 	case "external":
-		s.syncStockPrices(ctx)
-		s.refreshForexRates()
+		// Testing mode skips ONLY the external-API fetch (AlphaVantage/Finnhub
+		// quota + network are unreliable in the project environment). It must NOT
+		// stop price MOVEMENT — testing mode only forces exchanges to be treated
+		// as open (so orders fill); prices still drift via the generated/simulator
+		// source. With the default "generated" source, prices keep moving every
+		// refresh even in testing mode.
+		if s.isTestingMode() {
+			log.Println("testing mode enabled — skipping external API price refresh")
+		} else {
+			s.syncStockPrices(ctx)
+			s.refreshForexRates()
+		}
 	case "generated", "simulator":
 		if err := src.RefreshPrices(ctx); err != nil {
 			log.Printf("WARN: %s source RefreshPrices failed: %v", sourceName, err)
