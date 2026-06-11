@@ -89,7 +89,7 @@ func TestCounterNegotiation_PublishesOTCOfferCounteredToOtherParty(t *testing.T)
 		Quantity:            decimal.NewFromInt(10),
 		StrikePrice:         decimal.NewFromFloat(150),
 		Premium:             decimal.NewFromFloat(7),
-		SettlementDate:      listing.SettlementDate,
+		SettlementDate:      neg.SettlementDate,
 		ActingPrincipalType: "client",
 		ActingPrincipalID:   7,
 	})

@@ -504,7 +504,10 @@ func TestInitiateOutboundTxWithPostings_HappyPath(t *testing.T) {
 	if resp.GetTransactionId() == "" {
 		t.Errorf("expected transaction_id, got %+v", resp)
 	}
-	if resp.GetStatus() != "pending" {
+	// The peer votes YES and the local commit succeeds, so the response now reports
+	// the row's real terminal status ("committed") instead of a blanket "pending"
+	// (which used to mask a rolled-back settlement from the OTC accept caller).
+	if resp.GetStatus() != "committed" {
 		t.Errorf("status: %s", resp.GetStatus())
 	}
 }

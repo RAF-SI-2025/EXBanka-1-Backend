@@ -124,6 +124,22 @@ func seedBidderChain(t *testing.T, db *gorm.DB, bidderID uint64, parentOfferID u
 	return neg.ID
 }
 
+// withTicker overrides a peer row's RemoteOfferJSON ticker (peerRow hardcodes
+// "ACME"). Used to place a chain on a DIFFERENT listing under the termless model,
+// where one open offer per (owner, ticker, direction) means the TICKER — not a
+// lot key — discriminates a seller's listings.
+func withTicker(row model.OTCNegotiation, ticker string) model.OTCNegotiation {
+	var offer contractsitx.OtcOffer
+	if row.RemoteOfferJSON != nil {
+		_ = json.Unmarshal([]byte(*row.RemoteOfferJSON), &offer)
+	}
+	offer.Ticker = ticker
+	js, _ := json.Marshal(offer)
+	s := string(js)
+	row.RemoteOfferJSON = &s
+	return row
+}
+
 // peerRow builds a REMOTE model.OTCNegotiation (SP-2a) with the cross-bank
 // parties + offer in the Remote* columns. The row's RoutingNumber is the
 // counterparty/peer routing — the side WE do NOT host (so the unified read

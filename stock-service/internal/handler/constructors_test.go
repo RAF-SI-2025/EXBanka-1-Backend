@@ -22,12 +22,12 @@ func TestNewOrderHandler(t *testing.T) {
 }
 
 func TestNewOTCHandler(t *testing.T) {
-	h := NewOTCHandler(nil)
+	h := NewOTCHandler()
 	if h == nil {
 		t.Fatal("NewOTCHandler returned nil")
 	}
-	if h.cache != nil {
-		t.Error("expected cache to be nil for plain constructor")
+	if h.optionCache != nil {
+		t.Error("expected optionCache to be nil for plain constructor")
 	}
 }
 

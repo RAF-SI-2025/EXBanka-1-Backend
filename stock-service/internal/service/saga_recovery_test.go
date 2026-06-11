@@ -536,26 +536,11 @@ func TestSagaRecovery_ExerciseStep_AutoResolvesViaRecoverer(t *testing.T) {
 	}
 }
 
-// fakeAcceptRecoverer records RecoverAcceptSaga calls.
-type fakeAcceptRecoverer struct {
-	calls []struct {
-		sagaID  string
-		offerID uint64
-	}
-	err error
-}
-
-func (f *fakeAcceptRecoverer) RecoverAcceptSaga(_ context.Context, sagaID string, offerID uint64) error {
-	f.calls = append(f.calls, struct {
-		sagaID  string
-		offerID uint64
-	}{sagaID, offerID})
-	return f.err
-}
-
-// Every stuck OTC accept step must auto-resolve by delegating to the accept
-// recoverer — no human review — then mark the row terminal.
-func TestSagaRecovery_AcceptStep_AutoResolvesViaRecoverer(t *testing.T) {
+// Every stuck OTC contract-formation step (the legacy single-chain accept saga
+// + its auto-recovery were removed in R12; the live formation path is
+// MintContractFromAcceptedNegotiation) is now logged for human review rather
+// than auto-resolved, and must NOT panic the reconciler's exhaustive switch.
+func TestSagaRecovery_ContractFormationStep_LoggedNotPanicked(t *testing.T) {
 	for _, stepName := range []string{
 		"reserve_and_contract", "reserve_premium", "settle_premium_buyer",
 		"credit_premium_seller", "mark_offer_accepted", "record_seller_premium_gain",
@@ -566,18 +551,14 @@ func TestSagaRecovery_AcceptStep_AutoResolvesViaRecoverer(t *testing.T) {
 			repo := newFakeRecoveryRepo(step)
 			stub := &fakeRecoveryAccountStub{}
 			client := newFakeRecoveryFillClient(stub)
-			recvr := &fakeAcceptRecoverer{}
 
-			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry()).
-				WithAcceptRecoverer(recvr)
+			rec := NewSagaRecovery(repo, client, nil, "", nil, nilRegistry())
 			if err := rec.Reconcile(context.Background()); err != nil {
 				t.Fatalf("Reconcile: %v", err)
 			}
-			if len(recvr.calls) != 1 || recvr.calls[0].sagaID != "saga-1" || recvr.calls[0].offerID != 7777 {
-				t.Fatalf("expected RecoverAcceptSaga(saga-1, 7777), got %+v", recvr.calls)
-			}
-			if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
-				t.Fatalf("expected 1 completed UpdateStatus, got %+v", repo.updateCalls)
+			// Log-and-leave: the stuck row is left untouched for human review.
+			if len(repo.updateCalls) != 0 {
+				t.Fatalf("expected no UpdateStatus (log-and-leave), got %+v", repo.updateCalls)
 			}
 		})
 	}

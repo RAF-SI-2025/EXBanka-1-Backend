@@ -21,8 +21,138 @@ func NewOTCOfferRepository(db *gorm.DB) *OTCOfferRepository {
 
 func (r *OTCOfferRepository) DB() *gorm.DB { return r.db }
 
+// MergeDuplicateOpenOffers collapses pre-existing duplicate OPEN LOCAL offers
+// sharing (initiator_owner_id, ticker, direction) into the oldest row (summing
+// quantity) and marks the rest consumed, so the partial unique index can be
+// created. Idempotent: a second run is a no-op. Returns the number consumed.
+//
+// Status set: the full open-listing set ('open','PENDING','COUNTERED'), matching
+// the partial unique index predicate. New LOCAL offers are created PENDING (never
+// 'open'), so a status='open'-only filter would never see a real-world duplicate
+// and the migration would be inert on deploy — and worse, the unique index would
+// then fail to build over pre-existing PENDING duplicates. Collapsing every
+// open-listing status keeps the merge a true precondition for the index.
+//
+// Column updates (UpdateColumn) intentionally bypass the optimistic-lock
+// BeforeUpdate hook: that hook appends `WHERE version = ?` keyed off the
+// zero-value model's Version (0), which would silently no-op rows whose version
+// has advanced past 0. This is a one-shot migration that must apply to the
+// exact id regardless of the live version.
+func (r *OTCOfferRepository) MergeDuplicateOpenOffers() (int64, error) {
+	openStatuses := []string{
+		model.OTCOfferStatusOpen,
+		model.OTCOfferStatusPending,
+		model.OTCOfferStatusCountered,
+	}
+	var consumed int64
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var rows []model.OTCOffer
+		if err := tx.Where("status IN ? AND local = ?", openStatuses, true).
+			Order("id ASC").Find(&rows).Error; err != nil {
+			return err
+		}
+		type key struct {
+			owner uint64
+			tick  string
+			dir   string
+		}
+		keep := map[key]*model.OTCOffer{}
+		for i := range rows {
+			o := &rows[i]
+			if o.InitiatorOwnerID == nil {
+				continue
+			}
+			k := key{*o.InitiatorOwnerID, o.Ticker, o.Direction}
+			if first, ok := keep[k]; ok {
+				first.Quantity = first.Quantity.Add(o.Quantity)
+				res := tx.Model(&model.OTCOffer{}).Where("id = ?", first.ID).
+					UpdateColumn("quantity", first.Quantity)
+				if res.Error != nil {
+					return res.Error
+				}
+				if res.RowsAffected != 1 {
+					return errors.New("otc merge: quantity update did not apply")
+				}
+				res = tx.Model(&model.OTCOffer{}).Where("id = ?", o.ID).
+					UpdateColumn("status", model.OTCOfferStatusConsumed)
+				if res.Error != nil {
+					return res.Error
+				}
+				if res.RowsAffected != 1 {
+					return errors.New("otc merge: status update did not apply")
+				}
+				consumed++
+			} else {
+				cp := *o
+				keep[k] = &cp
+			}
+		}
+		return nil
+	})
+	return consumed, err
+}
+
 func (r *OTCOfferRepository) Create(o *model.OTCOffer) error {
 	return r.db.Create(o).Error
+}
+
+// CountOpenByOwnerTickerDirection counts this bank's OPEN LOCAL offers for the
+// (owner, ticker, direction) triple — the partial-unique-index key. Used to
+// reject a duplicate before insert (friendlier than relying on the DB error).
+//
+// New offers are created with the legacy status PENDING (the negotiation-thread
+// vocabulary). This counts every IsOpenListing status ('open','PENDING',
+// 'COUNTERED'), matching the DB partial unique index predicate exactly. This
+// service check is the friendly fast path (returns ErrOTCOfferDuplicateOpen
+// before the insert); the DB index over the SAME status set is the authoritative
+// backstop that closes the non-transactional gap between this count and the
+// insert.
+func (r *OTCOfferRepository) CountOpenByOwnerTickerDirection(ownerType model.OwnerType, ownerID *uint64, ticker, direction string) (int64, error) {
+	var n int64
+	openStatuses := []string{
+		model.OTCOfferStatusOpen,
+		model.OTCOfferStatusPending,
+		model.OTCOfferStatusCountered,
+	}
+	q := r.db.Model(&model.OTCOffer{}).
+		Where("status IN ? AND local = ? AND ticker = ? AND direction = ? AND initiator_owner_type = ?",
+			openStatuses, true, ticker, direction, ownerType)
+	if ownerID != nil {
+		q = q.Where("initiator_owner_id = ?", *ownerID)
+	} else {
+		q = q.Where("initiator_owner_id IS NULL")
+	}
+	return n, q.Count(&n).Error
+}
+
+// ConsumeOpenByOwnerTickerDirection flips this bank's OPEN LOCAL offer for the
+// (owner, ticker, direction) triple to consumed. It matches the same
+// IsOpenListing status set ('open','PENDING','COUNTERED') as the partial unique
+// index, so it targets exactly the at-most-one open listing for that key. Used
+// by the cross-bank accept path (Direction 2: we host the seller) to remove a
+// listing from the marketplace once an option contract forms against it — the
+// termless /public-stock model carries no offer id on the wire, so the listing
+// is resolved by its unique key rather than by parent_offer_id.
+//
+// Idempotent: 0 rows affected (already consumed / cancelled / never existed) is
+// NOT an error. UpdateColumn (hooks skipped) is used because this is a terminal
+// status flip targeted by WHERE, not a load-modify-Save subject to the
+// optimistic-version contract — mirroring MergeDuplicateOpenOffers.
+func (r *OTCOfferRepository) ConsumeOpenByOwnerTickerDirection(ownerType model.OwnerType, ownerID *uint64, ticker, direction string) error {
+	openStatuses := []string{
+		model.OTCOfferStatusOpen,
+		model.OTCOfferStatusPending,
+		model.OTCOfferStatusCountered,
+	}
+	q := r.db.Model(&model.OTCOffer{}).
+		Where("status IN ? AND local = ? AND ticker = ? AND direction = ? AND initiator_owner_type = ?",
+			openStatuses, true, ticker, direction, ownerType)
+	if ownerID != nil {
+		q = q.Where("initiator_owner_id = ?", *ownerID)
+	} else {
+		q = q.Where("initiator_owner_id IS NULL")
+	}
+	return q.UpdateColumn("status", model.OTCOfferStatusConsumed).Error
 }
 
 func (r *OTCOfferRepository) GetByID(id uint64) (*model.OTCOffer, error) {
@@ -120,6 +250,33 @@ func (r *OTCOfferRepository) ListOpenForCache(limit int) ([]model.OTCOffer, erro
 	return out, err
 }
 
+// ListPublicOptionOffersForPeer returns this bank's OPEN, sell-initiated, public,
+// non-private, LOCAL option offers — the "optionable inventory" exposed to peer
+// banks on the SI-TX /public-stock endpoint (PeerOTCGRPCHandler.GetPublicStocks).
+// One row per (owner, ticker, direction): the partial unique index already
+// guarantees one open sell offer per that triple, so no aggregation is needed.
+//
+// Status predicate: the SAME open-listing set ListOpenForCache uses
+// ('open','PENDING','COUNTERED'). New sell offers are created with the legacy
+// status PENDING (IsOpenListing treats open/PENDING/COUNTERED as open), so a
+// strict status='open' filter would MISS freshly-created offers and peers would
+// see an empty catalog. Mirroring ListOpenForCache's predicate keeps peer
+// /public-stock discovery in agreement with local /public-option-offers
+// discovery (both read the same open set).
+func (r *OTCOfferRepository) ListPublicOptionOffersForPeer() ([]model.OTCOffer, error) {
+	openStatuses := []string{
+		model.OTCOfferStatusOpen,
+		model.OTCOfferStatusPending,
+		model.OTCOfferStatusCountered,
+	}
+	var rows []model.OTCOffer
+	err := r.db.Where(
+		"status IN ? AND local = ? AND direction = ? AND public = ? AND private = ?",
+		openStatuses, true, model.OTCDirectionSellInitiated, true, false,
+	).Find(&rows).Error
+	return rows, err
+}
+
 // UpsertRemote inserts or refreshes a REMOTE OTCOffer row keyed by the
 // natural key (routing_number, native_id), stamping LastSeenAt and
 // (re)opening the row. Returns the stable surrogate id. The caller MUST
@@ -136,8 +293,7 @@ func (r *OTCOfferRepository) UpsertRemote(o *model.OTCOffer, seenAt time.Time) (
 		Columns: []clause.Column{{Name: "routing_number"}, {Name: "native_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"initiator_bank_code", "remote_seller_id", "direction", "ticker",
-			"quantity", "strike_price", "premium", "settlement_date",
-			"strike_currency", "premium_currency", "has_preset_terms", "status", "last_seen_at", "updated_at",
+			"quantity", "status", "last_seen_at", "updated_at",
 		}),
 	}).Create(o).Error
 	if err != nil {
@@ -158,25 +314,13 @@ func (r *OTCOfferRepository) UpsertRemote(o *model.OTCOffer, seenAt time.Time) (
 	return o.ID, nil
 }
 
-// UpsertRemoteShell upserts a /public-stock SHELL remote row. Because
-// OTCOffer.HasPresetTerms is `default:true`, GORM substitutes `true` for the
-// zero-value `false` in the INSERT, and also scans the inserted value back
-// into the struct; capturing the desired value BEFORE calling UpsertRemote
-// and forcing it via a raw Exec afterward guarantees shells persist as
-// has_preset_terms=false.
+// UpsertRemoteShell upserts a /public-stock SHELL remote row (native_id
+// "ps:..."). Shells are termless listings just like every other OTCOffer, so
+// this is now a thin alias over UpsertRemote, retained as a named entry point
+// for the shell-mirror callers and to keep the shell/option-offer call sites
+// self-documenting.
 func (r *OTCOfferRepository) UpsertRemoteShell(o *model.OTCOffer, seenAt time.Time) (uint64, error) {
-	// Capture the caller's intent before UpsertRemote may overwrite o.HasPresetTerms
-	// with the DB default (true) via the GORM RETURNING scan.
-	wantPresetTerms := o.HasPresetTerms
-	id, err := r.UpsertRemote(o, seenAt)
-	if err != nil {
-		return 0, err
-	}
-	if err := r.db.Exec("UPDATE otc_offers SET has_preset_terms = ? WHERE id = ?",
-		wantPresetTerms, id).Error; err != nil {
-		return 0, err
-	}
-	return id, nil
+	return r.UpsertRemote(o, seenAt)
 }
 
 // reconcileScoped flips open remote rows for peerRouting whose native_id is NOT
@@ -383,17 +527,38 @@ func derefOr0(p *uint64) uint64 {
 	return *p
 }
 
-// ListExpiringOffers returns up to limit pending/countered offers whose
-// settlement_date is in the past. Used by the expiry cron.
+// OutstandingCommittedQuantityTx returns the total share quantity already
+// committed to contract-forming negotiation chains on the given parent offer —
+// i.e. Σ OTCNegotiation.Quantity over chains whose parent_offer_id == offerID
+// and whose status is the contract-forming terminal status "accepted".
 //
-// Guard: only local rows (local == true) are returned so remote offers folded
-// in by Tasks 4-6 never enter the local expiry path.
-func (r *OTCOfferRepository) ListExpiringOffers(today string, limit int) ([]model.OTCOffer, error) {
-	var out []model.OTCOffer
-	err := r.db.Where("status IN ? AND settlement_date < ? AND local = ?",
-		[]string{model.OTCOfferStatusPending, model.OTCOfferStatusCountered}, today, true).
-		Order("id ASC").Limit(limit).Find(&out).Error
-	return out, err
+// PREDICATE RATIONALE ("committed" = the lower bound a quantity edit must not
+// drop below): the marketplace is all-or-nothing per offer. A bidder opens a
+// negotiation chain (status open/countered — a mere proposal the owner never
+// agreed to, so NOT committed); the first chain to ACCEPT mints a contract and
+// flips the parent listing to "consumed" (status the editor rejects via
+// IsOpenListing). rejected/cancelled/expired chains carry no obligation.
+// Therefore the ONLY chain status that represents a real, formed/forming
+// obligation on this offer is "accepted", and we sum exactly those. Open and
+// terminal-non-accepted chains are deliberately excluded.
+//
+// Consequence: for any editable (open) offer this sum is 0 (an accept would have
+// consumed the offer, blocking the edit). It is the authoritative defense-in-
+// depth lower bound regardless — it can never let an owner under-cut shares
+// locked into a formed contract on this offer, and never spuriously blocks an
+// edit on a genuinely open offer.
+func (r *OTCOfferRepository) OutstandingCommittedQuantityTx(tx *gorm.DB, offerID uint64) (decimal.Decimal, error) {
+	var rows []struct{ Sum decimal.Decimal }
+	err := tx.Raw(`
+		SELECT COALESCE(SUM(quantity), 0) AS sum
+		  FROM otc_negotiations
+		 WHERE parent_offer_id = ? AND status = ?`,
+		offerID, model.OTCNegotiationStatusAccepted,
+	).Scan(&rows).Error
+	if err != nil || len(rows) == 0 {
+		return decimal.Zero, err
+	}
+	return rows[0].Sum, nil
 }
 
 // SumActiveQuantityForSeller returns Σ over (a) active option contracts
@@ -403,9 +568,46 @@ func (r *OTCOfferRepository) ListExpiringOffers(today string, limit int) ([]mode
 // seller-invariant check (§4.6 of spec). owner_id may be nil for bank
 // owners; predicates emit IS NULL in that case.
 func (r *OTCOfferRepository) SumActiveQuantityForSeller(sellerOwnerType model.OwnerType, sellerOwnerID *uint64, stockID uint64) (decimal.Decimal, error) {
+	return r.sumActiveQuantityForSeller(r.db, sellerOwnerType, sellerOwnerID, stockID, 0)
+}
+
+// SumActiveQuantityForSellerExcludingOfferTx is SumActiveQuantityForSeller run
+// inside tx with one OTCOffer id excluded from the offer (b)/(c) subqueries.
+// Used by the edit-quantity path so the offer being resized does NOT count its
+// OWN current quantity against the seller's holding (otherwise the available
+// bound would be the holding minus the offer's current size rather than the
+// full holding, wrongly rejecting an edit up to the holding). Active contracts
+// (a) are never minted from an editable/open offer so they are not excluded.
+func (r *OTCOfferRepository) SumActiveQuantityForSellerExcludingOfferTx(tx *gorm.DB, sellerOwnerType model.OwnerType, sellerOwnerID *uint64, stockID, excludeOfferID uint64) (decimal.Decimal, error) {
+	return r.sumActiveQuantityForSeller(tx, sellerOwnerType, sellerOwnerID, stockID, excludeOfferID)
+}
+
+func (r *OTCOfferRepository) sumActiveQuantityForSeller(db *gorm.DB, sellerOwnerType model.OwnerType, sellerOwnerID *uint64, stockID, excludeOfferID uint64) (decimal.Decimal, error) {
 	var rows []struct{ Sum decimal.Decimal }
+	// excludeOfferID (0 = exclude nothing) keeps the offer being resized from
+	// counting its own current quantity in the (b)/(c) offer subqueries.
+	exclude := ""
+	if excludeOfferID != 0 {
+		exclude = " AND id <> ?"
+	}
+	var err error
 	if sellerOwnerID == nil {
-		err := r.db.Raw(`
+		args := []any{
+			sellerOwnerType, stockID, model.OptionContractStatusActive,
+			model.OTCDirectionSellInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
+			sellerOwnerType, stockID,
+		}
+		if excludeOfferID != 0 {
+			args = append(args, excludeOfferID)
+		}
+		args = append(args,
+			model.OTCDirectionBuyInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
+			sellerOwnerType, stockID,
+		)
+		if excludeOfferID != 0 {
+			args = append(args, excludeOfferID)
+		}
+		err = db.Raw(`
 			SELECT COALESCE(SUM(q), 0) AS sum FROM (
 				SELECT quantity AS q FROM option_contracts
 				 WHERE seller_owner_type = ? AND seller_owner_id IS NULL
@@ -414,46 +616,46 @@ func (r *OTCOfferRepository) SumActiveQuantityForSeller(sellerOwnerType model.Ow
 				SELECT quantity AS q FROM otc_offers
 				 WHERE direction = ? AND status IN (?, ?)
 				   AND initiator_owner_type = ? AND initiator_owner_id IS NULL
-				   AND stock_id = ?
+				   AND stock_id = ?`+exclude+`
 				UNION ALL
 				SELECT quantity AS q FROM otc_offers
 				 WHERE direction = ? AND status IN (?, ?)
 				   AND counterparty_owner_type = ? AND counterparty_owner_id IS NULL
-				   AND stock_id = ?
-			) AS t`,
-			sellerOwnerType, stockID, model.OptionContractStatusActive,
+				   AND stock_id = ?`+exclude+`
+			) AS t`, args...).Scan(&rows).Error
+	} else {
+		args := []any{
+			sellerOwnerType, *sellerOwnerID, stockID, model.OptionContractStatusActive,
 			model.OTCDirectionSellInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
-			sellerOwnerType, stockID,
-			model.OTCDirectionBuyInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
-			sellerOwnerType, stockID,
-		).Scan(&rows).Error
-		if err != nil || len(rows) == 0 {
-			return decimal.Zero, err
+			sellerOwnerType, *sellerOwnerID, stockID,
 		}
-		return rows[0].Sum, nil
+		if excludeOfferID != 0 {
+			args = append(args, excludeOfferID)
+		}
+		args = append(args,
+			model.OTCDirectionBuyInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
+			sellerOwnerType, *sellerOwnerID, stockID,
+		)
+		if excludeOfferID != 0 {
+			args = append(args, excludeOfferID)
+		}
+		err = db.Raw(`
+			SELECT COALESCE(SUM(q), 0) AS sum FROM (
+				SELECT quantity AS q FROM option_contracts
+				 WHERE seller_owner_type = ? AND seller_owner_id = ?
+				   AND stock_id = ? AND status = ?
+				UNION ALL
+				SELECT quantity AS q FROM otc_offers
+				 WHERE direction = ? AND status IN (?, ?)
+				   AND initiator_owner_type = ? AND initiator_owner_id = ?
+				   AND stock_id = ?`+exclude+`
+				UNION ALL
+				SELECT quantity AS q FROM otc_offers
+				 WHERE direction = ? AND status IN (?, ?)
+				   AND counterparty_owner_type = ? AND counterparty_owner_id = ?
+				   AND stock_id = ?`+exclude+`
+			) AS t`, args...).Scan(&rows).Error
 	}
-	err := r.db.Raw(`
-		SELECT COALESCE(SUM(q), 0) AS sum FROM (
-			SELECT quantity AS q FROM option_contracts
-			 WHERE seller_owner_type = ? AND seller_owner_id = ?
-			   AND stock_id = ? AND status = ?
-			UNION ALL
-			SELECT quantity AS q FROM otc_offers
-			 WHERE direction = ? AND status IN (?, ?)
-			   AND initiator_owner_type = ? AND initiator_owner_id = ?
-			   AND stock_id = ?
-			UNION ALL
-			SELECT quantity AS q FROM otc_offers
-			 WHERE direction = ? AND status IN (?, ?)
-			   AND counterparty_owner_type = ? AND counterparty_owner_id = ?
-			   AND stock_id = ?
-		) AS t`,
-		sellerOwnerType, *sellerOwnerID, stockID, model.OptionContractStatusActive,
-		model.OTCDirectionSellInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
-		sellerOwnerType, *sellerOwnerID, stockID,
-		model.OTCDirectionBuyInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
-		sellerOwnerType, *sellerOwnerID, stockID,
-	).Scan(&rows).Error
 	if err != nil || len(rows) == 0 {
 		return decimal.Zero, err
 	}

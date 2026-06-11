@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -213,6 +214,59 @@ func TestOTCNegotiation_Revisions_AppendAndList(t *testing.T) {
 	if revs[2].Action != model.OTCNegotiationActionAccept {
 		t.Errorf("third revision should be ACCEPT, got %s", revs[2].Action)
 	}
+}
+
+func TestLatestRevisionByAuthorForOffer(t *testing.T) {
+	db := newOTCNegotiationTestDB(t)
+	repo := NewOTCNegotiationRepository(db)
+
+	// Two chains under parent offer 1; the listing owner principal is (client, 7).
+	// The owner counters on each bidder's chain. We want the owner's MOST RECENT
+	// counter across BOTH chains.
+	bidderA := uint64(9)  // chain A bidder
+	bidderB := uint64(10) // chain B bidder
+	chainA := newSampleNegotiation(1, &bidderA, model.OTCNegotiationStatusCountered)
+	chainB := newSampleNegotiation(1, &bidderB, model.OTCNegotiationStatusCountered)
+	require.NoError(t, repo.Create(chainA))
+	require.NoError(t, repo.Create(chainB))
+
+	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	mkRev := func(negID uint64, num int, author string, authorID uint64, strike int64, action string, at time.Time) *model.OTCNegotiationRevision {
+		return &model.OTCNegotiationRevision{
+			NegotiationID:           negID,
+			RevisionNumber:          num,
+			Quantity:                decimal.NewFromInt(10),
+			StrikePrice:             decimal.NewFromInt(strike),
+			Premium:                 decimal.NewFromInt(5),
+			SettlementDate:          base.AddDate(0, 1, 0),
+			ModifiedByPrincipalType: author,
+			ModifiedByPrincipalID:   authorID,
+			Action:                  action,
+			CreatedAt:               at,
+		}
+	}
+
+	// Chain A: bidder (client-9) opens with a BID; owner (client-7) counters
+	// EARLIER (strike 100).
+	require.NoError(t, db.Create(mkRev(chainA.ID, 1, "client", bidderA, 90, model.OTCNegotiationActionBid, base)).Error)
+	require.NoError(t, db.Create(mkRev(chainA.ID, 2, "client", 7, 100, model.OTCNegotiationActionCounter, base.Add(1*time.Hour))).Error)
+
+	// Chain B: owner (client-7) counters LATER (strike 120) — this is the winner.
+	require.NoError(t, db.Create(mkRev(chainB.ID, 1, "client", bidderB, 95, model.OTCNegotiationActionBid, base.Add(30*time.Minute))).Error)
+	require.NoError(t, db.Create(mkRev(chainB.ID, 2, "client", 7, 120, model.OTCNegotiationActionCounter, base.Add(2*time.Hour))).Error)
+
+	// A revision authored by a BIDDER (client-9) created LATEST of all — must be
+	// ignored because the author principal differs from (client, 7).
+	require.NoError(t, db.Create(mkRev(chainA.ID, 3, "client", bidderA, 999, model.OTCNegotiationActionCounter, base.Add(3*time.Hour))).Error)
+
+	rev, err := repo.LatestRevisionByAuthorForOffer(1, "client", 7)
+	require.NoError(t, err)
+	require.NotNil(t, rev)
+	require.True(t, rev.StrikePrice.Equal(decimal.NewFromInt(120)), "newest owner-authored revision wins")
+
+	none, err := repo.LatestRevisionByAuthorForOffer(1, "client", 999)
+	require.NoError(t, err)
+	require.Nil(t, none, "no revision authored by this principal -> (nil,nil)")
 }
 
 func TestOTCNegotiation_IsTerminal(t *testing.T) {

@@ -131,9 +131,6 @@ func (s *stubPortfolioClient) ListHoldings(ctx context.Context, in *stockpb.List
 func (s *stubPortfolioClient) GetPortfolioSummary(ctx context.Context, in *stockpb.GetPortfolioSummaryRequest, opts ...grpc.CallOption) (*stockpb.PortfolioSummary, error) {
 	return nil, nil
 }
-func (s *stubPortfolioClient) MakePublic(ctx context.Context, in *stockpb.MakePublicRequest, opts ...grpc.CallOption) (*stockpb.Holding, error) {
-	return nil, nil
-}
 func (s *stubPortfolioClient) ExerciseOption(ctx context.Context, in *stockpb.ExerciseOptionRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
 	return nil, nil
 }

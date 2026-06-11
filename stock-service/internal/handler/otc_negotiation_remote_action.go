@@ -335,6 +335,26 @@ func (h *OTCOptionsHandler) acceptRemoteNegotiation(
 		}
 	}
 
+	// Termless-model orphan-accept guard: the /public-stock wire carries no offer
+	// id, so a cross-bank bid has no RemoteParentNativeID for the linked-parent
+	// guard above. When the seller side is LOCAL (Direction 2) resolve the listing
+	// by its (owner, ticker, sell_initiated) unique key and reject an accept once
+	// the listing is no longer open — the seller already CONSUMED it (a prior
+	// accept) or CANCELLED it. This keeps one listing backing exactly one accepted
+	// contract: without it every still-"ongoing" sibling bid could be accepted and
+	// over-commit the seller's shares. Skipped when the offer ticker is unknown
+	// (malformed mirror) so a decode failure never blocks a legitimate accept.
+	if h.negotiations != nil && rc.offer.Ticker != "" {
+		if sellerRouting, sellerID := remoteSeller(rc.row); sellerRouting == h.ownRouting {
+			if ot, oid, perr := parseSellerOwner(sellerID); perr == nil {
+				if !h.negotiations.LocalSellOfferOpenForSeller(ot, oid, rc.offer.Ticker) {
+					return nil, status.Error(codes.FailedPrecondition,
+						"listing is no longer open (cancelled or already consumed)")
+				}
+			}
+		}
+	}
+
 	resp, code, err := h.peerDispatch.Proxy(ctx, rc.counterpartyCode, rc.rid, rc.foreignID, "GET", "/accept", nil)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "cross-bank accept dispatch failed: %v", err)
@@ -385,6 +405,26 @@ func (h *OTCOptionsHandler) acceptRemoteNegotiation(
 	// bank so their mirrors flip too. Best-effort: a cascade failure must NOT
 	// reverse the accept (the contract already formed on the peer).
 	cancelled := h.cascadeCancelRemoteSiblings(ctx, rc)
+
+	// Consume the LOCAL listing the contract was written against (Direction 2:
+	// we host the seller). The termless /public-stock model carries no offer id
+	// on the wire, so the listing is resolved by the seller's (owner, ticker,
+	// sell_initiated) unique key — at most one open row. Without this the listing
+	// keeps advertising inventory already under contract. Best-effort: a consume
+	// failure must NOT reverse the accept (the contract already formed on the
+	// peer); log and continue. No-op when the seller is on a peer bank
+	// (Direction 1: that bank's local accept path consumes its own listing).
+	if h.negotiations != nil {
+		if sellerRouting, sellerID := remoteSeller(rc.row); sellerRouting == h.ownRouting {
+			if ot, oid, perr := parseSellerOwner(sellerID); perr == nil {
+				if cerr := h.negotiations.ConsumeLocalSellOfferForSeller(ot, oid, rc.offer.Ticker); cerr != nil {
+					log.Printf("WARN acceptRemoteNegotiation: row %d consume local listing failed: %v", rc.row.ID, cerr)
+				}
+			} else {
+				log.Printf("WARN acceptRemoteNegotiation: row %d local seller id %q unparseable: %v", rc.row.ID, sellerID, perr)
+			}
+		}
+	}
 
 	// Re-read the accepted row for the winning projection.
 	winningRow, gerr := h.remoteNegOps.GetRemoteNegByID(rc.row.ID)

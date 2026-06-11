@@ -56,3 +56,48 @@ func TestWF_NotificationCoverage_LimitChange(t *testing.T) {
 		t.Fatalf("client %d did not receive a LIMIT_CHANGED notification within timeout", clientID)
 	}
 }
+
+// TestWF_NotificationCoverage_MobileActivationRequested verifies that requesting a
+// mobile activation code creates a persistent in-app notification (polled by both
+// web and mobile via GET /api/v3/me/notifications) in addition to the email — so
+// the code is not email-only. The auth→Kafka→notification-consumer→DB hop is async,
+// so the client's notification feed is polled.
+func TestWF_NotificationCoverage_MobileActivationRequested(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	_, _, clientC, email := setupActivatedClient(t, adminC)
+
+	// Request a mobile activation code for the client's own account.
+	c := newClient()
+	reqResp, err := c.POST("/api/v3/mobile/auth/request-activation", map[string]interface{}{
+		"email": email,
+	})
+	if err != nil {
+		t.Fatalf("request activation: %v", err)
+	}
+	helpers.RequireStatus(t, reqResp, 200)
+
+	deadline := time.Now().Add(20 * time.Second)
+	var found bool
+	for time.Now().Before(deadline) {
+		notifs, err := clientC.GET("/api/v3/me/notifications")
+		if err != nil {
+			t.Fatalf("get notifications: %v", err)
+		}
+		helpers.RequireStatus(t, notifs, 200)
+		list, _ := helpers.RequireField(t, notifs, "notifications").([]interface{})
+		for _, raw := range list {
+			n, _ := raw.(map[string]interface{})
+			if n["type"] == "MOBILE_ACTIVATION_REQUESTED" {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	if !found {
+		t.Fatalf("client did not receive a MOBILE_ACTIVATION_REQUESTED notification within timeout")
+	}
+}

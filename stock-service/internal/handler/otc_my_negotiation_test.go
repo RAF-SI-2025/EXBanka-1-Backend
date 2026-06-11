@@ -169,7 +169,7 @@ func TestListUnifiedOptionOffers_StampsMyNegotiation_LocalAndRemote(t *testing.T
 		},
 	}
 
-	h := NewOTCHandler(nil).WithOptionCache(cache).WithMyNegotiations(lister, 111)
+	h := NewOTCHandler().WithOptionCache(cache).WithMyNegotiations(lister, 111)
 	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
 		Page: 1, PageSize: 10, ActingOwnerType: "client", ActingOwnerId: 5,
 	})
@@ -219,7 +219,7 @@ func TestListUnifiedOptionOffers_BankBidder_StampsRemote(t *testing.T) {
 		},
 	}
 
-	h := NewOTCHandler(nil).WithOptionCache(cache).WithMyNegotiations(lister, 111)
+	h := NewOTCHandler().WithOptionCache(cache).WithMyNegotiations(lister, 111)
 	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
 		Page: 1, PageSize: 10, ActingOwnerType: "bank", ActingOwnerId: 0,
 	})
@@ -256,7 +256,7 @@ func TestListUnifiedOptionOffers_MultipleChains_ActiveWins(t *testing.T) {
 				CreatedAt: time.Now().Add(-time.Hour), Quantity: decimal.NewFromInt(1)},
 		},
 	}
-	h := NewOTCHandler(nil).WithOptionCache(cache).WithMyNegotiations(lister, 111)
+	h := NewOTCHandler().WithOptionCache(cache).WithMyNegotiations(lister, 111)
 	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
 		Page: 1, PageSize: 10, ActingOwnerType: "client", ActingOwnerId: 5,
 	})
@@ -264,6 +264,138 @@ func TestListUnifiedOptionOffers_MultipleChains_ActiveWins(t *testing.T) {
 	require.Len(t, resp.GetOffers(), 1)
 	require.Equal(t, uint64(11), resp.GetOffers()[0].GetMyNegotiationId(), "live chain beats newer terminal one")
 	require.Equal(t, model.OTCNegotiationStatusCountered, resp.GetOffers()[0].GetMyNegotiationStatus())
+}
+
+// ---------------- D2: per-viewer term projection on the offer DTO ----------------
+
+// A BIDDER (me_owner==false) with a chain on the offer sees that chain's
+// CURRENT terms re-sourced onto strike_price/premium/settlement_date.
+func TestListUnifiedOptionOffers_BidderSeesChainTerms(t *testing.T) {
+	model.SetOwnRouting("111")
+	cache := otccache.NewOptionCache()
+	otccache.SetOptionForTest(cache, otccache.OptionSnapshot{
+		Offers: []otccache.OptionOffer{
+			// Termless local listing (poster client 7); the viewer is a bidder.
+			{Kind: "local", BankCode: "111", RoutingNumber: 111, OfferID: "42", LocalID: 42,
+				SellerID: "client-7", Ticker: "AAPL", Direction: "sell_initiated"},
+		},
+	})
+	lister := &fakeMyNegLister{
+		localRows: []model.OTCNegotiation{
+			{ID: 7, ParentOfferID: 42, BidderOwnerType: model.OwnerClient, BidderOwnerID: u64(5),
+				Status: model.OTCNegotiationStatusCountered, RoutingNumber: 111,
+				Quantity:       decimal.NewFromInt(3),
+				StrikePrice:    decimal.NewFromInt(100),
+				Premium:        decimal.NewFromInt(8),
+				SettlementDate: time.Date(2030, 12, 31, 0, 0, 0, 0, time.UTC)},
+		},
+	}
+	h := NewOTCHandler().WithOptionCache(cache).WithMyNegotiations(lister, 111)
+	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
+		Page: 1, PageSize: 10, ActingOwnerType: "client", ActingOwnerId: 5,
+		ActorUserId: 5, ActorSystemType: "client",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.GetOffers(), 1)
+	item := resp.GetOffers()[0]
+	require.False(t, item.GetMeOwner(), "viewer is a bidder, not the owner")
+	require.Equal(t, "100.00", item.GetStrikePrice())
+	require.Equal(t, "8.00", item.GetPremium())
+	require.Equal(t, "2030-12-31T00:00:00Z", item.GetSettlementDate())
+}
+
+// The OWNER (me_owner==true) of a LOCAL offer sees their most recent counter
+// terms, fetched via the wired owner-latest-counter source.
+func TestListUnifiedOptionOffers_OwnerSeesLatestCounter(t *testing.T) {
+	model.SetOwnRouting("111")
+	cache := otccache.NewOptionCache()
+	otccache.SetOptionForTest(cache, otccache.OptionSnapshot{
+		Offers: []otccache.OptionOffer{
+			{Kind: "local", BankCode: "111", RoutingNumber: 111, OfferID: "42", LocalID: 42,
+				SellerID: "client-5", Ticker: "AAPL", Direction: "sell_initiated"},
+		},
+	})
+	var gotOffer uint64
+	var gotType string
+	var gotID uint64
+	fn := func(offerID uint64, principalType string, principalID uint64) (*OfferTerms, error) {
+		gotOffer, gotType, gotID = offerID, principalType, principalID
+		return &OfferTerms{StrikePrice: "120.00", Premium: "9.00", SettlementDate: "2031-01-31T00:00:00Z"}, nil
+	}
+	h := NewOTCHandler().WithOptionCache(cache).WithOwnerLatestCounter(fn)
+	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
+		Page: 1, PageSize: 10, ActingOwnerType: "client", ActingOwnerId: 5,
+		ActorUserId: 5, ActorSystemType: "client",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.GetOffers(), 1)
+	item := resp.GetOffers()[0]
+	require.True(t, item.GetMeOwner(), "viewer owns this listing")
+	require.Equal(t, "120.00", item.GetStrikePrice())
+	require.Equal(t, "9.00", item.GetPremium())
+	require.Equal(t, "2031-01-31T00:00:00Z", item.GetSettlementDate())
+	// Resolved against the LOCAL offer id + the acting PRINCIPAL (not "bank").
+	require.Equal(t, uint64(42), gotOffer)
+	require.Equal(t, "client", gotType)
+	require.Equal(t, uint64(5), gotID)
+}
+
+// An OWNER whose latest-counter source returns nil (never countered) sees
+// empty terms.
+func TestListUnifiedOptionOffers_OwnerNoCounter_Empty(t *testing.T) {
+	model.SetOwnRouting("111")
+	cache := otccache.NewOptionCache()
+	otccache.SetOptionForTest(cache, otccache.OptionSnapshot{
+		Offers: []otccache.OptionOffer{
+			{Kind: "local", BankCode: "111", RoutingNumber: 111, OfferID: "42", LocalID: 42,
+				SellerID: "client-5", Ticker: "AAPL", Direction: "sell_initiated"},
+		},
+	})
+	fn := func(uint64, string, uint64) (*OfferTerms, error) { return nil, nil }
+	h := NewOTCHandler().WithOptionCache(cache).WithOwnerLatestCounter(fn)
+	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
+		Page: 1, PageSize: 10, ActingOwnerType: "client", ActingOwnerId: 5,
+		ActorUserId: 5, ActorSystemType: "client",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.GetOffers(), 1)
+	item := resp.GetOffers()[0]
+	require.True(t, item.GetMeOwner())
+	require.Equal(t, "", item.GetStrikePrice())
+	require.Equal(t, "", item.GetPremium())
+	require.Equal(t, "", item.GetSettlementDate())
+}
+
+// A NON-PARTICIPANT (not the owner, no chain) sees empty terms.
+func TestListUnifiedOptionOffers_NonParticipant_Empty(t *testing.T) {
+	model.SetOwnRouting("111")
+	cache := otccache.NewOptionCache()
+	otccache.SetOptionForTest(cache, otccache.OptionSnapshot{
+		Offers: []otccache.OptionOffer{
+			{Kind: "local", BankCode: "111", RoutingNumber: 111, OfferID: "42", LocalID: 42,
+				SellerID: "client-7", Ticker: "AAPL", Direction: "sell_initiated"},
+		},
+	})
+	// Lister has no chain for viewer client 5; owner-latest-counter wired but the
+	// viewer is not the owner so it is never consulted.
+	fn := func(uint64, string, uint64) (*OfferTerms, error) {
+		t.Fatalf("owner-latest-counter must not be called for a non-owner")
+		return nil, nil
+	}
+	h := NewOTCHandler().WithOptionCache(cache).
+		WithMyNegotiations(&fakeMyNegLister{}, 111).WithOwnerLatestCounter(fn)
+	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
+		Page: 1, PageSize: 10, ActingOwnerType: "client", ActingOwnerId: 5,
+		ActorUserId: 5, ActorSystemType: "client",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.GetOffers(), 1)
+	item := resp.GetOffers()[0]
+	require.False(t, item.GetMeOwner())
+	require.Equal(t, uint64(0), item.GetMyNegotiationId())
+	require.Equal(t, "", item.GetStrikePrice())
+	require.Equal(t, "", item.GetPremium())
+	require.Equal(t, "", item.GetSettlementDate())
 }
 
 func TestListUnifiedOptionOffers_NoLister_NoStamp(t *testing.T) {
@@ -274,7 +406,7 @@ func TestListUnifiedOptionOffers_NoLister_NoStamp(t *testing.T) {
 			{Kind: "local", BankCode: "111", RoutingNumber: 111, OfferID: "42", LocalID: 42, Ticker: "AAPL", Direction: "sell_initiated"},
 		},
 	})
-	h := NewOTCHandler(nil).WithOptionCache(cache) // no WithMyNegotiations
+	h := NewOTCHandler().WithOptionCache(cache) // no WithMyNegotiations
 	resp, err := h.ListUnifiedOptionOffers(context.Background(), &stockpb.ListUnifiedOptionOffersRequest{
 		Page: 1, PageSize: 10, ActingOwnerType: "client", ActingOwnerId: 5,
 	})
@@ -379,8 +511,7 @@ func TestGetOffer_StampsMyNegotiation_Remote(t *testing.T) {
 		ID: 555, RoutingNumber: 333, NativeID: &foreignID,
 		InitiatorBankCode: &bankCode, RemoteSellerID: &sellerID,
 		InitiatorOwnerType: model.OwnerBank, Direction: model.OTCDirectionSellInitiated,
-		Ticker: "JNJ", Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
-		Premium: decimal.NewFromInt(20), SettlementDate: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC), Status: "open",
+		Ticker: "JNJ", Quantity: decimal.NewFromInt(10), Status: "open",
 	}
 	lister := &fakeMyNegLister{remoteRows: []model.OTCNegotiation{
 		{ID: 88, RoutingNumber: 333, Status: "ongoing",
@@ -399,6 +530,72 @@ func TestGetOffer_StampsMyNegotiation_Remote(t *testing.T) {
 	require.Equal(t, "remote", resp.GetOffer().GetKind())
 	require.Equal(t, uint64(88), resp.GetOffer().GetMyNegotiationId())
 	require.Equal(t, "ongoing", resp.GetOffer().GetMyNegotiationStatus())
+}
+
+// D2 — GetOffer projects the BIDDER's own chain terms onto the detail response.
+func TestGetOffer_BidderSeesChainTerms(t *testing.T) {
+	h, db, offerID := newGetOfferDBFixture(t)
+
+	// Direct the offer at client 5 so they pass the participant gate as bidder.
+	var off model.OTCOffer
+	require.NoError(t, db.First(&off, offerID).Error)
+	cpType := model.OwnerClient
+	off.CounterpartyOwnerType = &cpType
+	off.CounterpartyOwnerID = u64(5)
+	require.NoError(t, db.Save(&off).Error)
+
+	require.NoError(t, db.Create(&model.OTCNegotiation{
+		ParentOfferID: offerID, BidderOwnerType: model.OwnerClient, BidderOwnerID: u64(5),
+		Status: model.OTCNegotiationStatusCountered, RoutingNumber: 111,
+		Quantity: decimal.NewFromInt(2), StrikePrice: decimal.NewFromInt(100), Premium: decimal.NewFromInt(8),
+		SettlementDate:            time.Date(2030, 12, 31, 0, 0, 0, 0, time.UTC),
+		LastActionByPrincipalType: "client", LastActionByPrincipalID: 5,
+		LastActionByOwnerType: "client", LastActionAt: time.Now(),
+	}).Error)
+
+	h2 := h.WithMyNegotiations(&fakeMyNegLister{localRows: mustLoadNegs(t, db)}).
+		WithRemoteOffers(&fakeRemoteOffers{}, "111").WithPeerContracts(nil, 111)
+
+	resp, err := h2.GetOffer(context.Background(), &stockpb.GetOTCOfferRequest{
+		OfferId: offerID, ActorUserId: 5, ActorSystemType: "client",
+		ActingOwnerType: "client", ActingOwnerId: 5,
+	})
+	require.NoError(t, err)
+	require.False(t, resp.GetOffer().GetMeOwner())
+	require.Equal(t, "100.00", resp.GetOffer().GetStrikePrice())
+	require.Equal(t, "8.00", resp.GetOffer().GetPremium())
+	require.Equal(t, "2030-12-31T00:00:00Z", resp.GetOffer().GetSettlementDate())
+}
+
+// D2 — GetOffer projects the OWNER's most recent counter terms (via the wired
+// owner-latest-counter source) onto the detail response.
+func TestGetOffer_OwnerSeesLatestCounter(t *testing.T) {
+	h, _, offerID := newGetOfferDBFixture(t)
+
+	var gotOffer uint64
+	var gotType string
+	var gotID uint64
+	fn := func(oid uint64, ptype string, pid uint64) (*OfferTerms, error) {
+		gotOffer, gotType, gotID = oid, ptype, pid
+		return &OfferTerms{StrikePrice: "120.00", Premium: "11.00", SettlementDate: "2031-01-31T00:00:00Z"}, nil
+	}
+	h2 := h.WithMyNegotiations(&fakeMyNegLister{}).
+		WithRemoteOffers(&fakeRemoteOffers{}, "111").WithPeerContracts(nil, 111).
+		WithOwnerLatestCounter(fn)
+
+	// Poster client 7 views their own offer → me_owner, owner branch.
+	resp, err := h2.GetOffer(context.Background(), &stockpb.GetOTCOfferRequest{
+		OfferId: offerID, ActorUserId: 7, ActorSystemType: "client",
+		ActingOwnerType: "client", ActingOwnerId: 7,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetOffer().GetMeOwner())
+	require.Equal(t, "120.00", resp.GetOffer().GetStrikePrice())
+	require.Equal(t, "11.00", resp.GetOffer().GetPremium())
+	require.Equal(t, "2031-01-31T00:00:00Z", resp.GetOffer().GetSettlementDate())
+	require.Equal(t, offerID, gotOffer)
+	require.Equal(t, "client", gotType)
+	require.Equal(t, uint64(7), gotID)
 }
 
 func mustLoadNegs(t *testing.T, db *gorm.DB) []model.OTCNegotiation {

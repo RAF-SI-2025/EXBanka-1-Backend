@@ -28,9 +28,6 @@ func seedLocalListing(t *testing.T, db *gorm.DB, offerID, posterID uint64) {
 		StockID:                     1,
 		Ticker:                      "ACME",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromInt(150),
-		Premium:                     decimal.NewFromInt(20),
-		SettlementDate:              time.Now().AddDate(0, 0, 30),
 		Status:                      "open",
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   posterID,
@@ -59,9 +56,6 @@ func seedBankListing(t *testing.T, db *gorm.DB, offerID uint64, native string) {
 		StockID:                     1,
 		Ticker:                      "ACME",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromInt(150),
-		Premium:                     decimal.NewFromInt(20),
-		SettlementDate:              time.Now().AddDate(0, 0, 30),
 		Status:                      "open",
 		LastModifiedByPrincipalType: "employee",
 		LastModifiedByPrincipalID:   1,
@@ -292,25 +286,30 @@ func TestListingNegotiations_UnknownId_NotFound(t *testing.T) {
 }
 
 // TestListingNegotiations_BankOwnedOffer_PeerBid: a BANK-owned LOCAL offer that
-// a PEER bid on → the bank caller sees the remote chain on THAT listing (a peer
-// bid), correlated by the (RemoteParentRouting, RemoteParentNativeID) lot key.
-// Chains on OTHER bank-owned offers must NOT appear. SP-3 Task 5b.
+// peers bid on → the bank caller sees the remote chains on THAT listing,
+// correlated by (seller, TICKER) under the termless model (one open offer per
+// owner+ticker — the TICKER discriminates a seller's listings, NOT a lot key).
+// A free-form bid (no parentOfferId — the realistic cross-bank case) MUST appear;
+// a bid on a different ticker must NOT.
 func TestListingNegotiations_BankOwnedOffer_PeerBid(t *testing.T) {
 	const ownRouting int64 = 111
 	model.SetOwnRouting("111")
 	const peerBuyerRouting int64 = 222
 	const offerNative = "bank-offer-uuid"
-	// Remote chains where WE host the SELLER as the BANK (employee-9).
+	// Remote chains where WE host the SELLER as the BANK (employee-9). The local
+	// listing (seedBankListing) is ACME.
 	peer := &fakePeerNegLister{bankRows: []model.OTCNegotiation{
-		// A peer bid on THIS bank-owned listing (matching lot key).
+		// A peer bid on ACME WITH a lot key — shows.
 		peerRowWithParent(70, peerBuyerRouting, "client-7", ownRouting, "employee-9", "ongoing", ownRouting, offerNative),
-		// A peer bid on a DIFFERENT bank-owned listing — must be excluded.
-		peerRowWithParent(71, peerBuyerRouting, "client-8", ownRouting, "employee-9", "ongoing", ownRouting, "other-uuid"),
-		// A free-form chain (no lot key) — must be excluded.
+		// A FREE-FORM peer bid on ACME (no lot key — a peer that omits parentOfferId).
+		// MUST now appear: the old lot-key-only filter silently dropped it (the bug
+		// this fix closes).
 		peerRow(72, peerBuyerRouting, "client-9", ownRouting, "employee-9", "ongoing"),
+		// A peer bid on a DIFFERENT ticker (employee-9's OTHR listing) — excluded.
+		withTicker(peerRow(71, peerBuyerRouting, "client-8", ownRouting, "employee-9", "ongoing"), "OTHR"),
 	}}
 	h, db := newListingViewsFixture(t, ownRouting, &fakeRemoteOfferGetter{}, peer)
-	seedBankListing(t, db, 400, offerNative)
+	seedBankListing(t, db, 400, offerNative) // ACME
 	// A LOCAL chain on the same bank offer (an intra-bank bidder) — should also
 	// appear, proving the merge doesn't drop the local set.
 	seedBidderChain(t, db, 12, 400)
@@ -321,35 +320,38 @@ func TestListingNegotiations_BankOwnedOffer_PeerBid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if len(resp.GetNegotiations()) != 2 {
-		t.Fatalf("want 2 chains (1 local + 1 peer bid on THIS listing), got %d", len(resp.GetNegotiations()))
+	// 1 local + 2 ACME peer bids (70 lot-keyed + 72 free-form). OTHR (71) excluded.
+	if len(resp.GetNegotiations()) != 3 {
+		t.Fatalf("want 3 chains (1 local + 2 ACME peer bids), got %d", len(resp.GetNegotiations()))
 	}
-	var sawLocal, sawRemote bool
+	ids := map[uint64]bool{}
+	var sawLocal bool
 	for _, n := range resp.GetNegotiations() {
 		switch n.GetKind() {
 		case "local":
 			sawLocal = true
 		case "remote":
-			sawRemote = true
-			if n.GetId() != 70 {
-				t.Errorf("remote chain id = %d want 70 (the bid on THIS listing)", n.GetId())
-			}
-			// Bank owns the parent listing → me_owner true.
+			ids[n.GetId()] = true
 			if !n.GetMeOwner() {
 				t.Errorf("me_owner=false; the bank owns this listing")
 			}
 		}
 	}
-	if !sawLocal || !sawRemote {
-		t.Errorf("merged list missing a kind: local=%v remote=%v", sawLocal, sawRemote)
+	if !sawLocal {
+		t.Errorf("merged list missing the local chain")
+	}
+	if !ids[70] || !ids[72] {
+		t.Errorf("expected both ACME peer bids (70 lot-keyed + 72 free-form), got remote ids %v", ids)
+	}
+	if ids[71] {
+		t.Errorf("a peer bid on a DIFFERENT ticker (71/OTHR) must be excluded")
 	}
 }
 
 // seedBankListingNoNative inserts a BANK-owned LOCAL OTCOffer with NO native_id
 // — the production reality: a local offer's native_id column stays empty, and
 // its cross-bank "native id" (the lot key a peer bidder echoes back) is the
-// offer's SURROGATE id as a string (GetPublicOptionOffers publishes
-// OfferId.Id = strconv(o.ID)).
+// offer's SURROGATE id as a string (strconv(o.ID)).
 func seedBankListingNoNative(t *testing.T, db *gorm.DB, offerID uint64) {
 	t.Helper()
 	o := &model.OTCOffer{
@@ -362,9 +364,6 @@ func seedBankListingNoNative(t *testing.T, db *gorm.DB, offerID uint64) {
 		StockID:                     1,
 		Ticker:                      "ACME",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromInt(150),
-		Premium:                     decimal.NewFromInt(20),
-		SettlementDate:              time.Now().AddDate(0, 0, 30),
 		Status:                      "open",
 		LastModifiedByPrincipalType: "employee",
 		LastModifiedByPrincipalID:   1,
@@ -379,23 +378,26 @@ func seedBankListingNoNative(t *testing.T, db *gorm.DB, offerID uint64) {
 
 // TestListingNegotiations_BankOwnedOffer_PeerBid_SurrogateIdKey reproduces the
 // LIVE cross-bank bug: a BANK-owned LOCAL offer has no native_id, so a peer's
-// inbound chain carries RemoteParentNativeID = the offer's SURROGATE id string
-// (what GetPublicOptionOffers publishes). The on-listing bank merge must
-// correlate against that surrogate id, NOT the empty native_id column.
-func TestListingNegotiations_BankOwnedOffer_PeerBid_SurrogateIdKey(t *testing.T) {
+// inbound chain carries RemoteParentNativeID = the offer's SURROGATE id string.
+// The on-listing bank merge must correlate against that surrogate id, NOT the
+// empty native_id column.
+func TestListingNegotiations_BankOwnedOffer_NoNativeId_TickerCorrelated(t *testing.T) {
 	const ownRouting int64 = 111
 	model.SetOwnRouting("111")
 	const peerBuyerRouting int64 = 222
 	const offerID uint64 = 71
-	surrogateKey := "71" // strconv(offerID) — the published cross-bank native id
+	// A BANK-owned LOCAL offer with NO native_id (the production reality — a local
+	// offer's native_id column stays empty). Peer bids correlate by (seller,
+	// TICKER), so a free-form bid (no lot key) on the listing's ticker shows, and a
+	// bid on a different ticker is excluded.
 	peer := &fakePeerNegLister{bankRows: []model.OTCNegotiation{
-		// A peer bid on THIS bank-owned listing, keyed by the surrogate id.
-		peerRowWithParent(90, peerBuyerRouting, "employee-1", ownRouting, "employee-1", "ongoing", ownRouting, surrogateKey),
-		// A peer bid on a DIFFERENT bank-owned listing — must be excluded.
-		peerRowWithParent(91, peerBuyerRouting, "employee-2", ownRouting, "employee-1", "ongoing", ownRouting, "999"),
+		// A FREE-FORM peer bid on the bank's ACME listing (no lot key) — shows.
+		peerRow(90, peerBuyerRouting, "client-7", ownRouting, "employee-1", "ongoing"),
+		// A peer bid on a DIFFERENT ticker — excluded.
+		withTicker(peerRow(91, peerBuyerRouting, "client-8", ownRouting, "employee-1", "ongoing"), "OTHR"),
 	}}
 	h, db := newListingViewsFixture(t, ownRouting, &fakeRemoteOfferGetter{}, peer)
-	seedBankListingNoNative(t, db, offerID)
+	seedBankListingNoNative(t, db, offerID) // ACME, no native_id
 
 	resp, err := h.ListNegotiationsByListing(context.Background(), &stockpb.ListNegotiationsByListingRequest{
 		ParentOfferId: offerID, CallerOwnerType: "bank", CallerOwnerId: 0,
@@ -404,7 +406,7 @@ func TestListingNegotiations_BankOwnedOffer_PeerBid_SurrogateIdKey(t *testing.T)
 		t.Fatalf("err: %v", err)
 	}
 	if len(resp.GetNegotiations()) != 1 {
-		t.Fatalf("want 1 chain (the peer bid on THIS surrogate-keyed listing), got %d", len(resp.GetNegotiations()))
+		t.Fatalf("want 1 chain (the free-form ACME peer bid), got %d", len(resp.GetNegotiations()))
 	}
 	got := resp.GetNegotiations()[0]
 	if got.GetKind() != "remote" || got.GetId() != 90 {
@@ -412,6 +414,44 @@ func TestListingNegotiations_BankOwnedOffer_PeerBid_SurrogateIdKey(t *testing.T)
 	}
 	if !got.GetMeOwner() {
 		t.Errorf("me_owner=false; the bank owns this listing")
+	}
+}
+
+// TestListingNegotiations_ClientOwnedOffer_FreeFormRemoteBidShows covers the live
+// cross-bank scenario: a remote bank bids on OUR client's listing WITHOUT echoing
+// a parentOfferId (free-form, RemoteParentNativeID nil — what the Banka-4 cohort
+// partner sends). The bid MUST appear on the seller's per-listing view, correlated
+// by (seller, ticker); a remote bid on a different ticker is excluded. This is the
+// exact "remote bank bid on our stock doesn't show up" regression.
+func TestListingNegotiations_ClientOwnedOffer_FreeFormRemoteBidShows(t *testing.T) {
+	const ownRouting int64 = 111
+	model.SetOwnRouting("111")
+	const peerBuyerRouting int64 = 222
+	// Client 3 hosts the seller; remote bids arrive via ListRemoteNegByClient (rows).
+	peer := &fakePeerNegLister{rows: []model.OTCNegotiation{
+		// Free-form remote bid (NO lot key) on client-3's ACME listing — must show.
+		peerRow(95, peerBuyerRouting, "client-7", ownRouting, "client-3", "ongoing"),
+		// Remote bid on a DIFFERENT ticker — excluded.
+		withTicker(peerRow(96, peerBuyerRouting, "client-8", ownRouting, "client-3", "ongoing"), "OTHR"),
+	}}
+	h, db := newListingViewsFixture(t, ownRouting, &fakeRemoteOfferGetter{}, peer)
+	seedLocalListing(t, db, 600, 3) // client-3, ACME
+
+	resp, err := h.ListNegotiationsByListing(context.Background(), &stockpb.ListNegotiationsByListingRequest{
+		ParentOfferId: 600, CallerOwnerType: "client", CallerOwnerId: 3,
+	})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(resp.GetNegotiations()) != 1 {
+		t.Fatalf("want 1 chain (the free-form remote bid on the ACME listing), got %d", len(resp.GetNegotiations()))
+	}
+	got := resp.GetNegotiations()[0]
+	if got.GetKind() != "remote" || got.GetId() != 95 {
+		t.Errorf("got kind=%q id=%d, want remote/95", got.GetKind(), got.GetId())
+	}
+	if !got.GetMeOwner() {
+		t.Errorf("me_owner=false; client 3 owns this listing")
 	}
 }
 

@@ -110,33 +110,6 @@ func TestHoldingRepository_GetByOwnerAndTicker(t *testing.T) {
 	}
 }
 
-func TestHoldingRepository_ListPublicAndOffers(t *testing.T) {
-	db := newHoldingTestDB(t)
-	r := NewHoldingRepository(db)
-	uid := uint64(7)
-	h := &model.Holding{
-		OwnerType: model.OwnerClient, OwnerID: &uid,
-		SecurityType: "stock", SecurityID: 1, Ticker: "AAPL",
-		Quantity: 10, AveragePrice: decimal.NewFromInt(100),
-		PublicQuantity: 5,
-	}
-	_ = r.Upsert(context.Background(), h)
-	got, err := r.ListPublic()
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if len(got) != 1 {
-		t.Errorf("got %d", len(got))
-	}
-	rows, total, err := r.ListPublicOffers(OTCFilter{Page: 1, PageSize: 10})
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if total != 1 || len(rows) != 1 {
-		t.Errorf("got total=%d len=%d", total, len(rows))
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ListingRepository
 // ---------------------------------------------------------------------------

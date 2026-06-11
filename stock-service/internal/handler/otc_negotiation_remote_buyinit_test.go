@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/shopspring/decimal"
@@ -33,8 +32,6 @@ func TestOpenNegotiation_RemoteBuyInitiated_Rejected(t *testing.T) {
 	nid := "peer-buyoffer-1"
 	bankCode := "222"
 	posterID := "client-9"
-	strikeCcy := "USD"
-	premiumCcy := "USD"
 	o := &model.OTCOffer{
 		RoutingNumber:               222,
 		NativeID:                    &nid,
@@ -44,11 +41,6 @@ func TestOpenNegotiation_RemoteBuyInitiated_Rejected(t *testing.T) {
 		Direction:                   model.OTCDirectionBuyInitiated, // poster is the BUYER
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.RequireFromString("150"),
-		Premium:                     decimal.RequireFromString("20"),
-		StrikeCurrency:              &strikeCcy,
-		PremiumCurrency:             &premiumCcy,
-		SettlementDate:              time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "system",
 	}

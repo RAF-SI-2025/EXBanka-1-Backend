@@ -804,11 +804,14 @@ func (h *OTCOptionsHandler) ListNegotiationsByListing(ctx context.Context, in *s
 }
 
 // remoteBidderChainsOnLocalListing returns the REMOTE chains a peer placed on a
-// LOCAL listing WE host, correlated to that listing by its cross-bank lot key
-// (RemoteParentRouting == parent.RoutingNumber, RemoteParentNativeID ==
-// localOfferCrossBankNativeID(parent)). The seller principal is derived from the
-// listing's INITIATOR so both the poster and a permission-gated employee see the
-// same bids:
+// LOCAL listing WE host, correlated to that listing by (seller, ticker): the
+// query scopes to chains WE host this exact seller of, then the ticker uniquely
+// identifies the listing (one open offer per owner+ticker+direction). It does NOT
+// key on the cross-bank lot key — the termless /public-stock wire carries no
+// offer id, so a peer bid carries either no parentOfferId or our "ps:" shell id,
+// never the surrogate id, and a lot-key match would drop every cross-bank bid.
+// The seller principal is derived from the listing's INITIATOR so both the poster
+// and a permission-gated employee see the same bids:
 //   - bank-owned listing   → seller wire id "employee-<N>"   (ListRemoteNegByBankParty seller)
 //   - client-owned listing → seller wire id "client-<initiatorID>" (ListRemoteNegByClient seller)
 //
@@ -836,39 +839,39 @@ func (h *OTCOptionsHandler) remoteBidderChainsOnLocalListing(parentOffer *model.
 	if err != nil {
 		return nil, err
 	}
-	// The cross-bank lot key of a LOCAL listing is its native_id column when set,
-	// otherwise the offer's SURROGATE id as a string — what GetPublicOptionOffers
-	// publishes and what a peer bidder echoes back as parentOfferId.id.
-	parentNative := localOfferCrossBankNativeID(parentOffer)
+	// Correlate by TICKER, not by the parent lot key. The termless /public-stock
+	// wire carries NO offer id, so a peer's bid on our listing has either no
+	// parentOfferId (a peer that omits it — e.g. our Banka-4 cohort partner, which
+	// leaves RemoteParentNativeID nil) or our shell id "ps:<rn>:<seller>:<ticker>"
+	// — NEVER the local surrogate id the old filter demanded. So the old lot-key
+	// match silently dropped EVERY cross-bank bid and the seller saw none of them.
+	// The query above already scoped rows to chains WE host this exact seller of,
+	// so within that set the ticker uniquely identifies the listing (the partial
+	// unique index guarantees one open offer per owner+ticker+direction).
 	out := make([]model.OTCNegotiation, 0, len(rows))
 	for i := range rows {
 		row := rows[i]
-		if row.RemoteParentRouting == nil || row.RemoteParentNativeID == nil {
-			continue // free-form chain — not tied to a specific listing
-		}
-		if *row.RemoteParentRouting != parentOffer.RoutingNumber || *row.RemoteParentNativeID != parentNative {
-			continue // a chain on a different listing
+		if remoteNegTicker(&row) != parentOffer.Ticker {
+			continue // a chain on a different ticker (different listing)
 		}
 		out = append(out, row)
 	}
 	return out, nil
 }
 
-// localOfferCrossBankNativeID returns the cross-bank lot key of a LOCAL OTC
-// listing — the id a peer bidder echoes back as parentOfferId.id. It is the
-// offer's native_id column when populated, otherwise the offer's SURROGATE id as
-// a string, which is exactly what GetPublicOptionOffers publishes for a local
-// offer (OfferId.Id = strconv(o.ID)). A local offer's native_id stays empty, so
-// without this fallback an inbound cross-bank chain (keyed on the surrogate id)
-// could never be correlated to the listing it bid on.
-func localOfferCrossBankNativeID(o *model.OTCOffer) string {
-	if o == nil {
+// remoteNegTicker returns a remote chain's ticker, read from its authoritative
+// RemoteOfferJSON (serialised sitx.OtcOffer). OTCNegotiation has no ticker
+// column. Empty on a nil row or a malformed/absent body — which the ticker
+// filter treats as "not this listing".
+func remoteNegTicker(row *model.OTCNegotiation) string {
+	if row == nil {
 		return ""
 	}
-	if o.NativeID != nil && *o.NativeID != "" {
-		return *o.NativeID
+	var offer contractsitx.OtcOffer
+	if err := json.Unmarshal([]byte(remoteOfferJSONOf(row)), &offer); err != nil {
+		return ""
 	}
-	return strconv.FormatUint(o.ID, 10)
+	return offer.Ticker
 }
 
 // isOTCOfferNotFound reports whether an error means "the parent listing is not
@@ -1011,11 +1014,10 @@ func (h *OTCOptionsHandler) GetOfferTimeline(ctx context.Context, in *stockpb.Ge
 		})
 	}
 	// Merge the REMOTE chains a peer placed on this LOCAL listing (P1: the
-	// timeline must show BOTH local and remote chains, not just local). A remote
-	// mirror carries only CURRENT terms (no per-revision history), so each chain
-	// contributes one entry — same shape as remoteOfferTimeline. Correlated to
-	// this listing by lot key via the shared helper, so it never pulls chains on
-	// another listing.
+	// timeline must show BOTH local and remote chains, not just local). Correlated
+	// to this listing by (seller, ticker) via the shared helper — the termless wire
+	// carries no offer id, so a lot-key match would drop every cross-bank bid — and
+	// never pulls chains on another ticker.
 	peerRows, perr := h.remoteBidderChainsOnLocalListing(offer)
 	if perr != nil {
 		return nil, status.Errorf(codes.Internal, "list peer negotiations: %v", perr)

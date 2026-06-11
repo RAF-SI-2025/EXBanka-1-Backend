@@ -42,6 +42,16 @@ type recoveryRepoIF interface {
 	IncrementRetryCount(id uint64) error
 }
 
+// compensationFinder is an OPTIONAL capability: when the underlying repo supports
+// it (the concrete *repository.SagaLogRepository does), RecordCompensation reuses
+// an existing compensation row for (saga, step) instead of inserting a new one on
+// each recovery tick — keeping a persistently-stuck compensation on a single row
+// that climbs to dead_letter rather than spawning unbounded rows. Test mocks that
+// don't implement it fall through to the insert path (old behavior).
+type compensationFinder interface {
+	FindLatestCompensationRow(sagaID, stepName string) (*model.SagaLog, error)
+}
+
 // Recorder implements sharedsaga.Recorder over a SagaRepoIF, and
 // sharedsaga.RecoveryRecorder when the underlying repo also satisfies the
 // recoveryRepoIF surface (the concrete *repository.SagaLogRepository
@@ -104,6 +114,18 @@ func (r *Recorder) MarkFailed(ctx context.Context, h sharedsaga.StepHandle, errM
 
 // RecordCompensation writes a compensating row linked to the forward step.
 func (r *Recorder) RecordCompensation(ctx context.Context, sagaID string, step sharedsaga.StepKind, stepNumber int, forward sharedsaga.StepHandle, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
+	// Idempotent across recovery ticks: reuse the existing compensation row for
+	// this (saga, step) instead of inserting a new one each time the recovery loop
+	// re-drives the rollback. Without reuse a persistently-failing Backward spawns
+	// a fresh compensating row every tick and grows saga_logs without bound; reuse
+	// keeps it on ONE row whose retry_count climbs to dead_letter. Re-running the
+	// (idempotent) Backward against the reused row is a no-op when its effect
+	// already applied. Optional capability — test mocks fall through to insert.
+	if finder, ok := r.repo.(compensationFinder); ok {
+		if existing, ferr := finder.FindLatestCompensationRow(sagaID, string(step)); ferr == nil && existing != nil {
+			return sharedsaga.StepHandle{ID: existing.ID, Version: existing.Version}, nil
+		}
+	}
 	row := r.buildRow(sagaID, string(step), stepNumber, st)
 	row.Status = string(sharedsaga.SagaStatusCompensating)
 	row.IsCompensation = true

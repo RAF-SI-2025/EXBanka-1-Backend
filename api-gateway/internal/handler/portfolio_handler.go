@@ -69,38 +69,6 @@ func (h *PortfolioHandler) GetPortfolioSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *PortfolioHandler) MakePublic(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		apiError(c, 400, ErrValidation, "invalid holding id")
-		return
-	}
-	var req struct {
-		Quantity int64 `json:"quantity"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, "invalid request body")
-		return
-	}
-	if req.Quantity <= 0 {
-		apiError(c, 400, ErrValidation, "quantity must be positive")
-		return
-	}
-	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
-
-	resp, err := h.portfolioClient.MakePublic(c.Request.Context(), &stockpb.MakePublicRequest{
-		HoldingId:  id,
-		UserId:     ownerToLegacyUserID(identity.OwnerID),
-		SystemType: ownerToLegacySystemType(identity.OwnerType),
-		Quantity:   req.Quantity,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
 // ListHoldingTransactions godoc
 // @Summary      List per-purchase history for a holding
 // @Description  Returns the OrderTransactions that contributed to a holding — when each buy/sell executed, price per unit, native vs account currency, FX rate, commission, and which account was used. Replaces the per-purchase detail removed from /me/portfolio in Part C.
@@ -189,89 +157,6 @@ func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 
 // --- OTC ---
 
-// ListOTCOffers serves the unified OTC market view by calling
-// stock-service's OTCGRPCService.ListUnifiedOffers, which owns the
-// cross-bank discovery cache. The gateway is a thin pass-through:
-// query params map 1-to-1 onto the gRPC request, and the response
-// is reshaped into the JSON contract documented in REST_API_v3 §28.
-func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
-	if pageSize < 1 {
-		pageSize = 10
-	}
-
-	secType := c.Query("security_type")
-	if secType != "" {
-		if _, err := oneOf("security_type", secType, "stock", "futures"); err != nil {
-			apiError(c, 400, ErrValidation, err.Error())
-			return
-		}
-	}
-	kindFilter := c.Query("kind")
-	if kindFilter != "" {
-		if _, err := oneOf("kind", kindFilter, "local", "remote"); err != nil {
-			apiError(c, 400, ErrValidation, err.Error())
-			return
-		}
-	}
-
-	resp, err := h.otcClient.ListUnifiedOffers(c.Request.Context(), &stockpb.ListUnifiedOTCOffersRequest{
-		SecurityType: secType,
-		Ticker:       c.Query("ticker"),
-		Kind:         kindFilter,
-		BankCode:     c.Query("bank_code"),
-		Page:         int32(page),
-		PageSize:     int32(pageSize),
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-
-	// Project pb.UnifiedOTCOffer to the JSON shape with omitempty
-	// semantics matching REST_API_v3 §28.
-	offers := make([]gin.H, 0, len(resp.GetOffers()))
-	for _, o := range resp.GetOffers() {
-		row := gin.H{
-			"kind":           o.GetKind(),
-			"bank_code":      o.GetBankCode(),
-			"security_type":  o.GetSecurityType(),
-			"ticker":         o.GetTicker(),
-			"quantity":       o.GetQuantity(),
-			"price_per_unit": o.GetPricePerUnit(),
-		}
-		if o.GetKind() == "local" {
-			row["id"] = o.GetId()
-			row["seller_id"] = o.GetSellerId()
-			row["seller_name"] = o.GetSellerName()
-			row["name"] = o.GetName()
-			row["created_at"] = o.GetCreatedAt()
-		} else {
-			row["owner_id"] = o.GetOwnerId()
-			row["currency"] = o.GetCurrency()
-		}
-		offers = append(offers, row)
-	}
-
-	var lastRefresh string
-	if u := resp.GetLastRefreshUnix(); u > 0 {
-		lastRefresh = time.Unix(u, 0).UTC().Format("2006-01-02T15:04:05Z")
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"offers":        offers,
-		"total_count":   resp.GetTotalCount(),
-		"peers_total":   resp.GetPeersTotal(),
-		"peers_reached": resp.GetPeersReached(),
-		"partial":       resp.GetPartial(),
-		"last_refresh":  lastRefresh,
-	})
-}
-
 // ListOTCOptions godoc
 // @Summary      Unified marketplace view of OPEN OTC option listings
 // @Description  Phase 6 cross-bank discovery. Returns this bank's open
@@ -357,9 +242,17 @@ func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySeller
 	identity, _ := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	var identityOwnerType string
 	var identityOwnerID uint64
+	var actorUserID int64
+	var actorSystemType string
 	if identity != nil {
 		identityOwnerType = identity.OwnerType
 		identityOwnerID = derefU64(identity.OwnerID)
+		// Acting PRINCIPAL ("client"/"employee" + id) — drives the owner
+		// latest-counter term projection in the stock-service (D2). Unlike
+		// the owner type/id (which collapse employees to "bank"), this carries
+		// the concrete employee id so a bank owner resolves correctly.
+		actorUserID = int64(identity.PrincipalID)
+		actorSystemType = identity.PrincipalType
 	}
 	resp, err := h.otcClient.ListUnifiedOptionOffers(c.Request.Context(), &stockpb.ListUnifiedOptionOffersRequest{
 		Ticker:            c.Query("ticker"),
@@ -371,6 +264,8 @@ func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySeller
 		OwnerOnlySellerId: ownerOnlySellerID,
 		ActingOwnerType:   identityOwnerType,
 		ActingOwnerId:     identityOwnerID,
+		ActorUserId:       actorUserID,
+		ActorSystemType:   actorSystemType,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -396,7 +291,6 @@ func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySeller
 			"premium_currency": o.GetPremiumCurrency(),
 			"settlement_date":  o.GetSettlementDate(),
 			"created_at":       o.GetCreatedAt(),
-			"has_preset_terms": o.GetHasPresetTerms(),
 		}
 		// Part A 2026-05-16 best-bid/best-ask surface. Empty strings
 		// ⇒ no active competition (or remote peer doesn't publish).
@@ -431,117 +325,4 @@ func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySeller
 		"partial":       resp.GetPartial(),
 		"last_refresh":  lastRefresh,
 	})
-}
-
-// BuyOTCOfferOnBehalf godoc
-// @Summary      Buy an OTC offer on behalf of a client
-// @Description  Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client.
-// @Tags         otc
-// @Accept       json
-// @Produce      json
-// @Param        id path integer true "Offer ID"
-// @Param        body body object true "Purchase"
-// @Security     BearerAuth
-// @Success      200 {object} map[string]interface{}
-// @Failure      400 {object} map[string]interface{}
-// @Failure      403 {object} map[string]interface{}
-// @Failure      404 {object} map[string]interface{}
-// @Router       /api/v2/otc/admin/offers/{id}/buy [post]
-func (h *PortfolioHandler) BuyOTCOfferOnBehalf(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		apiError(c, 400, ErrValidation, "invalid offer id")
-		return
-	}
-	var req struct {
-		ClientID  uint64 `json:"client_id"`
-		AccountID uint64 `json:"account_id"`
-		Quantity  int64  `json:"quantity"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, "invalid request body")
-		return
-	}
-	if req.ClientID == 0 || req.AccountID == 0 {
-		apiError(c, 400, ErrValidation, "client_id and account_id are required")
-		return
-	}
-	if req.Quantity <= 0 {
-		apiError(c, 400, ErrValidation, "quantity must be positive")
-		return
-	}
-
-	acctResp, acctErr := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
-	if acctErr != nil {
-		handleGRPCError(c, acctErr)
-		return
-	}
-	if acctResp.OwnerId != req.ClientID {
-		apiError(c, 403, ErrForbidden, "account does not belong to client")
-		return
-	}
-
-	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
-	resp, err := h.otcClient.BuyOffer(c.Request.Context(), &stockpb.BuyOTCOfferRequest{
-		OfferId:            id,
-		BuyerId:            req.ClientID,
-		SystemType:         "employee",
-		Quantity:           req.Quantity,
-		AccountId:          req.AccountID,
-		ActingEmployeeId:   derefU64Ptr(identity.ActingEmployeeID),
-		OnBehalfOfClientId: req.ClientID,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
-func (h *PortfolioHandler) BuyOTCOffer(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		apiError(c, 400, ErrValidation, "invalid offer id")
-		return
-	}
-	var req struct {
-		Quantity  int64  `json:"quantity"`
-		AccountID uint64 `json:"account_id"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, "invalid request body")
-		return
-	}
-	if req.Quantity <= 0 {
-		apiError(c, 400, ErrValidation, "quantity must be positive")
-		return
-	}
-	if req.AccountID == 0 {
-		apiError(c, 400, ErrValidation, "account_id is required")
-		return
-	}
-
-	acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
-		return
-	}
-
-	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
-
-	resp, err := h.otcClient.BuyOffer(c.Request.Context(), &stockpb.BuyOTCOfferRequest{
-		OfferId:    id,
-		BuyerId:    ownerToLegacyUserID(identity.OwnerID),
-		SystemType: ownerToLegacySystemType(identity.OwnerType),
-		Quantity:   req.Quantity,
-		AccountId:  req.AccountID,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, resp)
 }

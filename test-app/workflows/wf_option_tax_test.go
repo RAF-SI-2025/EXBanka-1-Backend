@@ -56,7 +56,6 @@ func TestWF_OptionExerciseTaxCycle(t *testing.T) {
 	// for any market price > 2, so the buyer realises a positive gain.
 	listing, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
 		"direction": "sell_initiated", "ticker": ticker, "quantity": "1",
-		"strike_price": "1", "premium": "1", "settlement_date": "2030-12-31",
 		"account_id": sellerAcct,
 	})
 	if err != nil {

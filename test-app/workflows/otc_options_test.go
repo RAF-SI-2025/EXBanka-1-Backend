@@ -21,14 +21,11 @@ func TestOTCOptions_ClientCannotUseForeignAccount(t *testing.T) {
 	victimAcctID, _ := createClientAccount(t, adminC, victimID, "RSD", 100000)
 	_, ticker, _ := firstStock(t, adminC)
 
-	resp, err := attackerC.POST("/api/v3/otc/offers", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      victimAcctID,
+	resp, err := attackerC.POST("/api/v3/me/otc/options", map[string]interface{}{
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "1",
+		"account_id": victimAcctID,
 	})
 	if err != nil {
 		t.Fatalf("create offer: %v", err)
@@ -49,14 +46,11 @@ func TestOTCOptions_UnknownTickerRejected(t *testing.T) {
 	clientID, _, clientC, _ := setupActivatedClient(t, adminC)
 	clientAcctID, _ := createClientAccount(t, adminC, clientID, "RSD", 100000)
 
-	resp, err := clientC.POST("/api/v3/otc/offers", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          "ZZ_NOT_A_TICKER",
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      clientAcctID,
+	resp, err := clientC.POST("/api/v3/me/otc/options", map[string]interface{}{
+		"direction":  "sell_initiated",
+		"ticker":     "ZZ_NOT_A_TICKER",
+		"quantity":   "1",
+		"account_id": clientAcctID,
 	})
 	if err != nil {
 		t.Fatalf("create offer: %v", err)
@@ -70,8 +64,9 @@ func TestOTCOptions_UnknownTickerRejected(t *testing.T) {
 }
 
 // TestOTCOptions_ClientLifecycle drives a full client-to-client OTC option
-// negotiation: client A (seller) buys a stock, lists a sell_initiated offer by
-// ticker, client B (buyer) accepts it with their own account, then B exercises
+// negotiation: client A (seller) buys a stock, lists a termless sell_initiated
+// offer by ticker, client B (buyer) opens a negotiation chain (a bid) proposing
+// the terms, client A accepts the chain to mint the contract, then B exercises
 // the resulting contract. Heavily skip-guarded because it depends on the
 // market simulator filling A's seed buy order.
 func TestOTCOptions_ClientLifecycle(t *testing.T) {
@@ -107,15 +102,12 @@ func TestOTCOptions_ClientLifecycle(t *testing.T) {
 		t.Skip("seed buy order did not fill — skipping lifecycle test")
 	}
 
-	// Seller creates a sell_initiated offer keyed by ticker.
-	createResp, err := sellerC.POST("/api/v3/otc/offers", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      sellerAcctID,
+	// Seller lists a termless sell_initiated offer keyed by ticker.
+	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "1",
+		"account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("create offer: %v", err)
@@ -128,17 +120,46 @@ func TestOTCOptions_ClientLifecycle(t *testing.T) {
 	}
 	offerID := int(helpers.GetNestedNumberField(t, createResp, "offer", "id"))
 
-	// Buyer accepts with their own account.
-	acceptResp, err := buyerC.POST(fmt.Sprintf("/api/v3/otc/offers/%d/accept", offerID), map[string]interface{}{
-		"account_id": buyerAcctID,
+	// Buyer opens a negotiation chain (a bid) proposing the contract terms with
+	// their own account.
+	bidResp, err := buyerC.POST(fmt.Sprintf("/api/v3/otc/options/%d/bid", offerID), map[string]interface{}{
+		"bidder_account_id": buyerAcctID,
+		"quantity":          "1",
+		"strike_price":      "100",
+		"premium":           "5",
+		"settlement_date":   "2030-12-31",
+	})
+	if err != nil {
+		t.Fatalf("bid: %v", err)
+	}
+	if bidResp.StatusCode != 201 {
+		t.Fatalf("expected 201 opening bid chain, got %d body=%v", bidResp.StatusCode, bidResp.Body)
+	}
+	negID := int(helpers.GetNestedNumberField(t, bidResp, "negotiation", "id"))
+
+	// Seller accepts the buyer's chain (the acceptor is opposite the last
+	// proposer). The accept runs the contract-formation saga and mints the
+	// OptionContract with the buyer as holder.
+	acceptResp, err := sellerC.POST(fmt.Sprintf("/api/v3/me/otc/options/%d/negotiations/%d/accept", offerID, negID), map[string]interface{}{
+		"acceptor_account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}
-	if acceptResp.StatusCode != 201 {
-		t.Fatalf("expected 201 accepting offer, got %d body=%v", acceptResp.StatusCode, acceptResp.Body)
+	if acceptResp.StatusCode != 200 && acceptResp.StatusCode != 201 {
+		t.Fatalf("expected 200/201 accepting chain, got %d body=%v", acceptResp.StatusCode, acceptResp.Body)
 	}
-	contractID := int(helpers.GetNumberField(t, acceptResp, "contract_id"))
+	contractID := 0
+	if v, ok := acceptResp.Body["contract_id"].(float64); ok {
+		contractID = int(v)
+	} else if cm, ok := acceptResp.Body["contract"].(map[string]interface{}); ok {
+		if v, ok := cm["id"].(float64); ok {
+			contractID = int(v)
+		}
+	}
+	if contractID == 0 {
+		t.Fatalf("accept: could not find contract id in response: %v", acceptResp.Body)
+	}
 
 	// Buyer exercises the contract — accounts come from the contract, so the
 	// body is empty.

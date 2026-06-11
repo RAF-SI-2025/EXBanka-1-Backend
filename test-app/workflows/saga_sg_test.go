@@ -67,7 +67,6 @@ func sgSetupContract(t *testing.T, adminC *client.APIClient) (contractID int, bu
 	// chain (bid) → seller accepts the bid, which mints the OptionContract.
 	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
 		"direction": "sell_initiated", "ticker": ticker, "quantity": "1",
-		"strike_price": "100", "premium": "5", "settlement_date": "2030-12-31",
 		"account_id": sellerAcctID,
 	})
 	if err != nil {

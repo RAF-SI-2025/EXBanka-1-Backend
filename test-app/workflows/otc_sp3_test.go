@@ -88,13 +88,10 @@ func TestSP3_BankOwnedOptionOffer_CreatedAndListedAsOwner(t *testing.T) {
 
 	// ── Create a bank-owned sell_initiated OTC option offer via the real route.
 	createResp, err := adminC.POST("/api/v3/me/otc/options", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "2",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      bankAcctID,
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "2",
+		"account_id": bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("SP-3 bank-owned offer: create listing: %v", err)
@@ -201,13 +198,10 @@ func TestSP3_BankCanBidOnLocalOption_OwnerTypeBank(t *testing.T) {
 	}
 
 	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "2",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      sellerAcctID,
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "2",
+		"account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("SP-3 bank-bid-local: create listing: %v", err)

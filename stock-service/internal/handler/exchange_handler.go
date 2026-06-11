@@ -17,15 +17,33 @@ type exchangeSvcFacade interface {
 	GetExchange(id uint64) (*model.StockExchange, error)
 	SetTestingMode(enabled bool) error
 	GetTestingMode() bool
+	// IsOpenForModel reports whether an already-loaded exchange is currently
+	// open (testing mode OR within trading hours) without a per-row DB lookup.
+	IsOpenForModel(ex *model.StockExchange) bool
+}
+
+// orderWaker lets enabling testing mode immediately wake the order-execution
+// engine so every queued order (old and new) fills at once instead of waiting
+// on its per-order timer. Optional — nil leaves the toggle a pure setting write.
+type orderWaker interface {
+	WakeAll()
 }
 
 type ExchangeGRPCHandler struct {
 	pb.UnimplementedStockExchangeGRPCServiceServer
-	svc exchangeSvcFacade
+	svc   exchangeSvcFacade
+	waker orderWaker
 }
 
 func NewExchangeGRPCHandler(svc *service.ExchangeService) *ExchangeGRPCHandler {
 	return &ExchangeGRPCHandler{svc: svc}
+}
+
+// WithWaker wires the order-execution engine so SetTestingMode(true) immediately
+// drives all queued orders to fill. Returns the handler for chaining.
+func (h *ExchangeGRPCHandler) WithWaker(w orderWaker) *ExchangeGRPCHandler {
+	h.waker = w
+	return h
 }
 
 // newExchangeHandlerForTest constructs an ExchangeGRPCHandler with an
@@ -41,8 +59,9 @@ func (h *ExchangeGRPCHandler) ListExchanges(ctx context.Context, req *pb.ListExc
 	}
 
 	resp := &pb.ListExchangesResponse{TotalCount: total, Exchanges: make([]*pb.Exchange, 0, len(exchanges))}
-	for _, ex := range exchanges {
-		resp.Exchanges = append(resp.Exchanges, toExchangeProto(&ex))
+	for i := range exchanges {
+		ex := &exchanges[i]
+		resp.Exchanges = append(resp.Exchanges, toExchangeProto(ex, h.svc.IsOpenForModel(ex)))
 	}
 	return resp, nil
 }
@@ -52,12 +71,18 @@ func (h *ExchangeGRPCHandler) GetExchange(ctx context.Context, req *pb.GetExchan
 	if err != nil {
 		return nil, err
 	}
-	return toExchangeProto(ex), nil
+	return toExchangeProto(ex, h.svc.IsOpenForModel(ex)), nil
 }
 
 func (h *ExchangeGRPCHandler) SetTestingMode(ctx context.Context, req *pb.SetTestingModeRequest) (*pb.SetTestingModeResponse, error) {
 	if err := h.svc.SetTestingMode(req.Enabled); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to set testing mode: %v", err)
+	}
+	// Enabling testing mode fills every queued order (old and new) immediately:
+	// wake all in-flight order goroutines so they re-evaluate now rather than
+	// finishing their timers.
+	if req.Enabled && h.waker != nil {
+		h.waker.WakeAll()
 	}
 	return &pb.SetTestingModeResponse{TestingMode: req.Enabled}, nil
 }
@@ -67,7 +92,7 @@ func (h *ExchangeGRPCHandler) GetTestingMode(ctx context.Context, req *pb.GetTes
 	return &pb.GetTestingModeResponse{TestingMode: enabled}, nil
 }
 
-func toExchangeProto(ex *model.StockExchange) *pb.Exchange {
+func toExchangeProto(ex *model.StockExchange, isOpen bool) *pb.Exchange {
 	return &pb.Exchange{
 		Id:              ex.ID,
 		Name:            ex.Name,
@@ -80,5 +105,6 @@ func toExchangeProto(ex *model.StockExchange) *pb.Exchange {
 		CloseTime:       ex.CloseTime,
 		PreMarketOpen:   ex.PreMarketOpen,
 		PostMarketClose: ex.PostMarketClose,
+		IsOpen:          isOpen,
 	}
 }

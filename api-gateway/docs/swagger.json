@@ -6597,74 +6597,6 @@
                 }
             }
         },
-        "/api/v2/otc/admin/offers/{id}/buy": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "otc"
-                ],
-                "summary": "Buy an OTC offer on behalf of a client",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Offer ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Purchase",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v2/payment-recipients": {
             "post": {
                 "security": [
@@ -10732,41 +10664,6 @@
                 }
             }
         },
-        "/api/v3/cross-bank-protocol/public-option-offers": {
-            "get": {
-                "description": "Phase 6 cross-bank discovery. Returns this bank's OPEN, undirected option listings as PeerPublicOptionOffer rows in SI-TX shape. Auth via X-Api-Key (PeerAuth); X-Bank-Code is stamped into peer_bank_code so privately-targeted listings are filtered per-caller.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-facing list of OPEN OTC option listings on this bank",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "501": {
-                        "description": "OTCOfferReader not wired",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v3/cross-bank-protocol/public-stock": {
             "get": {
                 "description": "Inbound from a peer bank. Returns this bank's holdings flagged public_quantity \u003e 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2.",
@@ -11836,6 +11733,7 @@
                         "BearerAuth": []
                     }
                 ],
+                "description": "Posts an open OTC option offer. Terms (strike_price, premium, settlement_date) are NOT set at creation — they are agreed during negotiation. Only one open offer per (owner, ticker, direction) is allowed; a duplicate returns 409.",
                 "consumes": [
                     "application/json"
                 ],
@@ -11848,7 +11746,7 @@
                 "summary": "Create an OTC option offer",
                 "parameters": [
                     {
-                        "description": "offer details (ticker-keyed; account_id is the initiator's account)",
+                        "description": "offer details (ticker-keyed, open terms; account_id is the initiator's account)",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -11874,6 +11772,13 @@
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -12024,6 +11929,79 @@
             }
         },
         "/api/v3/me/otc/options/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the TOTAL quantity of an open option offer the caller owns (up or down). Option offers are termless inventory; since only one open offer per (owner, ticker, direction) is allowed, the owner edits the total instead of posting a second offer. The new quantity must be \u003e 0, not below the shares already committed to formed/forming contracts on the offer, and not above the owner's holding for the ticker. Owner-only; the offer must be local and open.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Edit the total quantity of one of the caller's OTC option offers",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "offer id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new total quantity",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.updateOTCOptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -12382,166 +12360,6 @@
                 "responses": {
                     "200": {
                         "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/otc/stocks": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns sell offers (holdings with public_quantity \u003e 0) and buy offers (otc_stock_buy_offers rows) where the caller is the owner. Filter with `?direction=sell|buy`.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCStocks"
-                ],
-                "summary": "List the caller's OTC stock offers (both directions)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "sell|buy (omit for both)",
-                        "name": "direction",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "1-based, default 1",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "default 20, max 200",
-                        "name": "page_size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "direction=sell publishes shares from `holding_id` (accumulative); direction=buy creates a standing buy offer at `price_per_unit` backed by a cash reservation on `buyer_account_id`.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCStocks"
-                ],
-                "summary": "Create an OTC stock sell or buy offer",
-                "parameters": [
-                    {
-                        "description": "offer details (direction-keyed)",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.createOTCStockOfferRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/otc/stocks/{id}": {
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Direction-keyed: sell cancels by holding_id (zeros public_quantity); buy cancels by offer_id (releases reserved cash).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCStocks"
-                ],
-                "summary": "Cancel your own OTC stock sell or buy offer",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "holding_id (sell) or otc_stock_buy_offers.id (buy)",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "sell|buy",
-                        "name": "direction",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -14492,81 +14310,6 @@
                 }
             }
         },
-        "/api/v3/otc/stocks/{id}/sell": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "The caller sells the requested quantity of shares into",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCStocks"
-                ],
-                "summary": "Fill a buy-direction OTC stock offer (sell into it)",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "otc_stock_buy_offers.id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "quantity + seller's destination account",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.sellOTCStockOfferRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "412": {
-                        "description": "offer not active OR seller short on shares",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v3/otc/traders/{owner_type}/{owner_id}/rating": {
             "get": {
                 "security": [
@@ -15700,48 +15443,11 @@
                 "on_behalf_of_client_id": {
                     "type": "integer"
                 },
-                "premium": {
-                    "type": "string"
-                },
                 "quantity": {
-                    "type": "string"
-                },
-                "settlement_date": {
-                    "type": "string"
-                },
-                "strike_price": {
                     "type": "string"
                 },
                 "ticker": {
                     "type": "string"
-                }
-            }
-        },
-        "handler.createOTCStockOfferRequest": {
-            "type": "object",
-            "properties": {
-                "buyer_account_id": {
-                    "description": "buy only",
-                    "type": "integer"
-                },
-                "direction": {
-                    "description": "\"sell\" | \"buy\"",
-                    "type": "string"
-                },
-                "holding_id": {
-                    "description": "sell only",
-                    "type": "integer"
-                },
-                "listing_id": {
-                    "description": "buy only",
-                    "type": "integer"
-                },
-                "price_per_unit": {
-                    "description": "buy only (decimal)",
-                    "type": "string"
-                },
-                "quantity": {
-                    "type": "integer"
                 }
             }
         },
@@ -16300,17 +16006,6 @@
                 }
             }
         },
-        "handler.sellOTCStockOfferRequest": {
-            "type": "object",
-            "properties": {
-                "quantity": {
-                    "type": "integer"
-                },
-                "seller_account_id": {
-                    "type": "integer"
-                }
-            }
-        },
         "handler.setBiometricsReq": {
             "type": "object",
             "properties": {
@@ -16664,6 +16359,14 @@
                 },
                 "variable_base": {
                     "type": "number"
+                }
+            }
+        },
+        "handler.updateOTCOptionRequest": {
+            "type": "object",
+            "properties": {
+                "quantity": {
+                    "type": "string"
                 }
             }
         },

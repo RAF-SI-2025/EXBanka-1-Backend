@@ -28,6 +28,10 @@ type Config struct {
 	// Downstream gRPC dependencies.
 	AccountGRPCAddr string
 	StockGRPCAddr   string
+	// exchange-service, used by the posting executor for seller-side FX on
+	// cross-currency OTC credits (premium/strike) so they land in the
+	// recipient's own account currency instead of voting NO_SUCH_ACCOUNT.
+	ExchangeGRPCAddr string
 	// Forwarding targets for the inbound /cross-bank-protocol surface this
 	// service fronts: OTC → stock-service; friendly-name /user → client+user.
 	ClientGRPCAddr string
@@ -54,6 +58,7 @@ func Load() *Config {
 		MetricsPort:         getEnv("METRICS_PORT", "9112"),
 		AccountGRPCAddr:     getEnv("ACCOUNT_GRPC_ADDR", "localhost:50055"),
 		StockGRPCAddr:       getEnv("STOCK_GRPC_ADDR", "localhost:50060"),
+		ExchangeGRPCAddr:    getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
 		ClientGRPCAddr:      getEnv("CLIENT_GRPC_ADDR", "localhost:50054"),
 		UserGRPCAddr:        getEnv("USER_GRPC_ADDR", "localhost:50052"),
 		OwnBankCode:         getEnv("OWN_BANK_CODE", "111"),

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -38,6 +39,34 @@ func (r *SagaLogRepository) GetByID(id uint64) (*model.SagaLog, error) {
 		return nil, err
 	}
 	return &log, nil
+}
+
+// FindLatestCompensationRow returns the most-recent compensation row for
+// (saga_id, step_name), or (nil, nil) when none exists. RecordCompensation uses
+// it to REUSE an existing compensation row instead of inserting a new one on
+// every recovery tick: the recovery loop re-drives the WHOLE rollback each time
+// it reconciles a stuck saga, so without reuse a persistently-failing Backward
+// would spawn a fresh compensating row per tick and grow saga_logs without bound.
+// Reuse keeps the stuck compensation on ONE row whose retry_count climbs to
+// dead_letter (the correct escalation). Safe because every Backward in this
+// service is idempotent, so re-running it against the reused row is a no-op when
+// the effect already applied.
+func (r *SagaLogRepository) FindLatestCompensationRow(sagaID, stepName string) (*model.SagaLog, error) {
+	if sagaID == "" {
+		return nil, nil
+	}
+	var row model.SagaLog
+	err := r.db.
+		Where("saga_id = ? AND step_name = ? AND is_compensation = ?", sagaID, stepName, true).
+		Order("id DESC").
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 // ListPendingForOrder returns saga steps for an order that are in pending or

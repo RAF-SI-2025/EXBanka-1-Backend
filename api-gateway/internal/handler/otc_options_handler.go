@@ -36,9 +36,6 @@ type createOTCOfferRequest struct {
 	Direction              string  `json:"direction"`
 	Ticker                 string  `json:"ticker"`
 	Quantity               string  `json:"quantity"`
-	StrikePrice            string  `json:"strike_price"`
-	Premium                string  `json:"premium"`
-	SettlementDate         string  `json:"settlement_date"`
 	AccountID              uint64  `json:"account_id"`
 	CounterpartyUserID     *int64  `json:"counterparty_user_id,omitempty"`
 	CounterpartySystemType *string `json:"counterparty_system_type,omitempty"`
@@ -47,14 +44,16 @@ type createOTCOfferRequest struct {
 
 // CreateOffer godoc
 // @Summary      Create an OTC option offer
+// @Description  Posts an open OTC option offer. Terms (strike_price, premium, settlement_date) are NOT set at creation — they are agreed during negotiation. Only one open offer per (owner, ticker, direction) is allowed; a duplicate returns 409.
 // @Tags         OTCOptions
 // @Security     BearerAuth
 // @Accept       json
 // @Produce      json
-// @Param        body body createOTCOfferRequest true "offer details (ticker-keyed; account_id is the initiator's account)"
+// @Param        body body createOTCOfferRequest true "offer details (ticker-keyed, open terms; account_id is the initiator's account)"
 // @Success      201 {object} map[string]interface{}
 // @Failure      400 {object} map[string]interface{}
 // @Failure      403 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
 // @Router       /api/v3/me/otc/options [post]
 func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 	var req createOTCOfferRequest
@@ -66,8 +65,8 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
 		return
 	}
-	if req.Ticker == "" || req.Quantity == "" || req.StrikePrice == "" || req.SettlementDate == "" {
-		apiError(c, http.StatusBadRequest, ErrValidation, "ticker, quantity, strike_price and settlement_date are required")
+	if req.Ticker == "" || req.Quantity == "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, "ticker and quantity are required")
 		return
 	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
@@ -79,6 +78,10 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "unknown ticker: "+req.Ticker)
 		return
 	}
+	// Terms (strike_price/premium/settlement_date) are intentionally not set:
+	// offers are posted open and the terms are agreed during negotiation. The
+	// proto still carries those fields (cleanup is a later task); we simply
+	// leave them unset here.
 	in := &stockpb.CreateOTCOfferRequest{
 		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
 		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
@@ -86,9 +89,6 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		Direction:          req.Direction,
 		StockId:            stock.Id,
 		Quantity:           req.Quantity,
-		StrikePrice:        req.StrikePrice,
-		Premium:            req.Premium,
-		SettlementDate:     req.SettlementDate,
 		AccountId:          req.AccountID,
 		OnBehalfOfClientId: req.OnBehalfOfClientID,
 		Ticker:             req.Ticker,
@@ -106,6 +106,58 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"offer": resp})
+}
+
+type updateOTCOptionRequest struct {
+	Quantity string `json:"quantity"`
+}
+
+// UpdateMyOption godoc
+// @Summary      Edit the total quantity of one of the caller's OTC option offers
+// @Description  Sets the TOTAL quantity of an open option offer the caller owns (up or down). Option offers are termless inventory; since only one open offer per (owner, ticker, direction) is allowed, the owner edits the total instead of posting a second offer. The new quantity must be > 0, not below the shares already committed to formed/forming contracts on the offer, and not above the owner's holding for the ticker. Owner-only; the offer must be local and open.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        id path int true "offer id"
+// @Param        body body updateOTCOptionRequest true "new total quantity"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/options/{id} [put]
+func (h *OTCOptionsHandler) UpdateMyOption(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
+	var req updateOTCOptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
+		return
+	}
+	if err := positiveDecimalString("quantity", req.Quantity); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	// Ownership is enforced authoritatively in stock-service under the offer's
+	// row lock (owner-only edit → PermissionDenied → 403); we forward the acting
+	// owner identity. No cheap gateway pre-check exists without re-fetching the
+	// offer, so we rely on the service gate (same as the per-chain ops).
+	resp, err := h.client.UpdateOTCOfferQuantity(c.Request.Context(), &stockpb.UpdateOTCOfferQuantityRequest{
+		OfferId:         id,
+		Quantity:        req.Quantity,
+		ActingOwnerType: identity.OwnerType,
+		ActingOwnerId:   derefU64(identity.OwnerID),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"offer": resp})
 }
 
 // ListNegotiationHistory godoc
@@ -261,108 +313,6 @@ func (h *OTCOptionsHandler) GetOffer(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, resp)
-}
-
-type counterOTCOfferRequest struct {
-	Quantity           string `json:"quantity"`
-	StrikePrice        string `json:"strike_price"`
-	Premium            string `json:"premium"`
-	SettlementDate     string `json:"settlement_date"`
-	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
-}
-
-// CounterOffer — legacy single-chain counter handler. NOT ROUTED as of
-// Phase 8 (the per-negotiation chain route at
-// /api/v3/me/otc/options/:id/negotiations/:nid/counter replaces it).
-// Method retained because the handler-layer test suite still exercises
-// it; do not re-route without architecture review (frontends should
-// only see the negotiation-chain routes).
-func (h *OTCOptionsHandler) CounterOffer(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
-		return
-	}
-	var req counterOTCOfferRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
-		return
-	}
-	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
-	resp, err := h.client.CounterOffer(c.Request.Context(), &stockpb.CounterOTCOfferRequest{
-		OfferId:         id,
-		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
-		Quantity:        req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
-		SettlementDate:     req.SettlementDate,
-		OnBehalfOfClientId: req.OnBehalfOfClientID,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"offer": resp})
-}
-
-type acceptOTCOfferRequest struct {
-	AccountID          uint64 `json:"account_id"`
-	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
-}
-
-// AcceptOffer — legacy single-chain accept. NOT ROUTED as of Phase 8.
-// Replaced by the per-chain route at
-// /api/v3/me/otc/options/:id/negotiations/:nid/accept which is backed
-// by the first-accept-wins TX in stock-service. Method retained for
-// existing handler tests; do not re-route.
-func (h *OTCOptionsHandler) AcceptOffer(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
-		return
-	}
-	var req acceptOTCOfferRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
-		return
-	}
-	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
-	if err := ResolveAndCheckAccount(c, h.accounts, identity, req.AccountID, req.OnBehalfOfClientID); err != nil {
-		return
-	}
-	resp, err := h.client.AcceptOffer(c.Request.Context(), &stockpb.AcceptOTCOfferRequest{
-		OfferId:            id,
-		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
-		AccountId:          req.AccountID,
-		OnBehalfOfClientId: req.OnBehalfOfClientID,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusCreated, resp)
-}
-
-// RejectOffer — legacy single-chain reject. NOT ROUTED as of Phase 8.
-// Replaced by /api/v3/me/otc/options/:id/negotiations/:nid/reject.
-// Method retained for handler tests; do not re-route.
-func (h *OTCOptionsHandler) RejectOffer(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
-		return
-	}
-	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
-	resp, err := h.client.RejectOffer(c.Request.Context(), &stockpb.RejectOTCOfferRequest{
-		OfferId:         id,
-		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"offer": resp})
 }
 
 // ListMyContracts godoc

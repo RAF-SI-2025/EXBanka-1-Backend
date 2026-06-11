@@ -719,6 +719,7 @@ services:
       INTERBANK_METRICS_PORT: '9112'
       ACCOUNT_GRPC_ADDR: account-service:50055
       STOCK_GRPC_ADDR: stock-service:50060
+      EXCHANGE_GRPC_ADDR: exchange-service:50059
       CLIENT_GRPC_ADDR: client-service:50054
       USER_GRPC_ADDR: user-service:50052
       OWN_BANK_CODE: ${OWN_BANK_CODE:-111}

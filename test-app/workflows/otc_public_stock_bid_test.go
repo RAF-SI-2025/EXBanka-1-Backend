@@ -4,25 +4,35 @@ package workflows
 
 // Integration tests for the public-stock option negotiation feature.
 //
-// Feature summary (commits 3f4e85dc .. 1de266ad):
-//   - HasPresetTerms column added to OTCOffer (local/remote option-offer
-//     listings carry true; shells synthesised from a peer's /public-stock
-//     carry false, meaning the buyer proposes their own strike/premium).
-//   - has_preset_terms exposed in the unified offers list
+// Feature summary (unified options-as-stock model):
+//   - An OTC option offer is termless "optionable inventory":
+//     (owner, ticker, quantity). The offer carries NO strike/premium/
+//     settlement_date of its own — those terms are viewer-contextual and are
+//     sourced from the negotiation chain (a bidder sees their own chain's
+//     current terms; the owner sees their most recent counter; otherwise the
+//     term fields are empty). A freshly-created offer with no negotiation thus
+//     shows empty strike_price/premium/settlement_date on every read surface.
+//   - has_preset_terms is GONE from the unified offers list
 //     (GET /api/v3/otc/options) and per-offer detail
-//     (GET /api/v3/otc/options/:id).
-//   - Bidding on a shell offer (POST /api/v3/otc/options/:id/bid) is subject
-//     to a freshness guard that re-fetches the peer's live /public-stock
-//     before dispatching the SI-TX negotiation.
+//     (GET /api/v3/otc/options/:id) — there is no preset/no-preset distinction
+//     anymore; the bidder always proposes the terms on their chain.
+//   - Cross-bank option discovery is /public-stock only: a peer's open
+//     sell-initiated option offers surface as {stock, sellers:[{seller,amount}]}
+//     (one seller entry per owner+ticker). The proprietary
+//     /public-option-offers endpoint was removed (404).
+//   - Bidding on a remote shell offer (POST /api/v3/otc/options/:id/bid) is
+//     subject to a freshness guard that re-fetches the peer's live
+//     /public-stock before dispatching the SI-TX negotiation.
 //
 // Single-stack coverage:
-//   - A local sell_initiated listing must carry has_preset_terms=true on both
-//     the list view and the per-offer detail view (local offers always have
-//     preset terms set by the seller at creation time).
+//   - A freshly-created local sell_initiated listing surfaces in both the list
+//     view and the per-offer detail view with empty (viewer-contextual) term
+//     fields, since no negotiation chain exists yet.
 //
 // Two-stack coverage (documented t.Skip — requires a registered peer bank):
-//   - A remote shell synthesised from /public-stock must carry
-//     has_preset_terms=false in the list view.
+//   - A remote shell synthesised from /public-stock surfaces in the list view
+//     with kind="remote" and empty viewer-contextual terms (the buyer proposes
+//     their own strike/premium on bid).
 //   - Bidding on the shell with buyer-chosen strike/premium/settlement opens a
 //     negotiation and returns 201 (shell freshness guard passes when the
 //     seller+ticker are still live on the peer's /public-stock).
@@ -35,15 +45,14 @@ import (
 	"github.com/exbanka/test-app/internal/helpers"
 )
 
-// TestPublicStockBid_LocalOfferHasPresetTermsTrue verifies that a local
-// sell_initiated OTC option listing carries has_preset_terms=true in both the
-// unified offers list (GET /api/v3/otc/options) and the per-offer detail
-// (GET /api/v3/otc/options/:id).
-//
-// This is the single-stack half of the has_preset_terms contract: local offers
-// always have preset terms (the seller sets strike + premium at creation time),
-// so the buyer-accepts-as-listed flow applies and the field must be true.
-func TestPublicStockBid_LocalOfferHasPresetTermsTrue(t *testing.T) {
+// TestPublicStockBid_LocalOfferTermsViewerContextual verifies that a freshly
+// created local sell_initiated OTC option listing surfaces in both the unified
+// offers list (GET /api/v3/otc/options) and the per-offer detail
+// (GET /api/v3/otc/options/:id) — and that its term fields
+// (strike_price/premium/settlement_date) are empty, because the offer is
+// termless and no negotiation chain has been opened on it yet. The terms are
+// viewer-contextual and only populate from a negotiation chain.
+func TestPublicStockBid_LocalOfferTermsViewerContextual(t *testing.T) {
 	t.Parallel()
 	adminC := loginAsAdmin(t)
 	enableTestingMode(t, adminC)
@@ -72,15 +81,12 @@ func TestPublicStockBid_LocalOfferHasPresetTermsTrue(t *testing.T) {
 		t.Skip("public-stock bid: seed buy did not fill within 45 s — skipping")
 	}
 
-	// Create a local sell_initiated listing with preset terms.
+	// Create a termless local sell_initiated listing (no preset terms).
 	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      sellerAcctID,
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "1",
+		"account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("public-stock bid: create listing: %v", err)
@@ -93,7 +99,7 @@ func TestPublicStockBid_LocalOfferHasPresetTermsTrue(t *testing.T) {
 	}
 	offerID := int(helpers.GetNestedNumberField(t, createResp, "offer", "id"))
 
-	// ── Per-offer detail: has_preset_terms must be true ──
+	// ── Per-offer detail: term fields must be empty (no negotiation yet) ──
 	detailResp, err := sellerC.GET(fmt.Sprintf("/api/v3/otc/options/%d", offerID))
 	if err != nil {
 		t.Fatalf("public-stock bid: get offer: %v", err)
@@ -103,12 +109,18 @@ func TestPublicStockBid_LocalOfferHasPresetTermsTrue(t *testing.T) {
 	if !hasNested {
 		offerBody = detailResp.Body
 	}
-	if hpt, ok := offerBody["has_preset_terms"].(bool); !ok || !hpt {
-		t.Errorf("public-stock bid: local offer detail: want has_preset_terms=true, got %v (body=%v)", offerBody["has_preset_terms"], offerBody)
+	if _, gone := offerBody["has_preset_terms"]; gone {
+		t.Errorf("public-stock bid: has_preset_terms must no longer be present on offer detail; body=%v", offerBody)
+	}
+	for _, term := range []string{"strike_price", "premium", "settlement_date"} {
+		if v, ok := offerBody[term]; ok && v != nil {
+			if s, isStr := v.(string); isStr && s != "" {
+				t.Errorf("public-stock bid: freshly-created offer must show empty %s (no negotiation), got %q (body=%v)", term, s, offerBody)
+			}
+		}
 	}
 
-	// ── Unified list: has_preset_terms must be true on the matching offer ──
-	// The discovery feed is cache-backed so we poll with a deadline.
+	// ── Unified list: the offer must surface (cache-backed feed, so poll) ──
 	foundInList := false
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
@@ -130,9 +142,8 @@ func TestPublicStockBid_LocalOfferHasPresetTermsTrue(t *testing.T) {
 			id, _ := item["id"].(float64)
 			if int(lid) == offerID || int(id) == offerID {
 				foundInList = true
-				hpt, _ := item["has_preset_terms"].(bool)
-				if !hpt {
-					t.Errorf("public-stock bid: list view: local offer id=%d must carry has_preset_terms=true; item=%v", offerID, item)
+				if _, gone := item["has_preset_terms"]; gone {
+					t.Errorf("public-stock bid: list view: has_preset_terms must no longer be present; item=%v", item)
 				}
 				break
 			}
@@ -149,11 +160,11 @@ func TestPublicStockBid_LocalOfferHasPresetTermsTrue(t *testing.T) {
 
 // TestPublicStockBid_RemoteShellBid_RequiresTwoStacks documents the cross-bank
 // path: a peer's /public-stock listing is synthesised into a local shell
-// OTCOffer row with HasPresetTerms=false, which surfaces in
-// GET /api/v3/otc/options with has_preset_terms=false and kind="remote".
-// Bidding on it (POST /api/v3/otc/options/:id/bid) triggers a freshness guard
-// that re-fetches the peer's live /public-stock before opening the SI-TX
-// negotiation.  This cannot be driven from a single stack.
+// OTCOffer row that surfaces in GET /api/v3/otc/options with kind="remote" and
+// empty viewer-contextual terms (the buyer proposes their own strike/premium on
+// bid). Bidding on it (POST /api/v3/otc/options/:id/bid) triggers a freshness
+// guard that re-fetches the peer's live /public-stock before opening the SI-TX
+// negotiation. This cannot be driven from a single stack.
 //
 // The freshness guard itself is exercised at the unit level in
 // stock-service/internal/handler/otc_negotiation_remote_shell_test.go

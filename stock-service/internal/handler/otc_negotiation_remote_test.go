@@ -1,7 +1,10 @@
 // Package handler — cross-bank (REMOTE) bid dispatch tests for OpenNegotiation
 // (Unified OTC SP-2b / SP-3 Task 4). The bid route dispatches local vs
 // cross-bank in stock-service based on whether the parent :id is a local or a
-// folded-in remote OTCOffer. These tests exercise the REMOTE branch:
+// folded-in remote OTCOffer. Every remote offer is uniform termless inventory:
+// the freshness guard runs unconditionally and the premium/strike currency is
+// ALWAYS derived from the bidder's bound account (never the listing's legacy
+// preset currency columns). These tests exercise the REMOTE branch:
 //   - a client bid on a remote listing dispatches to the (fake) peer and
 //     records a remote OTCNegotiation mirror row (buyerId "client-<N>"),
 //   - a bank bid (employee acting as the bank) dispatches with buyerId
@@ -9,7 +12,9 @@
 //     ActingEmployeeID (SP-3 Task 4),
 //   - a bank bid against a non-bank account is rejected,
 //   - a bank bid with acting_employee_id == 0 is rejected,
-//   - an account-currency mismatch is rejected.
+//   - the dispatched currency equals the bidder account's currency even when the
+//     listing row carries a different (now-ignored) preset currency,
+//   - a bidder account with no resolvable currency is rejected.
 package handler
 
 import (
@@ -17,7 +22,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
@@ -28,6 +32,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -166,29 +171,23 @@ func newRemoteBidFixture(t *testing.T, dispatcher PeerNegotiationDispatcher, acc
 }
 
 // seedRemoteOffer inserts a folded-in remote OTCOffer row (peer routing 222)
-// and returns its surrogate id.
+// and returns its surrogate id. Remote rows are uniform termless inventory: the
+// handler always runs the freshness guard and always derives currency from the
+// bidder account.
 func seedRemoteOffer(t *testing.T, db *gorm.DB) uint64 {
 	t.Helper()
 	nid := "peer-offer-1"
 	bankCode := "222"
 	sellerID := "client-9"
-	strikeCcy := "USD"
-	premiumCcy := "USD"
 	o := &model.OTCOffer{
 		RoutingNumber:               222,
 		NativeID:                    &nid,
 		InitiatorBankCode:           &bankCode,
-		RemoteSellerID:              &sellerID,
-		HasPresetTerms:              true, // preset: existing tests cover general dispatch, not shell freshness
+		RemoteSellerID:              &sellerID, // legacy flag — handler now ignores it (always shell-path)
 		InitiatorOwnerType:          model.OwnerBank,
 		Direction:                   model.OTCDirectionSellInitiated,
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.RequireFromString("150"),
-		Premium:                     decimal.RequireFromString("20"),
-		StrikeCurrency:              &strikeCcy,
-		PremiumCurrency:             &premiumCcy,
-		SettlementDate:              time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "system",
 		LastModifiedByPrincipalID:   0,
@@ -207,6 +206,26 @@ func usdAccount(ownerID uint64) *accountpb.AccountResponse {
 		CurrencyCode:  "USD",
 		Status:        "active",
 	}
+}
+
+// liveAAPLStock builds a /public-stock response body that lists AAPL with the
+// seedRemoteOffer seller (routing 222, id "client-9"). Because the freshness
+// guard now runs for EVERY remote offer (uniform termless inventory), tests that
+// expect a bid to proceed past the guard must seed a live listing for the seller.
+func liveAAPLStock(t *testing.T) []byte {
+	t.Helper()
+	body, err := json.Marshal(contractsitx.PublicStocksResponse{
+		{
+			Stock: contractsitx.StockDescription{Ticker: "AAPL"},
+			Sellers: []contractsitx.PublicSeller{
+				{Seller: contractsitx.ForeignBankId{RoutingNumber: 222, ID: "client-9"}, Amount: 10},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal live public stock: %v", err)
+	}
+	return body
 }
 
 // usdBankAccount returns an active USD account flagged as a BANK account
@@ -258,7 +277,7 @@ func bankBidReq(parentID, actingEmployeeID uint64) *stockpb.OpenNegotiationReque
 }
 
 func TestOpenNegotiation_RemoteClientBid_DispatchesAndRecordsMirror(t *testing.T) {
-	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-xyz"}
+	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-xyz", publicStockResp: liveAAPLStock(t)}
 	accounts := &fakeOTCAccountClient{acct: usdAccount(9 /* matches bidder client-9 */)}
 	h, db := newRemoteBidFixture(t, dispatcher, accounts)
 	parentID := seedRemoteOffer(t, db)
@@ -268,6 +287,11 @@ func TestOpenNegotiation_RemoteClientBid_DispatchesAndRecordsMirror(t *testing.T
 		t.Fatalf("OpenNegotiation: %v", err)
 	}
 
+	// The freshness guard now runs for EVERY remote offer (even this preset-flagged
+	// seed row), re-validating the seller's live /public-stock before dispatch.
+	if len(dispatcher.publicStockCalls) != 1 {
+		t.Errorf("PublicStock calls: got %d, want 1 (guard must run for every remote offer)", len(dispatcher.publicStockCalls))
+	}
 	// Dispatched to peer 222 with the composed offer.
 	if dispatcher.calls != 1 {
 		t.Fatalf("dispatcher called %d times, want 1", dispatcher.calls)
@@ -326,23 +350,61 @@ func TestOpenNegotiation_RemoteClientBid_DispatchesAndRecordsMirror(t *testing.T
 	}
 }
 
-func TestOpenNegotiation_RemoteBid_BadAccountCurrency(t *testing.T) {
-	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-xyz"}
+// TestOpenNegotiation_RemoteBid_CurrencyFromAccountNotListing proves the uniform
+// termless-inventory behavior: the dispatched SI-TX offer carries the BIDDER
+// ACCOUNT's currency, even when the remote offer ROW still has a different,
+// non-nil preset currency (the seed sets USD). The bidder binds an RSD account,
+// so the composed premium/pricePerUnit MUST be RSD — proving the handler no
+// longer reads remoteOffer.PremiumCurrency/StrikeCurrency. There is no longer a
+// currency-mismatch rejection (cross-bank SI-TX FX is the buyer's choice of
+// account).
+func TestOpenNegotiation_RemoteBid_CurrencyFromAccountNotListing(t *testing.T) {
+	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-rsd", publicStockResp: liveAAPLStock(t)}
 	rsd := usdAccount(9)
-	rsd.CurrencyCode = "RSD" // mismatch vs the listing's USD premium
+	rsd.CurrencyCode = "RSD" // differs from the listing row's preset USD — must win
 	accounts := &fakeOTCAccountClient{acct: rsd}
+	h, db := newRemoteBidFixture(t, dispatcher, accounts)
+	parentID := seedRemoteOffer(t, db) // row has PremiumCurrency/StrikeCurrency = USD
+
+	if _, err := h.OpenNegotiation(context.Background(), openReq(parentID, 9, "client")); err != nil {
+		t.Fatalf("OpenNegotiation: %v", err)
+	}
+	if dispatcher.calls != 1 {
+		t.Fatalf("dispatcher called %d times, want 1", dispatcher.calls)
+	}
+	// Both legs carry the bidder ACCOUNT's currency (RSD), NOT the row's USD.
+	ppu, _ := dispatcher.gotOffer["pricePerUnit"].(map[string]any)
+	if ppu == nil || ppu["currency"] != "RSD" {
+		t.Errorf("pricePerUnit.currency = %v, want RSD (derived from bidder account, not the listing row's USD)", ppu)
+	}
+	prem, _ := dispatcher.gotOffer["premium"].(map[string]any)
+	if prem == nil || prem["currency"] != "RSD" {
+		t.Errorf("premium.currency = %v, want RSD (derived from bidder account, not the listing row's USD)", prem)
+	}
+}
+
+// TestOpenNegotiation_RemoteBid_EmptyAccountCurrency rejects a bid whose bound
+// account has no resolvable currency: since the currency is always derived from
+// the account, an empty currency cannot produce a valid offer. The freshness
+// guard passes (live listing seeded) so the rejection comes from the currency
+// derivation, with no dispatch.
+func TestOpenNegotiation_RemoteBid_EmptyAccountCurrency(t *testing.T) {
+	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-xyz", publicStockResp: liveAAPLStock(t)}
+	noCcy := usdAccount(9)
+	noCcy.CurrencyCode = "" // unresolvable currency
+	accounts := &fakeOTCAccountClient{acct: noCcy}
 	h, db := newRemoteBidFixture(t, dispatcher, accounts)
 	parentID := seedRemoteOffer(t, db)
 
 	_, err := h.OpenNegotiation(context.Background(), openReq(parentID, 9, "client"))
 	if err == nil {
-		t.Fatal("expected currency-mismatch error, got nil")
+		t.Fatal("expected rejection for an account with no currency, got nil")
 	}
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("code: got %v, want InvalidArgument", status.Code(err))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("code: got %v, want FailedPrecondition", status.Code(err))
 	}
 	if dispatcher.calls != 0 {
-		t.Errorf("dispatcher should NOT be called on a bad account: %d", dispatcher.calls)
+		t.Errorf("dispatcher should NOT be called on an empty-currency account: %d", dispatcher.calls)
 	}
 }
 
@@ -353,7 +415,7 @@ func TestOpenNegotiation_RemoteBid_BadAccountCurrency(t *testing.T) {
 // negotiation row carries ActingEmployeeID, RemoteBuyerID "employee-<N>", and
 // bidder owner type bank.
 func TestOpenNegotiation_RemoteBankBid_DispatchesAsEmployeeWireID(t *testing.T) {
-	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-bank"}
+	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-bank", publicStockResp: liveAAPLStock(t)}
 	accounts := &fakeOTCAccountClient{acct: usdBankAccount()}
 	h, db := newRemoteBidFixture(t, dispatcher, accounts)
 	parentID := seedRemoteOffer(t, db)
@@ -421,7 +483,7 @@ func TestOpenNegotiation_RemoteBankBid_DispatchesAsEmployeeWireID(t *testing.T) 
 // bound account is NOT a bank account (a bank bidder must settle against a bank
 // account; the ownership assertion branches on bidder owner type).
 func TestOpenNegotiation_RemoteBankBid_NonBankAccount(t *testing.T) {
-	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-bank"}
+	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-bank", publicStockResp: liveAAPLStock(t)}
 	// A client-owned (non-bank) USD account masquerading as the bid account.
 	accounts := &fakeOTCAccountClient{acct: usdAccount(9)}
 	h, db := newRemoteBidFixture(t, dispatcher, accounts)
@@ -439,7 +501,7 @@ func TestOpenNegotiation_RemoteBankBid_NonBankAccount(t *testing.T) {
 // TestOpenNegotiation_RemoteBankBid_MissingActingEmployee rejects a bank bid
 // without an acting_employee_id (no stable wire identity to publish as).
 func TestOpenNegotiation_RemoteBankBid_MissingActingEmployee(t *testing.T) {
-	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-bank"}
+	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-bank", publicStockResp: liveAAPLStock(t)}
 	accounts := &fakeOTCAccountClient{acct: usdBankAccount()}
 	h, db := newRemoteBidFixture(t, dispatcher, accounts)
 	parentID := seedRemoteOffer(t, db)
@@ -478,7 +540,7 @@ func TestOpenNegotiation_NonexistentParent_StillNotFound(t *testing.T) {
 // SI-TX §2.5 / §2.8.1 require MonetaryValue.amount to be a number token; a
 // strict cohort peer will reject a quoted string amount.
 func TestOfferComposition_AmountsAreJSONNumbers(t *testing.T) {
-	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-wire"}
+	dispatcher := &fakePeerDispatcher{routing: 222, foreignID: "neg-wire", publicStockResp: liveAAPLStock(t)}
 	accounts := &fakeOTCAccountClient{acct: usdAccount(9)}
 	h, db := newRemoteBidFixture(t, dispatcher, accounts)
 	parentID := seedRemoteOffer(t, db)

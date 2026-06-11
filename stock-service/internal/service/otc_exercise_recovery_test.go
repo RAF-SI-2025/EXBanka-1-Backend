@@ -14,15 +14,9 @@ import (
 // across ticks).
 func TestRecoverExerciseSaga_ForwardResumeToExercised(t *testing.T) {
 	fx := newAcceptSagaFixture(t)
-	// Accept first to mint a real ACTIVE contract with the seller's holding
-	// reserved (this is the precondition the exercise saga operates on).
-	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
-		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		AcceptorAccountID: 5001,
-	})
-	if err != nil {
-		t.Fatalf("accept: %v", err)
-	}
+	// Mint a real ACTIVE contract with the seller's holding reserved (this is
+	// the precondition the exercise saga operates on).
+	contract := fx.mintActiveContract(t)
 
 	// Drive recovery twice — idempotent.
 	for i := 0; i < 2; i++ {
@@ -56,13 +50,7 @@ func TestRecoverExerciseSaga_ForwardResumeToExercised(t *testing.T) {
 // recoverer takes the rollback path and never drives the contract to EXERCISED.
 func TestRecoverExerciseSaga_RollbackModeDoesNotExercise(t *testing.T) {
 	fx := newAcceptSagaFixture(t)
-	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
-		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		AcceptorAccountID: 5001,
-	})
-	if err != nil {
-		t.Fatalf("accept: %v", err)
-	}
+	contract := fx.mintActiveContract(t)
 	fx.saga.hasComp = true // saga had begun rolling back
 
 	if err := fx.svc.RecoverExerciseSaga(context.Background(), "exercise-saga-2", contract.ID); err != nil {

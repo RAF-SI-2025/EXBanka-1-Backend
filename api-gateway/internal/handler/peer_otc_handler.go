@@ -15,7 +15,6 @@ import (
 // PeerOTCHandler serves the peer-facing OTC routes under /api/v3/cross-bank-protocol:
 //
 //	GET    /api/v3/cross-bank-protocol/public-stock
-//	GET    /api/v3/cross-bank-protocol/public-option-offers
 //	POST   /api/v3/cross-bank-protocol/negotiations
 //	PUT    /api/v3/cross-bank-protocol/negotiations/:rid/:id
 //	GET    /api/v3/cross-bank-protocol/negotiations/:rid/:id
@@ -81,44 +80,6 @@ func (h *PeerOTCHandler) GetPublicStocks(c *gin.Context) {
 		out = append(out, *grouped[ticker])
 	}
 	c.JSON(http.StatusOK, out)
-}
-
-// GetPublicOptionOffers godoc
-// @Summary      Peer-facing list of OPEN OTC option listings on this bank
-// @Description  Phase 6 cross-bank discovery. Returns this bank's OPEN, undirected option listings as PeerPublicOptionOffer rows in SI-TX shape. Auth via X-Api-Key (PeerAuth); X-Bank-Code is stamped into peer_bank_code so privately-targeted listings are filtered per-caller.
-// @Tags         PeerOTC
-// @Produce      json
-// @Success      200 {object} map[string]interface{}
-// @Failure      401 {object} map[string]interface{}
-// @Failure      501 {object} map[string]interface{} "OTCOfferReader not wired"
-// @Router       /api/v3/cross-bank-protocol/public-option-offers [get]
-func (h *PeerOTCHandler) GetPublicOptionOffers(c *gin.Context) {
-	pbCode, _ := c.Get("peer_bank_code")
-	resp, err := h.client.GetPublicOptionOffers(c.Request.Context(), &stockpb.GetPublicOptionOffersRequest{
-		PeerBankCode: peerCtxString(pbCode),
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	out := make([]gin.H, 0, len(resp.GetOffers()))
-	for _, o := range resp.GetOffers() {
-		out = append(out, gin.H{
-			"offerId":         gin.H{"routingNumber": o.GetOfferId().GetRoutingNumber(), "id": o.GetOfferId().GetId()},
-			"ticker":          o.GetTicker(),
-			"amount":          o.GetAmount(),
-			"strikePrice":     o.GetStrikePrice(),
-			"strikeCurrency":  o.GetStrikeCurrency(),
-			"premium":         o.GetPremium(),
-			"premiumCurrency": o.GetPremiumCurrency(),
-			"settlementDate":  o.GetSettlementDate(),
-			"sellerId":        gin.H{"routingNumber": o.GetSellerId().GetRoutingNumber(), "id": o.GetSellerId().GetId()},
-			"direction":       o.GetDirection(),
-			"createdAt":       o.GetCreatedAt(),
-			"lastModifiedBy":  gin.H{"routingNumber": o.GetLastModifiedBy().GetRoutingNumber(), "id": o.GetLastModifiedBy().GetId()},
-		})
-	}
-	c.JSON(http.StatusOK, gin.H{"offers": out})
 }
 
 // peerForeignBankIdReq is the SI-TX ForeignBankId on the wire.

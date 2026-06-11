@@ -9,6 +9,7 @@ import (
 	"time"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/shopspring/decimal"
@@ -32,6 +33,14 @@ type AccountClient interface {
 	SettleOutgoing(ctx context.Context, in *accountpb.SettleOutgoingRequest, opts ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error)
 	ReleaseOutgoing(ctx context.Context, in *accountpb.ReleaseOutgoingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error)
 	UpdateBalance(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error)
+}
+
+// Converter is the subset of exchangepb.ExchangeServiceClient the executor needs
+// for seller-side FX on cross-currency OTC credits. Decoupled for testability; the
+// real exchangepb.ExchangeServiceClient satisfies it. nil disables FX (the executor
+// then preserves the pre-FX NO_SUCH_ACCOUNT / NO_SUCH_ASSET behaviour).
+type Converter interface {
+	Convert(ctx context.Context, in *exchangepb.ConvertRequest, opts ...grpc.CallOption) (*exchangepb.ConvertResponse, error)
 }
 
 // DebitedItem records one immediate-debit performed on a NEW_TX DEBIT
@@ -153,11 +162,20 @@ type stockDescForCheck struct {
 type PostingExecutor struct {
 	client         AccountClient
 	holdingChecker SellerHoldingChecker // optional; nil disables seller-side option pre-check
+	exchange       Converter            // optional; nil disables seller-side FX on credits
 	ownRouting     int64
 }
 
 func NewPostingExecutor(client AccountClient, ownRouting int64) *PostingExecutor {
 	return &PostingExecutor{client: client, ownRouting: ownRouting}
+}
+
+// SetConverter wires the exchange-service-backed FX client used to convert a
+// cross-currency OTC credit so it lands in the recipient's own account currency
+// instead of voting NO_SUCH_ACCOUNT. Optional — left nil, a credit whose currency
+// the recipient holds no account for fails closed exactly as before.
+func (e *PostingExecutor) SetConverter(c Converter) {
+	e.exchange = c
 }
 
 // SetHoldingChecker wires the stock-service-backed seller pre-check.
@@ -349,9 +367,22 @@ func (e *PostingExecutor) reserveExercisePseudoLeg(ctx context.Context, p contra
 // The reservation key is "<peer>:<idem>" and the idempotency key is
 // "sitx-reserve-<key>" — identical to the prior inline derivation at both sites.
 func (e *PostingExecutor) reserveIncomingCredit(ctx context.Context, accountID, currency, amount, peerBankCode, locallyGeneratedKey string) (key string, noVoteReason string, ok bool) {
+	// Strict resolution first — byte-for-byte the pre-FX behaviour, so a deployment
+	// without exchange-service wired is unchanged. The seller-side FX path only ever
+	// adds NEW success outcomes; it never changes an existing NO-vote reason.
 	accountNumber, resolveErr := e.resolveAccountForPosting(ctx, accountID, currency)
 	if resolveErr != nil {
-		return "", contractsitx.NoVoteReasonNoSuchAccount, false
+		// The recipient holds no account in the leg currency. Pre-FX: NO_SUCH_ACCOUNT.
+		// With a converter wired, land the credit FX-converted in the recipient's
+		// first active account ("hit the exchange first") instead of failing.
+		if e.exchange == nil {
+			return "", contractsitx.NoVoteReasonNoSuchAccount, false
+		}
+		target, terr := e.resolveCreditFallback(ctx, accountID)
+		if terr != nil || target == nil {
+			return "", contractsitx.NoVoteReasonNoSuchAccount, false
+		}
+		return e.fxReserveCredit(ctx, target, currency, amount, peerBankCode, locallyGeneratedKey)
 	}
 	acct, err := e.client.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: accountNumber})
 	if err != nil || acct == nil {
@@ -361,7 +392,12 @@ func (e *PostingExecutor) reserveIncomingCredit(ctx context.Context, accountID, 
 		return "", contractsitx.NoVoteReasonUnacceptableAsset, false
 	}
 	if acct.CurrencyCode != currency {
-		return "", contractsitx.NoVoteReasonNoSuchAsset, false
+		// A concrete (nominated) account in a different currency. Pre-FX:
+		// NO_SUCH_ASSET. With a converter, FX the credit into the nominated account.
+		if e.exchange == nil {
+			return "", contractsitx.NoVoteReasonNoSuchAsset, false
+		}
+		return e.fxReserveCredit(ctx, acct, currency, amount, peerBankCode, locallyGeneratedKey)
 	}
 	key = peerBankCode + ":" + locallyGeneratedKey
 	if _, err := e.client.ReserveIncoming(ctx, &accountpb.ReserveIncomingRequest{
@@ -374,6 +410,82 @@ func (e *PostingExecutor) reserveIncomingCredit(ctx context.Context, accountID, 
 		return "", contractsitx.NoVoteReasonUnacceptableAsset, false
 	}
 	return key, "", true
+}
+
+// fxReserveCredit reserves `amount legCurrency` into target, converting via
+// exchange-service when target's currency differs (so a cross-currency premium
+// /strike lands in the recipient's own account). The reservation key carries the
+// settled amount, so COMMIT/ROLLBACK settle/release it unchanged. Callers reach here
+// only with a converter wired.
+func (e *PostingExecutor) fxReserveCredit(ctx context.Context, target *accountpb.AccountResponse, legCurrency, amount, peerBankCode, locallyGeneratedKey string) (key string, noVoteReason string, ok bool) {
+	if target.GetStatus() != "active" {
+		return "", contractsitx.NoVoteReasonUnacceptableAsset, false
+	}
+	reserveAmount := amount
+	reserveCurrency := target.GetCurrencyCode()
+	if reserveCurrency != legCurrency {
+		conv, cerr := e.exchange.Convert(ctx, &exchangepb.ConvertRequest{
+			FromCurrency: legCurrency, ToCurrency: reserveCurrency, Amount: amount,
+		})
+		if cerr != nil || conv == nil || conv.GetConvertedAmount() == "" {
+			return "", contractsitx.NoVoteReasonNoSuchAsset, false
+		}
+		reserveAmount = conv.GetConvertedAmount()
+	}
+	key = peerBankCode + ":" + locallyGeneratedKey
+	if _, err := e.client.ReserveIncoming(ctx, &accountpb.ReserveIncomingRequest{
+		AccountNumber:  target.GetAccountNumber(),
+		Amount:         reserveAmount,
+		Currency:       reserveCurrency,
+		ReservationKey: key,
+		IdempotencyKey: "sitx-reserve-" + key,
+	}); err != nil {
+		return "", contractsitx.NoVoteReasonUnacceptableAsset, false
+	}
+	return key, "", true
+}
+
+// resolveCreditFallback returns the recipient's first active account in ANY currency,
+// the FX target for a credit whose leg currency the recipient holds no account for.
+// Used only on the FX path (a converter is wired). accountID is a participant id here
+// (the strict resolver passes concrete account numbers through, so resolveErr — the
+// only caller — implies a participant). Returns an error when the recipient has no
+// active account at all (genuine NO_SUCH_ACCOUNT).
+func (e *PostingExecutor) resolveCreditFallback(ctx context.Context, accountID string) (*accountpb.AccountResponse, error) {
+	ownerID, isParticipant := participantOwnerID(accountID)
+	if !isParticipant {
+		acct, err := e.client.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: accountID})
+		if err != nil || acct == nil {
+			return nil, fmt.Errorf("get account %s: %w", accountID, err)
+		}
+		return acct, nil
+	}
+	resp, listErr := e.client.ListAccountsByClient(ctx, &accountpb.ListAccountsByClientRequest{ClientId: ownerID, Page: 1, PageSize: 100})
+	if listErr != nil || resp == nil {
+		return nil, fmt.Errorf("list accounts for %s: %w", accountID, listErr)
+	}
+	for _, a := range resp.GetAccounts() {
+		if a.GetStatus() == "active" {
+			return a, nil // first active account → FX target
+		}
+	}
+	return nil, fmt.Errorf("owner %d (%s) has no active account", ownerID, accountID)
+}
+
+// participantOwnerID maps a SI-TX participant id to its account-service owner id:
+// "bank"/"employee-<n>" → the bank sentinel owner; "client-<n>" → n. ok=false for a
+// raw account number or any other form (the caller then treats it as an account
+// number to look up directly).
+func participantOwnerID(accountID string) (ownerID uint64, ok bool) {
+	if accountID == "bank" || strings.HasPrefix(accountID, "employee-") {
+		return bankOwnerSentinelID, true
+	}
+	if rest, found := strings.CutPrefix(accountID, "client-"); found && rest != "" {
+		if id, err := strconv.ParseUint(rest, 10, 64); err == nil {
+			return id, true
+		}
+	}
+	return 0, false
 }
 
 // Reserve runs the receive-side reserve phase of a NEW_TX. It walks each

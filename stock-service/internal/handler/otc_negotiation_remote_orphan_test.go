@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
-	"time"
 
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
@@ -40,9 +39,6 @@ func TestAcceptRemoteNegotiation_OrphanCancelledParent_Rejected(t *testing.T) {
 		Direction:                   model.OTCDirectionSellInitiated,
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.RequireFromString("150"),
-		Premium:                     decimal.RequireFromString("20"),
-		SettlementDate:              time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Status:                      model.OTCOfferStatusCancelled, // withdrawn
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   9,

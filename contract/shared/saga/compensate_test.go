@@ -2,6 +2,7 @@ package saga
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -72,6 +73,38 @@ func TestCompensate_OnlyCompletedStepsInReverse(t *testing.T) {
 	// Rows transitioned to compensated for the two completed steps.
 	if len(rec.compensated) != 2 {
 		t.Fatalf("marked %d rows compensated, want 2 (%v)", len(rec.compensated), rec.compensated)
+	}
+}
+
+// TestCompensate_StuckBackward_ReturnsErrCompensationStuck proves a Backward that
+// keeps failing now SURFACES as ErrCompensationStuck (not nil). Recovery callers
+// propagate it so the reconciler dead-letters the stuck row for human review
+// instead of force-marking it terminal — which would permanently hide money left
+// in limbo (e.g. a seller-debit compensation failing because the seller already
+// spent the credited funds). A successful rollback still returns nil (covered by
+// the tests above).
+func TestCompensate_StuckBackward_ReturnsErrCompensationStuck(t *testing.T) {
+	rec := &completedSetRecorder{completed: map[StepKind]bool{
+		StepReserveStrike:     true,
+		StepSettleStrikeBuyer: true,
+	}}
+	s := NewSagaWithID("saga-stuck", rec).
+		Add(Step{
+			Name:     StepReserveStrike,
+			Forward:  func(context.Context, *State) error { return nil },
+			Backward: func(context.Context, *State) error { return nil },
+		}).
+		Add(Step{
+			Name:    StepSettleStrikeBuyer,
+			Forward: func(context.Context, *State) error { return nil },
+			Backward: func(context.Context, *State) error {
+				return errors.New("insufficient funds: party already spent the credit")
+			},
+		})
+
+	err := s.Compensate(context.Background(), NewState())
+	if !errors.Is(err, ErrCompensationStuck) {
+		t.Fatalf("Compensate with a failing Backward: got %v, want ErrCompensationStuck", err)
 	}
 }
 

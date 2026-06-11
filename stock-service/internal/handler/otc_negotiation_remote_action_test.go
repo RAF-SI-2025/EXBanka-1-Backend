@@ -285,6 +285,168 @@ func TestAcceptNegotiation_RemoteChain_AcceptsFlipsAndCascades(t *testing.T) {
 	}
 }
 
+// seedRemoteNegSellerLocal inserts a folded-in REMOTE chain for the inverse
+// (Direction 2) topology: the SELLER is local to this bank (routing 111) and the
+// BUYER is on peer 222. This is the shape CreateNegotiation persists for an
+// inbound peer BID on one of our /public-stock listings. LastModifiedBy is the
+// BUYER (so the local seller may accept the buyer's last-proposed terms without
+// tripping the anti-self-accept guard). Returns the surrogate id.
+func seedRemoteNegSellerLocal(t *testing.T, db *gorm.DB, foreignID, buyerID, sellerID string) uint64 {
+	t.Helper()
+	offer := contractsitx.OtcOffer{
+		Ticker:          "AAPL",
+		Amount:          5,
+		PricePerStock:   decimal.RequireFromString("150"),
+		Currency:        "EUR",
+		Premium:         decimal.RequireFromString("8"),
+		PremiumCurrency: "EUR",
+		SettlementDate:  "2026-12-31",
+		// The remote BUYER last proposed — the local seller is the one accepting.
+		LastModifiedBy: contractsitx.ForeignBankId{RoutingNumber: 222, ID: buyerID},
+	}
+	offerJSON, _ := json.Marshal(offer)
+	// peerRouting=222 (buyer's bank == counterparty == RoutingNumber for a
+	// seller-hosted chain), buyer remote (222), seller local (111).
+	row := buildRemoteNeg(
+		222, foreignID, offer, string(offerJSON),
+		222, buyerID, // buyer on the peer
+		111, sellerID, // seller hosted by us
+		nil, nil, "ongoing",
+	)
+	if err := repository.NewOTCNegotiationRepository(db).UpsertRemoteNeg(row); err != nil {
+		t.Fatalf("seed seller-local remote neg %q: %v", foreignID, err)
+	}
+	got, err := repository.NewOTCNegotiationRepository(db).GetRemoteNegByRoutingAndNative(222, foreignID)
+	if err != nil {
+		t.Fatalf("read seeded seller-local remote neg %q: %v", foreignID, err)
+	}
+	return got.ID
+}
+
+// TestAcceptNegotiation_RemoteChain_LocalSeller_ConsumesLocalListing covers the
+// Direction-2 accept (our user is the SELLER; a peer bidder's bid is accepted).
+// After the cross-bank contract forms, the LOCAL /public-stock listing the
+// contract was written against MUST be consumed — otherwise the listing keeps
+// advertising inventory already under contract (the offer-not-lowered bug). The
+// termless /public-stock model carries no offer id on the wire, so the listing is
+// resolved by the seller's (owner, ticker, sell_initiated) unique key.
+func TestAcceptNegotiation_RemoteChain_LocalSeller_ConsumesLocalListing(t *testing.T) {
+	dispatcher := &fakePeerDispatcher{
+		proxyByKey: map[string]proxyResult{
+			"GET /accept": {resp: []byte(`{"transactionId":"tx-d2","status":"accepted"}`), status: 200},
+		},
+	}
+	accounts := &fakeOTCAccountClient{acct: usdAccount(1)}
+	h, db := newRemoteBidFixture(t, dispatcher, accounts)
+
+	// A LOCAL open option listing posted by the seller (client-1) for AAPL.
+	offerRepo := repository.NewOTCOfferRepository(db)
+	sellerID := uint64(1)
+	listing := &model.OTCOffer{
+		InitiatorOwnerType:          model.OwnerClient,
+		InitiatorOwnerID:            &sellerID,
+		Direction:                   model.OTCDirectionSellInitiated,
+		StockID:                     1,
+		Ticker:                      "AAPL",
+		Quantity:                    decimal.NewFromInt(8),
+		Status:                      model.OTCOfferStatusOpen,
+		LastModifiedByPrincipalType: "client",
+		LastModifiedByPrincipalID:   sellerID,
+		InitiatorAccountID:          17,
+		Public:                      true,
+		Local:                       true,
+	}
+	if err := offerRepo.Create(listing); err != nil {
+		t.Fatalf("seed local listing: %v", err)
+	}
+
+	// A remote bid (buyer "2"@222) on our local seller (client-1).
+	nid := seedRemoteNegSellerLocal(t, db, "neg-d2", "2", "client-1")
+
+	// The local seller (client-1) accepts the remote buyer's bid.
+	if _, err := h.AcceptNegotiationChain(context.Background(), &stockpb.OTCAcceptNegotiationRequest{
+		NegotiationId:       nid,
+		CallerOwnerType:     "client",
+		CallerOwnerId:       1,
+		ActingPrincipalType: "client",
+		ActingPrincipalId:   1,
+		AcceptorAccountId:   17,
+	}); err != nil {
+		t.Fatalf("AcceptNegotiationChain: %v", err)
+	}
+
+	// The LOCAL listing must now be consumed (removed from the marketplace).
+	got, gerr := offerRepo.GetByID(listing.ID)
+	if gerr != nil {
+		t.Fatalf("reload listing: %v", gerr)
+	}
+	if got.Status != model.OTCOfferStatusConsumed {
+		t.Errorf("local listing status after cross-bank accept: got %q, want %q",
+			got.Status, model.OTCOfferStatusConsumed)
+	}
+}
+
+// TestAcceptNegotiation_RemoteChain_LocalSeller_RejectsSecondAcceptAfterConsume
+// proves the termless orphan-accept guard: once the first Direction-2 accept
+// consumes the local listing, a second still-"ongoing" peer bid on the SAME
+// listing must be rejected (FailedPrecondition) rather than forming another
+// contract that over-commits the seller's shares.
+func TestAcceptNegotiation_RemoteChain_LocalSeller_RejectsSecondAcceptAfterConsume(t *testing.T) {
+	dispatcher := &fakePeerDispatcher{
+		proxyByKey: map[string]proxyResult{
+			"GET /accept": {resp: []byte(`{"transactionId":"tx-d2","status":"accepted"}`), status: 200},
+		},
+	}
+	accounts := &fakeOTCAccountClient{acct: usdAccount(1)}
+	h, db := newRemoteBidFixture(t, dispatcher, accounts)
+
+	offerRepo := repository.NewOTCOfferRepository(db)
+	sellerID := uint64(1)
+	listing := &model.OTCOffer{
+		InitiatorOwnerType:          model.OwnerClient,
+		InitiatorOwnerID:            &sellerID,
+		Direction:                   model.OTCDirectionSellInitiated,
+		StockID:                     1,
+		Ticker:                      "AAPL",
+		Quantity:                    decimal.NewFromInt(8),
+		Status:                      model.OTCOfferStatusOpen,
+		LastModifiedByPrincipalType: "client",
+		LastModifiedByPrincipalID:   sellerID,
+		InitiatorAccountID:          17,
+		Public:                      true,
+		Local:                       true,
+	}
+	if err := offerRepo.Create(listing); err != nil {
+		t.Fatalf("seed local listing: %v", err)
+	}
+
+	// Two distinct peer bids (buyers "2" and "3") on the same local listing.
+	nid1 := seedRemoteNegSellerLocal(t, db, "neg-d2a", "2", "client-1")
+	nid2 := seedRemoteNegSellerLocal(t, db, "neg-d2b", "3", "client-1")
+
+	accept := func(nid uint64) error {
+		_, err := h.AcceptNegotiationChain(context.Background(), &stockpb.OTCAcceptNegotiationRequest{
+			NegotiationId:       nid,
+			CallerOwnerType:     "client",
+			CallerOwnerId:       1,
+			ActingPrincipalType: "client",
+			ActingPrincipalId:   1,
+			AcceptorAccountId:   17,
+		})
+		return err
+	}
+
+	// First accept consumes the listing.
+	if err := accept(nid1); err != nil {
+		t.Fatalf("first accept: %v", err)
+	}
+	// Second accept on the now-consumed listing must be rejected.
+	err := accept(nid2)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("second accept on consumed listing: got code %v, want FailedPrecondition", status.Code(err))
+	}
+}
+
 // TestAcceptNegotiation_RemoteChain_CrossBankTxId asserts the peer's
 // transactionId is parsed out of the /accept body and surfaced on the response
 // (review fix #1). Uses a distinct id from the cascade test to keep them
@@ -370,9 +532,6 @@ func TestAcceptNegotiation_LocalChain_NoCrossBankTxId(t *testing.T) {
 		StockID:                     1,
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromFloat(150.0),
-		Premium:                     decimal.NewFromFloat(5.0),
-		SettlementDate:              time.Now().UTC().AddDate(0, 1, 0),
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   posterID,

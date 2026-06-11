@@ -315,19 +315,6 @@ func (r *HoldingRepository) FindOldestLongOptionHolding(ownerType model.OwnerTyp
 	return &h, nil
 }
 
-// ListPublic returns all holdings flagged for OTC public trading
-// (public_quantity > 0). Used by PeerOTCGRPCHandler.GetPublicStocks
-// to satisfy SI-TX `GET /public-stock` from peer banks. Unlike
-// ListPublicOffers, this returns *all* matching rows without pagination
-// or ticker filtering — the SI-TX response shape is a flat list.
-func (r *HoldingRepository) ListPublic() ([]model.Holding, error) {
-	var rows []model.Holding
-	if err := r.db.Where("public_quantity > 0 AND security_type = 'stock'").Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
 // ListBySecurityID returns all holdings with quantity > 0 for a given security.
 // Used by DividendService.Payout to fan out dividend credits to every holder.
 func (r *HoldingRepository) ListBySecurityID(securityID uint64) ([]model.Holding, error) {
@@ -336,29 +323,4 @@ func (r *HoldingRepository) ListBySecurityID(securityID uint64) ([]model.Holding
 		return nil, err
 	}
 	return rows, nil
-}
-
-// ListPublicOffers returns holdings with public_quantity > 0 (for OTC).
-func (r *HoldingRepository) ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error) {
-	var holdings []model.Holding
-	var total int64
-
-	q := r.db.Model(&model.Holding{}).Where("public_quantity > 0 AND security_type = 'stock'")
-	if filter.SecurityType != "" {
-		q = q.Where("security_type = ?", filter.SecurityType)
-	}
-	if filter.Ticker != "" {
-		q = q.Where("ticker ILIKE ?", "%"+filter.Ticker+"%")
-	}
-
-	if err := q.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	q = applyPagination(q, filter.Page, filter.PageSize)
-
-	if err := q.Order("updated_at DESC").Find(&holdings).Error; err != nil {
-		return nil, 0, err
-	}
-	return holdings, total, nil
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -63,9 +64,6 @@ func seedListing(t *testing.T, env *negTestEnv, posterID uint64, direction, stat
 		StockID:                     1,
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromFloat(150.0),
-		Premium:                     decimal.NewFromFloat(5.0),
-		SettlementDate:              time.Now().UTC().AddDate(0, 1, 0),
 		Status:                      status,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   posterID,
@@ -233,6 +231,57 @@ func TestAcceptNegotiation_PosterAcceptsBidderTerms(t *testing.T) {
 	}
 }
 
+// failingFormer always fails contract formation — exercises the
+// restore-on-formation-failure path.
+type failingFormer struct{}
+
+func (failingFormer) MintContractFromAcceptedNegotiation(_ context.Context, _ MintFromNegotiationInput) (*model.OptionContract, error) {
+	return nil, fmt.Errorf("insufficient available balance")
+}
+
+// TestAcceptNegotiation_FormationFailure_RestoresListing: when the
+// contract-formation saga returns an error (no contract forms), the listing the
+// accept consumed + the siblings it cascade-cancelled must be RESTORED — the
+// seller must NOT lose their listing for a deal that never happened. Regression
+// for the user-reported 2026-06-11 bug ("saga faulted, listing is deleted, no
+// contract"). The winning chain is marked failed.
+func TestAcceptNegotiation_FormationFailure_RestoresListing(t *testing.T) {
+	env := newNegTestEnv(t)
+	env.svc = env.svc.WithContractFormer(failingFormer{})
+	listing := seedListing(t, env, 1, model.OTCDirectionSellInitiated, model.OTCOfferStatusOpen)
+	priorStatus := listing.Status
+	neg, _ := env.svc.OpenNegotiation(context.Background(), sampleOpenInput(listing.ID, 7))
+	sib, _ := env.svc.OpenNegotiation(context.Background(), sampleOpenInput(listing.ID, 8))
+	sibPrior := sib.Status
+
+	_, err := env.svc.AcceptNegotiation(context.Background(), AcceptNegotiationInput{
+		NegotiationID:       neg.ID,
+		CallerOwnerType:     model.OwnerClient,
+		CallerOwnerID:       u64p(1),
+		ActingPrincipalType: "client",
+		ActingPrincipalID:   1,
+		AcceptorAccountID:   17, // non-zero → reaches the mint saga (which fails)
+	})
+	if err == nil {
+		t.Fatal("expected accept to fail when contract formation fails")
+	}
+
+	gotListing, _ := env.offerRepo.GetByID(listing.ID)
+	if gotListing.Status != priorStatus {
+		t.Errorf("listing status after formation failure = %q, want RESTORED to %q (not consumed)", gotListing.Status, priorStatus)
+	}
+	var gotNeg model.OTCNegotiation
+	_ = env.db.First(&gotNeg, neg.ID).Error
+	if gotNeg.Status != "failed" {
+		t.Errorf("winning neg status = %q, want failed", gotNeg.Status)
+	}
+	var gotSib model.OTCNegotiation
+	_ = env.db.First(&gotSib, sib.ID).Error
+	if gotSib.Status != sibPrior {
+		t.Errorf("sibling status after formation failure = %q, want RESTORED to %q (not cancelled)", gotSib.Status, sibPrior)
+	}
+}
+
 // TestAcceptNegotiation_BankAcceptsClientBid guards the regression where a
 // BANK poster (sell_initiated) accepting a CLIENT bidder's chain failed with
 // "acting_employee_id may only be set on a bank-owned resource". The accept
@@ -252,9 +301,6 @@ func TestAcceptNegotiation_BankAcceptsClientBid(t *testing.T) {
 		StockID:                     1,
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromFloat(150.0),
-		Premium:                     decimal.NewFromFloat(5.0),
-		SettlementDate:              time.Now().UTC().AddDate(0, 1, 0),
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "employee",
 		LastModifiedByPrincipalID:   42,

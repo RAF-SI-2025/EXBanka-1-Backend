@@ -442,6 +442,11 @@ func (s *OTCNegotiationService) CounterNegotiation(ctx context.Context, in Count
 // follow-up transaction by the handler, with compensation on failure.
 func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in AcceptNegotiationInput) (*AcceptNegotiationResult, error) {
 	result := &AcceptNegotiationResult{}
+	// Captured inside the state TX so the contract-formation-failure path can
+	// RESTORE the listing + siblings it consumed/cancelled (the contract never
+	// formed) instead of leaving the seller's listing permanently consumed.
+	var priorParentStatus string
+	siblingPriorStatus := map[uint64]string{}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		neg, err := s.negRepo.LockByID(tx, in.NegotiationID)
 		if err != nil {
@@ -507,6 +512,7 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 			return err
 		}
 
+		priorParentStatus = parent.Status
 		parent.Status = model.OTCOfferStatusConsumed
 		if err := s.offerRepo.SaveTx(tx, parent); err != nil {
 			return err
@@ -523,6 +529,7 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 			if sib.ID == neg.ID {
 				continue
 			}
+			siblingPriorStatus[sib.ID] = sib.Status
 			sib.Status = model.OTCNegotiationStatusCancelled
 			sib.LastActionByPrincipalType = in.ActingPrincipalType
 			sib.LastActionByPrincipalID = in.ActingPrincipalID
@@ -558,9 +565,9 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 		return result, nil
 	}
 	if in.AcceptorAccountID == 0 {
-		// Mark failed since formation cannot run without an acceptor
-		// account binding.
-		_ = s.markNegotiationFailed(ctx, result.WinningNegotiation.ID)
+		// Formation cannot run without an acceptor account binding. Restore the
+		// listing + siblings consumed in the state TX (no contract formed).
+		s.restoreListingOnFormationFailure(ctx, result.WinningNegotiation.ID, result.ParentOffer.ID, priorParentStatus, siblingPriorStatus)
 		return nil, ErrOTCAcceptorAccountRequired
 	}
 	contract, mintErr := s.former.MintContractFromAcceptedNegotiation(ctx, MintFromNegotiationInput{
@@ -574,11 +581,13 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 		OnBehalfOfFundID:   in.OnBehalfOfFundID,
 	})
 	if mintErr != nil {
-		// Negotiation state already flipped to accepted in the TX
-		// above. Flip to "failed" so /me/otc/options/negotiations
-		// reflects reality. Best-effort — the parent stays consumed
-		// regardless (siblings were correctly cancelled).
-		_ = s.markNegotiationFailed(ctx, result.WinningNegotiation.ID)
+		// The contract never formed (the mint saga already compensated its own
+		// reservations — seller shares + buyer premium). RESTORE the listing +
+		// siblings we consumed/cancelled in the state TX so the seller does NOT
+		// lose their listing for a deal that didn't happen, and mark the winning
+		// chain "failed". Previously the parent stayed consumed → the listing
+		// vanished with no contract (user-reported 2026-06-11).
+		s.restoreListingOnFormationFailure(ctx, result.WinningNegotiation.ID, result.ParentOffer.ID, priorParentStatus, siblingPriorStatus)
 		return nil, fmt.Errorf("mint contract: %w", mintErr)
 	}
 	result.Contract = contract
@@ -664,6 +673,51 @@ func (s *OTCNegotiationService) markNegotiationFailed(ctx context.Context, negID
 		neg.LastActionAt = time.Now().UTC()
 		return s.negRepo.SaveTx(tx, neg)
 	})
+}
+
+// restoreListingOnFormationFailure undoes the listing-consume + sibling-cancel
+// that the accept state TX committed, when contract formation did NOT produce a
+// contract. In one TX it re-opens the parent listing (to its exact pre-accept
+// status) and the cascade-cancelled siblings (to their captured prior statuses),
+// then marks the winning chain "failed". Without this, a formation failure left
+// the listing CONSUMED with no contract — the seller lost their listing for a
+// deal that never happened (user-reported 2026-06-11). Best-effort: on any error
+// it falls back to just marking the chain failed (the prior behaviour), logging
+// so the stuck listing is diagnosable. The mint saga independently compensated
+// its own money/share reservations, so re-opening the listing is the only undo
+// needed here.
+func (s *OTCNegotiationService) restoreListingOnFormationFailure(ctx context.Context, negID, parentID uint64, priorParentStatus string, siblingPriorStatus map[uint64]string) {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		parent, err := s.offerRepo.LockByIDTx(tx, parentID)
+		if err != nil {
+			return err
+		}
+		parent.Status = priorParentStatus
+		if err := s.offerRepo.SaveTx(tx, parent); err != nil {
+			return err
+		}
+		for sibID, prior := range siblingPriorStatus {
+			sib, err := s.negRepo.LockByID(tx, sibID)
+			if err != nil {
+				return err
+			}
+			sib.Status = prior
+			if err := s.negRepo.SaveTx(tx, sib); err != nil {
+				return err
+			}
+		}
+		neg, err := s.negRepo.LockByID(tx, negID)
+		if err != nil {
+			return err
+		}
+		neg.Status = "failed"
+		neg.LastActionAt = time.Now().UTC()
+		return s.negRepo.SaveTx(tx, neg)
+	})
+	if err != nil {
+		log.Printf("WARN: restore listing after formation failure (neg %d, parent %d) failed: %v — listing stays consumed, marking chain failed", negID, parentID, err)
+		_ = s.markNegotiationFailed(ctx, negID)
+	}
 }
 
 // RejectNegotiation closes a single chain without forming a contract.
@@ -901,6 +955,37 @@ func (s *OTCNegotiationService) LocalParentIsOpen(offerID uint64) bool {
 		return false
 	}
 	return parent.IsOpenListing()
+}
+
+// ConsumeLocalSellOfferForSeller marks this bank's open LOCAL option listing for
+// (ownerType, ownerID, ticker, sell_initiated) as consumed. The cross-bank
+// accept path (Direction 2: we host the seller) calls this once an option
+// contract forms against the listing so it stops advertising inventory already
+// under contract. Because the termless /public-stock model carries no offer id
+// on the wire, the listing is resolved by its (owner, ticker, direction) unique
+// key — the partial unique index guarantees at most one open row. Idempotent: a
+// missing/already-consumed listing is a no-op (no error).
+func (s *OTCNegotiationService) ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) error {
+	return s.offerRepo.ConsumeOpenByOwnerTickerDirection(ownerType, ownerID, ticker, model.OTCDirectionSellInitiated)
+}
+
+// LocalSellOfferOpenForSeller reports whether this bank has an OPEN local option
+// listing for (ownerType, ownerID, ticker, sell_initiated). The cross-bank accept
+// path (Direction 2) calls it BEFORE forming a contract to reject an accept
+// against a listing the seller already CONSUMED (a prior accept) or CANCELLED —
+// the termless /public-stock model carries no offer id on the wire, so the
+// listing is resolved by its (owner, ticker, direction) unique key rather than by
+// parent_offer_id. This is the key-based analogue of LocalParentIsOpen and the
+// precondition that keeps one listing backing exactly one accepted contract
+// (without it, every still-"ongoing" sibling bid could form another contract and
+// over-commit the seller's shares). A DB error returns false (fail closed — do
+// not form a contract on an unverifiable listing), mirroring LocalParentIsOpen.
+func (s *OTCNegotiationService) LocalSellOfferOpenForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) bool {
+	n, err := s.offerRepo.CountOpenByOwnerTickerDirection(ownerType, ownerID, ticker, model.OTCDirectionSellInitiated)
+	if err != nil {
+		return false
+	}
+	return n > 0
 }
 
 // ListMyNegotiations returns negotiation chains where the caller is the

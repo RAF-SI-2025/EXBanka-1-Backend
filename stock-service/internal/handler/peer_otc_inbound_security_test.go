@@ -3,6 +3,7 @@ package handler_test
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	contractsitx "github.com/exbanka/contract/sitx"
@@ -21,11 +22,32 @@ import (
 type fakeParentChecker struct {
 	open  map[uint64]bool
 	calls []uint64
+	// Termless-key surface: sellerOpen reports whether the seller's (owner,ticker)
+	// listing is open; consumed records the keys ConsumeLocalSellOfferForSeller saw.
+	sellerOpen    bool
+	sellerOpenSet bool
+	consumed      []string
 }
 
 func (f *fakeParentChecker) LocalParentIsOpen(offerID uint64) bool {
 	f.calls = append(f.calls, offerID)
 	return f.open[offerID]
+}
+
+func (f *fakeParentChecker) LocalSellOfferOpenForSeller(_ model.OwnerType, _ *uint64, _ string) bool {
+	if f.sellerOpenSet {
+		return f.sellerOpen
+	}
+	return true // default: open, so unrelated inbound-accept tests are unaffected
+}
+
+func (f *fakeParentChecker) ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) error {
+	id := uint64(0)
+	if ownerID != nil {
+		id = *ownerID
+	}
+	f.consumed = append(f.consumed, string(ownerType)+":"+strconv.FormatUint(id, 10)+":"+ticker)
+	return nil
 }
 
 // peerLastModifiedOffer builds an inbound PeerOtcOffer carrying the supplied
@@ -419,6 +441,90 @@ func TestInbound_AcceptNegotiation_OpenParent_Succeeds(t *testing.T) {
 	}
 	if peerTx.gotReq == nil {
 		t.Error("open-parent accept must dispatch settlement")
+	}
+}
+
+// TestInbound_AcceptNegotiation_Termless_ConsumedListing_Rejected: a termless bid
+// (no numeric parent id — the /public-stock wire carries none) on a listing the
+// seller already consumed/cancelled must be rejected by the (owner,ticker,sell)
+// key guard, with NO settlement dispatched.
+func TestInbound_AcceptNegotiation_Termless_ConsumedListing_Rejected(t *testing.T) {
+	h, db, peerTx, _ := newPeerOtcHandler(t) // ownRouting 111
+	parentChecker := &fakeParentChecker{sellerOpenSet: true, sellerOpen: false}
+	h = h.WithParentChecker(parentChecker)
+
+	// WE host the seller (client-9@111); buyer on peer 222; lastModifiedBy = local
+	// side so the self-accept guard passes. NO parent link (termless): the numeric
+	// orphan guard is skipped, so only the (owner,ticker,sell) key guard can block.
+	offer := contractsitx.OtcOffer{
+		Ticker: "AAPL", Amount: 10,
+		PricePerStock:   decimal.RequireFromString("150"),
+		Currency:        "USD",
+		Premium:         decimal.RequireFromString("20"),
+		PremiumCurrency: "USD",
+		SettlementDate:  "2026-12-31",
+		LastModifiedBy:  contractsitx.ForeignBankId{RoutingNumber: 111, ID: "client-9"},
+	}
+	offerJSON, _ := json.Marshal(offer)
+	repo := repository.NewOTCNegotiationRepository(db)
+	row := buildRemoteNegForTest(222, "neg-termless-consumed", offer, string(offerJSON),
+		222, "client-3", 111, "client-9")
+	if err := repo.UpsertRemoteNeg(row); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	_, err := h.AcceptNegotiation(context.Background(), &stockpb.AcceptNegotiationRequest{
+		PeerBankCode:  "222",
+		NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "neg-termless-consumed"},
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition on a consumed termless listing, got %v", err)
+	}
+	if peerTx.gotReq != nil {
+		t.Errorf("must NOT dispatch settlement on a consumed listing; got %+v", peerTx.gotReq)
+	}
+	after, _ := repo.GetRemoteNegByRoutingAndNative(222, "neg-termless-consumed")
+	if after.Status != "ongoing" {
+		t.Errorf("status after rejected accept: got %q, want ongoing", after.Status)
+	}
+}
+
+// TestInbound_AcceptNegotiation_Termless_OpenListing_ConsumesAndSettles: an inbound
+// accept on an OPEN termless listing dispatches settlement AND consumes the local
+// listing (one listing → one accepted contract).
+func TestInbound_AcceptNegotiation_Termless_OpenListing_ConsumesAndSettles(t *testing.T) {
+	h, db, peerTx, _ := newPeerOtcHandler(t) // ownRouting 111
+	parentChecker := &fakeParentChecker{sellerOpenSet: true, sellerOpen: true}
+	h = h.WithParentChecker(parentChecker)
+
+	offer := contractsitx.OtcOffer{
+		Ticker: "AAPL", Amount: 10,
+		PricePerStock:   decimal.RequireFromString("150"),
+		Currency:        "USD",
+		Premium:         decimal.RequireFromString("20"),
+		PremiumCurrency: "USD",
+		SettlementDate:  "2026-12-31",
+		LastModifiedBy:  contractsitx.ForeignBankId{RoutingNumber: 111, ID: "client-9"},
+	}
+	offerJSON, _ := json.Marshal(offer)
+	repo := repository.NewOTCNegotiationRepository(db)
+	row := buildRemoteNegForTest(222, "neg-termless-open", offer, string(offerJSON),
+		222, "client-3", 111, "client-9")
+	if err := repo.UpsertRemoteNeg(row); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if _, err := h.AcceptNegotiation(context.Background(), &stockpb.AcceptNegotiationRequest{
+		PeerBankCode:  "222",
+		NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "neg-termless-open"},
+	}); err != nil {
+		t.Fatalf("open-listing termless accept: %v", err)
+	}
+	if peerTx.gotReq == nil {
+		t.Error("open-listing accept must dispatch settlement")
+	}
+	if len(parentChecker.consumed) != 1 || parentChecker.consumed[0] != "client:9:AAPL" {
+		t.Errorf("expected the local listing consumed for client:9:AAPL, got %v", parentChecker.consumed)
 	}
 }
 

@@ -41,7 +41,7 @@ func newOTCExpiryDB(t *testing.T) *gorm.DB {
 }
 
 func TestOTCExpiryCron_NewDefaultsBatchAndCron(t *testing.T) {
-	cr := NewOTCExpiryCron(nil, nil, nil, nil, 0, "", nilRegistry())
+	cr := NewOTCExpiryCron(nil, nil, nil, 0, "", nilRegistry())
 	if cr.batchSize != 500 {
 		t.Errorf("batchSize=%d", cr.batchSize)
 	}
@@ -50,45 +50,18 @@ func TestOTCExpiryCron_NewDefaultsBatchAndCron(t *testing.T) {
 	}
 }
 
-// expireOffer marks an offer expired and tries to publish (no producer wired).
-func TestOTCExpiryCron_ExpireOffer(t *testing.T) {
-	db := newOTCExpiryDB(t)
-	offerRepo := repository.NewOTCOfferRepository(db)
-	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00", nilRegistry())
-
-	uid := uint64(7)
-	o := &model.OTCOffer{
-		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid,
-		Direction: model.OTCDirectionSellInitiated, StockID: 42,
-		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(100),
-		Premium: decimal.NewFromInt(20), Status: model.OTCOfferStatusPending,
-		LastModifiedByPrincipalType: "client", LastModifiedByPrincipalID: 7,
-		SettlementDate: time.Now().Add(-24 * time.Hour),
-	}
-	if err := offerRepo.Create(o); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := cr.expireOffer(context.Background(), o); err != nil {
-		t.Fatalf("expire: %v", err)
-	}
-	got, _ := offerRepo.GetByID(o.ID)
-	if got.Status != model.OTCOfferStatusExpired {
-		t.Errorf("status=%s", got.Status)
-	}
-}
-
 // expireContract marks the contract expired without a holdingRes wired.
 func TestOTCExpiryCron_ExpireContract_NoHoldingRes(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00", nilRegistry())
+	cr := NewOTCExpiryCron(contractRepo, nil, nil, 10, "02:00", nilRegistry())
 
 	uid := uint64(7)
 	c := &model.OptionContract{
 		StockID: 42, Quantity: decimal.NewFromInt(10),
 		StrikePrice: decimal.NewFromInt(150), PremiumPaid: decimal.NewFromInt(20),
 		PremiumCurrency: "USD", StrikeCurrency: "USD",
-		SettlementDate: time.Now().Add(-24 * time.Hour),
+		SettlementDate: time.Now().UTC().AddDate(0, 0, -2),
 		Status:         model.OptionContractStatusActive,
 		BuyerOwnerType: model.OwnerClient, BuyerOwnerID: &uid,
 		SellerOwnerType: model.OwnerBank, SellerOwnerID: nil,
@@ -109,6 +82,105 @@ func TestOTCExpiryCron_ExpireContract_NoHoldingRes(t *testing.T) {
 	}
 }
 
+// TestOTCExpiryCron_RunOnce_DoesNotExpireOffers proves offers are termless
+// "inventory": an old-style offer with a PAST settlement_date is NOT expired by
+// the cron. Offers now end only via cancel/accept — the offer-expiry pass was
+// removed. (settlement_date still exists on the model at this point.)
+func TestOTCExpiryCron_RunOnce_DoesNotExpireOffers(t *testing.T) {
+	db := newOTCExpiryDB(t)
+	offerRepo := repository.NewOTCOfferRepository(db)
+	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), nil, nil, 10, "02:00", nilRegistry())
+
+	uid := uint64(7)
+	o := &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid,
+		Direction: model.OTCDirectionSellInitiated, StockID: 42,
+		Quantity: decimal.NewFromInt(10), Status: model.OTCOfferStatusPending,
+		LastModifiedByPrincipalType: "client", LastModifiedByPrincipalID: 7,
+	}
+	if err := offerRepo.Create(o); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := cr.RunOnce(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	got, _ := offerRepo.GetByID(o.ID)
+	if got.Status != model.OTCOfferStatusPending {
+		t.Fatalf("offer must NOT auto-expire (status=%s, want %s)", got.Status, model.OTCOfferStatusPending)
+	}
+}
+
+// TestOTCExpiryCron_RunOnce_ExpiresContractReleasesReservation proves contract
+// expiry is fully intact through RunOnce: an active contract past its settlement
+// date is flipped to expired AND the seller's underlying-share reservation is
+// released. This is the behavior that MUST survive the offer-expiry removal.
+func TestOTCExpiryCron_RunOnce_ExpiresContractReleasesReservation(t *testing.T) {
+	db := newOTCExpiryDB(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db handle: %v", err)
+	}
+	// HoldingReservationService uses FOR UPDATE transactions; pin to a single
+	// connection so the sqlite :memory: DB is shared across them.
+	sqlDB.SetMaxOpenConns(1)
+
+	contractRepo := repository.NewOptionContractRepository(db)
+	holdingRepo := repository.NewHoldingRepository(db)
+	resRepo := repository.NewHoldingReservationRepository(db)
+	holdingRes := NewHoldingReservationService(db, holdingRepo, resRepo)
+
+	sellerUID := uint64(1)
+	h := &model.Holding{
+		OwnerType: model.OwnerClient, OwnerID: &sellerUID,
+		UserFirstName: "Sell", UserLastName: "Er",
+		SecurityType: "stock", SecurityID: 42, ListingID: 100,
+		Ticker: "AAPL", Name: "Apple", Quantity: 100,
+		AveragePrice: decimal.NewFromInt(50), ReservedQuantity: 0,
+		AccountID: 1, Version: 1,
+	}
+	if err := db.Create(h).Error; err != nil {
+		t.Fatalf("seed holding: %v", err)
+	}
+
+	buyerUID := uint64(7)
+	c := &model.OptionContract{
+		StockID: 42, Ticker: "AAPL", Quantity: decimal.NewFromInt(10),
+		StrikePrice: decimal.NewFromInt(150), PremiumPaid: decimal.NewFromInt(20),
+		PremiumCurrency: "USD", StrikeCurrency: "USD",
+		SettlementDate: time.Now().UTC().AddDate(0, 0, -2),
+		Status:         model.OptionContractStatusActive,
+		BuyerOwnerType: model.OwnerClient, BuyerOwnerID: &buyerUID,
+		SellerOwnerType: model.OwnerClient, SellerOwnerID: &sellerUID,
+		PremiumPaidAt: time.Now(),
+	}
+	if err := contractRepo.Create(c); err != nil {
+		t.Fatalf("seed contract: %v", err)
+	}
+
+	// Seller reserves the underlying shares for the contract.
+	if _, err := holdingRes.ReserveForOTCContract(context.Background(),
+		model.OwnerClient, &sellerUID, "stock", 42, c.ID, 10); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+
+	cr := NewOTCExpiryCron(contractRepo, holdingRes, nil, 10, "02:00", nilRegistry())
+	if err := cr.RunOnce(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	got, _ := contractRepo.GetByID(c.ID)
+	if got.Status != model.OptionContractStatusExpired {
+		t.Fatalf("contract must expire (status=%s)", got.Status)
+	}
+	if got.ExpiredAt == nil {
+		t.Error("expected expired_at to be set")
+	}
+	gotH, _ := holdingRepo.GetByID(h.ID)
+	if gotH.ReservedQuantity != 0 {
+		t.Fatalf("seller reservation must be released (reserved=%d)", gotH.ReservedQuantity)
+	}
+}
+
 // TestOTCExpiryCron_BooksBuyerPremiumLoss verifies the resolution-month model:
 // when an OTC contract expires unexercised, the buyer's lost premium is booked
 // as a capital loss (-premium) in the expiry month, idempotently (a re-run does
@@ -118,7 +190,7 @@ func TestOTCExpiryCron_BooksBuyerPremiumLoss(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
 	cgRepo := repository.NewCapitalGainRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00", nilRegistry()).
+	cr := NewOTCExpiryCron(contractRepo, nil, nil, 10, "02:00", nilRegistry()).
 		WithCapitalGains(cgRepo)
 
 	uid := uint64(7)
@@ -126,7 +198,7 @@ func TestOTCExpiryCron_BooksBuyerPremiumLoss(t *testing.T) {
 		StockID: 42, Ticker: "AAPL", Quantity: decimal.NewFromInt(10),
 		StrikePrice: decimal.NewFromInt(150), PremiumPaid: decimal.NewFromInt(1150),
 		PremiumCurrency: "USD", StrikeCurrency: "USD",
-		SettlementDate: time.Now().Add(-24 * time.Hour),
+		SettlementDate: time.Now().UTC().AddDate(0, 0, -2),
 		Status:         model.OptionContractStatusActive,
 		BuyerOwnerType: model.OwnerClient, BuyerOwnerID: &uid,
 		SellerOwnerType: model.OwnerBank, SellerOwnerID: nil,
@@ -163,7 +235,7 @@ func TestOTCExpiryCron_BooksBuyerPremiumLoss(t *testing.T) {
 func TestOTCExpiryCron_WarnsExpiringSoon(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 100, "02:00", nilRegistry()).
+	cr := NewOTCExpiryCron(contractRepo, nil, nil, 100, "02:00", nilRegistry()).
 		WithExpiryWarning(3)
 	notifier := &recordingOTCNotifier{}
 	cr.notifier = notifier
@@ -203,90 +275,12 @@ func TestOTCExpiryCron_WarnsExpiringSoon(t *testing.T) {
 	}
 }
 
-// expireOffer emits OTC_OFFER_EXPIRED to the initiator (and counterparty when
-// it is a client party).
-func TestOTCExpiryCron_ExpireOffer_EmitsNotifications(t *testing.T) {
-	db := newOTCExpiryDB(t)
-	offerRepo := repository.NewOTCOfferRepository(db)
-	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00", nilRegistry())
-	notifier := &recordingOTCNotifier{}
-	cr.notifier = notifier
-
-	initiatorUID := uint64(7)
-	cpType := model.OwnerClient
-	cpUID := uint64(9)
-	o := &model.OTCOffer{
-		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &initiatorUID,
-		CounterpartyOwnerType: &cpType, CounterpartyOwnerID: &cpUID,
-		Direction: model.OTCDirectionSellInitiated, StockID: 42, Ticker: "AAPL",
-		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(100),
-		Premium: decimal.NewFromInt(20), Status: model.OTCOfferStatusPending,
-		LastModifiedByPrincipalType: "client", LastModifiedByPrincipalID: 7,
-		SettlementDate: time.Now().Add(-24 * time.Hour),
-	}
-	if err := offerRepo.Create(o); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := cr.expireOffer(context.Background(), o); err != nil {
-		t.Fatalf("expire: %v", err)
-	}
-	if got := countNotifs(notifier.notifs, "OTC_OFFER_EXPIRED"); got != 2 {
-		t.Fatalf("OTC_OFFER_EXPIRED count = %d, want 2 (initiator + counterparty)", got)
-	}
-	sawInitiator, sawCounterparty := false, false
-	for _, m := range notifier.notifs {
-		if m.RefType != "otc_offer" || m.RefID != o.ID {
-			t.Errorf("notif ref = %s/%d, want otc_offer/%d", m.RefType, m.RefID, o.ID)
-		}
-		if m.Data["ticker"] != "AAPL" {
-			t.Errorf("notif ticker = %q, want AAPL", m.Data["ticker"])
-		}
-		if m.UserID == initiatorUID {
-			sawInitiator = true
-		}
-		if m.UserID == cpUID {
-			sawCounterparty = true
-		}
-	}
-	if !sawInitiator || !sawCounterparty {
-		t.Errorf("expected notifications to initiator (%d) and counterparty (%d); sawInitiator=%v sawCounterparty=%v", initiatorUID, cpUID, sawInitiator, sawCounterparty)
-	}
-}
-
-// expireOffer with no counterparty (open offer) notifies only the initiator.
-func TestOTCExpiryCron_ExpireOffer_NoCounterparty_NotifiesInitiatorOnly(t *testing.T) {
-	db := newOTCExpiryDB(t)
-	offerRepo := repository.NewOTCOfferRepository(db)
-	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00", nilRegistry())
-	notifier := &recordingOTCNotifier{}
-	cr.notifier = notifier
-
-	initiatorUID := uint64(7)
-	o := &model.OTCOffer{
-		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &initiatorUID,
-		Direction: model.OTCDirectionSellInitiated, StockID: 42, Ticker: "AAPL",
-		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(100),
-		Premium: decimal.NewFromInt(20), Status: model.OTCOfferStatusPending,
-		LastModifiedByPrincipalType: "client", LastModifiedByPrincipalID: 7,
-		SettlementDate: time.Now().Add(-24 * time.Hour),
-	}
-	if err := offerRepo.Create(o); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := cr.expireOffer(context.Background(), o); err != nil {
-		t.Fatalf("expire: %v", err)
-	}
-	if got := countNotifs(notifier.notifs, "OTC_OFFER_EXPIRED"); got != 1 {
-		t.Fatalf("OTC_OFFER_EXPIRED count = %d, want 1 (initiator only)", got)
-	}
-}
-
 // expireContract emits OTC_CONTRACT_EXPIRED to both client parties; a bank
 // party is skipped.
 func TestOTCExpiryCron_ExpireContract_EmitsNotifications(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00", nilRegistry())
+	cr := NewOTCExpiryCron(contractRepo, nil, nil, 10, "02:00", nilRegistry())
 	notifier := &recordingOTCNotifier{}
 	cr.notifier = notifier
 
@@ -296,7 +290,7 @@ func TestOTCExpiryCron_ExpireContract_EmitsNotifications(t *testing.T) {
 		StockID: 42, Ticker: "AAPL", Quantity: decimal.NewFromInt(10),
 		StrikePrice: decimal.NewFromInt(150), PremiumPaid: decimal.NewFromInt(20),
 		PremiumCurrency: "USD", StrikeCurrency: "USD",
-		SettlementDate: time.Now().Add(-24 * time.Hour),
+		SettlementDate: time.Now().UTC().AddDate(0, 0, -2),
 		Status:         model.OptionContractStatusActive,
 		BuyerOwnerType: model.OwnerClient, BuyerOwnerID: &buyerUID,
 		SellerOwnerType: model.OwnerClient, SellerOwnerID: &sellerUID,
@@ -335,7 +329,7 @@ func TestOTCExpiryCron_ExpireContract_EmitsNotifications(t *testing.T) {
 func TestOTCExpiryCron_ExpireContract_BankParty_Skipped(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	contractRepo := repository.NewOptionContractRepository(db)
-	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00", nilRegistry())
+	cr := NewOTCExpiryCron(contractRepo, nil, nil, 10, "02:00", nilRegistry())
 	notifier := &recordingOTCNotifier{}
 	cr.notifier = notifier
 
@@ -344,7 +338,7 @@ func TestOTCExpiryCron_ExpireContract_BankParty_Skipped(t *testing.T) {
 		StockID: 42, Ticker: "AAPL", Quantity: decimal.NewFromInt(10),
 		StrikePrice: decimal.NewFromInt(150), PremiumPaid: decimal.NewFromInt(20),
 		PremiumCurrency: "USD", StrikeCurrency: "USD",
-		SettlementDate: time.Now().Add(-24 * time.Hour),
+		SettlementDate: time.Now().UTC().AddDate(0, 0, -2),
 		Status:         model.OptionContractStatusActive,
 		BuyerOwnerType: model.OwnerClient, BuyerOwnerID: &buyerUID,
 		SellerOwnerType: model.OwnerBank, SellerOwnerID: nil,
@@ -400,7 +394,6 @@ func TestOTCExpiryCron_StartAndCancel(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
-		repository.NewOTCOfferRepository(db),
 		nil, nil, 10, "02:00", nilRegistry(),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -414,7 +407,6 @@ func TestOTCExpiryCron_RunOnce_NothingToExpire(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
-		repository.NewOTCOfferRepository(db),
 		nil, nil, 10, "02:00", nilRegistry(),
 	)
 	if err := cr.RunOnce(context.Background()); err != nil {
@@ -424,7 +416,7 @@ func TestOTCExpiryCron_RunOnce_NothingToExpire(t *testing.T) {
 
 // TestOTCExpiryCron_WithOutbox covers the WithOutbox wiring helper.
 func TestOTCExpiryCron_WithOutbox(t *testing.T) {
-	cr := NewOTCExpiryCron(nil, nil, nil, nil, 10, "02:00", nilRegistry())
+	cr := NewOTCExpiryCron(nil, nil, nil, 10, "02:00", nilRegistry())
 	out := cr.WithOutbox(nil, nil)
 	if out == nil {
 		t.Error("WithOutbox returned nil")
@@ -437,7 +429,6 @@ func TestOTCExpiryCron_WithPeerContracts(t *testing.T) {
 	db := newOTCExpiryDB(t)
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
-		repository.NewOTCOfferRepository(db),
 		nil, nil, 10, "02:00", nilRegistry(),
 	)
 	cr2 := cr.WithPeerContracts(repository.NewOptionContractRepository(db))
@@ -456,7 +447,6 @@ func TestOTCExpiryCron_ExpirePeerContract_CreditDirection(t *testing.T) {
 	peerRepo := repository.NewOptionContractRepository(db)
 	cr := NewOTCExpiryCron(
 		repository.NewOptionContractRepository(db),
-		repository.NewOTCOfferRepository(db),
 		nil, nil, 10, "02:00", nilRegistry(),
 	).WithPeerContracts(peerRepo)
 

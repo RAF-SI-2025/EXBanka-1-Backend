@@ -23,6 +23,22 @@ func (f *fakeOTCOfferReader) ListOpenForCache(limit int) ([]model.OTCOffer, erro
 	return f.rows, nil
 }
 
+// ListPublicOptionOffersForPeer mirrors the repo predicate: OPEN, sell-initiated,
+// public, non-private, LOCAL offers — the inventory GetPublicStocks exposes.
+func (f *fakeOTCOfferReader) ListPublicOptionOffersForPeer() ([]model.OTCOffer, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []model.OTCOffer
+	for _, o := range f.rows {
+		if o.IsOpenListing() && o.Local && o.Direction == model.OTCDirectionSellInitiated &&
+			o.Public && !o.Private {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+
 // TestComposePeerSellerID covers every branch of composePeerSellerID, the
 // outbound SI-TX wire-identity composer. The literal "bank" must NEVER be
 // emitted: a bank offer with an acting employee maps to "employee-<N>", a
@@ -116,94 +132,91 @@ func TestParseSellerOwner(t *testing.T) {
 	}
 }
 
-// TestGetPublicOptionOffers_SellerIDComposition asserts the published list:
-//   - a bank offer with ActingEmployeeID=17 surfaces with sellerId.id == "employee-17"
+// TestGetPublicStocks_SellerIDComposition asserts the cross-bank /public-stock
+// catalog stamps the conformant SI-TX seller id (composePeerSellerID) on each
+// published row's owner_id — the same composition the removed
+// /public-option-offers endpoint used:
+//   - a bank offer with ActingEmployeeID=17 surfaces with owner_id.id == "employee-17"
 //   - a bank offer with ActingEmployeeID==nil is ABSENT (filtered out)
-//   - a client offer (owner 9) surfaces with sellerId.id == "client-9"
-//   - the literal "bank" never appears as any row's sellerId.id
-func TestGetPublicOptionOffers_SellerIDComposition(t *testing.T) {
+//   - a client offer (owner 9) surfaces with owner_id.id == "client-9"
+//   - the literal "bank" never appears as any row's owner_id.id
+func TestGetPublicStocks_SellerIDComposition(t *testing.T) {
 	now := time.Now().UTC()
 	emp := uint64(17)
 	owner := uint64(9)
 	reader := &fakeOTCOfferReader{rows: []model.OTCOffer{
 		{
 			ID:                 1,
+			Local:              true,
+			Public:             true,
 			InitiatorOwnerType: model.OwnerBank,
 			ActingEmployeeID:   &emp,
 			Direction:          model.OTCDirectionSellInitiated,
 			Ticker:             "AAPL",
 			Quantity:           decimal.NewFromInt(10),
-			StrikePrice:        decimal.NewFromInt(150),
-			Premium:            decimal.NewFromInt(5),
-			SettlementDate:     now,
 			CreatedAt:          now,
 			Status:             model.OTCOfferStatusOpen,
 		},
 		{
 			ID:                 2,
+			Local:              true,
+			Public:             true,
 			InitiatorOwnerType: model.OwnerBank,
 			ActingEmployeeID:   nil, // legacy/seed bank offer — must be skipped
 			Direction:          model.OTCDirectionSellInitiated,
 			Ticker:             "MSFT",
 			Quantity:           decimal.NewFromInt(3),
-			StrikePrice:        decimal.NewFromInt(300),
-			Premium:            decimal.NewFromInt(8),
-			SettlementDate:     now,
 			CreatedAt:          now,
 			Status:             model.OTCOfferStatusOpen,
 		},
 		{
 			ID:                 3,
+			Local:              true,
+			Public:             true,
 			InitiatorOwnerType: model.OwnerClient,
 			InitiatorOwnerID:   &owner,
 			Direction:          model.OTCDirectionSellInitiated,
 			Ticker:             "TSLA",
 			Quantity:           decimal.NewFromInt(2),
-			StrikePrice:        decimal.NewFromInt(700),
-			Premium:            decimal.NewFromInt(12),
-			SettlementDate:     now,
 			CreatedAt:          now,
 			Status:             model.OTCOfferStatusOpen,
 		},
 	}}
 
-	h := (&PeerOTCGRPCHandler{ownRouting: 111}).WithOTCOfferReader(reader, nil)
+	h := (&PeerOTCGRPCHandler{ownRouting: 111}).WithOTCOfferReader(reader)
 
-	resp, err := h.GetPublicOptionOffers(context.Background(), &stockpb.GetPublicOptionOffersRequest{})
+	resp, err := h.GetPublicStocks(context.Background(), &stockpb.GetPublicStocksRequest{})
 	if err != nil {
-		t.Fatalf("GetPublicOptionOffers: %v", err)
+		t.Fatalf("GetPublicStocks: %v", err)
 	}
 
 	// Offer 2 (no acting employee) is skipped → 2 rows remain.
-	if got := len(resp.GetOffers()); got != 2 {
+	if got := len(resp.GetStocks()); got != 2 {
 		t.Fatalf("expected 2 published offers (offer 2 skipped), got %d", got)
 	}
 
-	byOfferID := map[string]*stockpb.PeerPublicOptionOffer{}
-	for _, row := range resp.GetOffers() {
-		byOfferID[row.GetOfferId().GetId()] = row
+	byTicker := map[string]*stockpb.PeerPublicStock{}
+	for _, row := range resp.GetStocks() {
+		byTicker[row.GetTicker()] = row
 		// Hard invariant: "bank" must never reach the wire as a seller id.
-		if row.GetSellerId().GetId() == "bank" {
-			t.Errorf("offer %s emitted literal \"bank\" as sellerId.id", row.GetOfferId().GetId())
-		}
-		if row.GetLastModifiedBy().GetId() == "bank" {
-			t.Errorf("offer %s emitted literal \"bank\" as lastModifiedBy.id", row.GetOfferId().GetId())
+		if row.GetOwnerId().GetId() == "bank" {
+			t.Errorf("ticker %s emitted literal \"bank\" as owner_id.id", row.GetTicker())
 		}
 	}
 
-	if row, ok := byOfferID["1"]; !ok {
-		t.Errorf("bank offer (id 1) with acting employee missing from list")
-	} else if row.GetSellerId().GetId() != "employee-17" {
-		t.Errorf("offer 1 sellerId.id = %q, want employee-17", row.GetSellerId().GetId())
+	if row, ok := byTicker["AAPL"]; !ok {
+		t.Errorf("bank offer (AAPL) with acting employee missing from list")
+	} else if row.GetOwnerId().GetId() != "employee-17" {
+		t.Errorf("AAPL owner_id.id = %q, want employee-17", row.GetOwnerId().GetId())
 	}
 
-	if _, ok := byOfferID["2"]; ok {
-		t.Errorf("bank offer (id 2) with nil acting employee must be ABSENT from the published list")
+	if _, ok := byTicker["MSFT"]; ok {
+		t.Errorf("bank offer (MSFT) with nil acting employee must be ABSENT from the published list")
 	}
 
-	if row, ok := byOfferID["3"]; !ok {
-		t.Errorf("client offer (id 3) missing from list")
-	} else if row.GetSellerId().GetId() != "client-9" {
-		t.Errorf("offer 3 sellerId.id = %q, want client-9", row.GetSellerId().GetId())
+	if row, ok := byTicker["TSLA"]; !ok {
+		t.Errorf("client offer (TSLA) missing from list")
+	} else if row.GetOwnerId().GetId() != "client-9" {
+		t.Errorf("TSLA owner_id.id = %q, want client-9", row.GetOwnerId().GetId())
 	}
 }

@@ -56,6 +56,11 @@ func (s *RoleService) WithDB(db *gorm.DB) *RoleService {
 // Permission catalog rows are upserted on every call (idempotent by code)
 // so adding a new permission to the catalog still seeds the lookup row.
 // Role↔permission mappings, however, are only seeded once.
+//
+// As a final step, EnsureAgentOTCPermissions runs on EVERY call (both fresh
+// and existing DBs) so that already-deployed databases — whose one-time role
+// seeding predates the EmployeeAgent OTC grants — still receive them. That
+// backfill is idempotent and additive-only.
 func (s *RoleService) SeedRolesAndPermissions() error {
 	if s.db == nil {
 		// No DB handle wired (test/legacy mode). Nothing to do.
@@ -75,27 +80,38 @@ func (s *RoleService) SeedRolesAndPermissions() error {
 		}
 	}
 
-	// 2. Skip role seeding if any role↔permission mapping already exists —
-	// the admin (or a previous startup) is in charge from here on.
+	// 2. Seed the default role↔permission mappings only on a fresh DB (no rows
+	// in role_permissions). After first startup, the admin (or a previous
+	// startup) is in charge of role mappings.
 	var rpCount int64
 	if err := s.db.Table("role_permissions").Count(&rpCount).Error; err != nil {
 		return err
 	}
-	if rpCount > 0 {
-		return nil
+	if rpCount == 0 {
+		if err := s.seedDefaultRoleMappings(); err != nil {
+			return err
+		}
 	}
 
-	// 3. Fresh DB: insert the default role↔permission mappings from the
-	// catalog. Iterate role names in sorted order so logs/tests are stable.
+	// 3. Always backfill the EmployeeAgent OTC grants. This is idempotent and
+	// additive-only, so it brings already-deployed DBs (whose seed predates
+	// these grants and is otherwise skipped above) up to date WITHOUT clobbering
+	// any admin customizations.
+	return s.EnsureAgentOTCPermissions()
+}
+
+// seedDefaultRoleMappings inserts the catalog's default role↔permission
+// mappings on a fresh DB. Roles are iterated in sorted order so logs/tests are
+// stable, and every role's perm rows are resolved up front so the transaction
+// only touches the tx connection (important for SQLite test DBs that pin
+// MaxOpenConns to 1).
+func (s *RoleService) seedDefaultRoleMappings() error {
 	roleNames := make([]string, 0, len(permissions.DefaultRoles))
 	for name := range permissions.DefaultRoles {
 		roleNames = append(roleNames, name)
 	}
 	sort.Strings(roleNames)
 
-	// Resolve every role's perm rows up front so the transaction below only
-	// touches the tx connection — important for SQLite test DBs that pin
-	// MaxOpenConns to 1.
 	resolved := make(map[string][]model.Permission, len(roleNames))
 	for _, roleName := range roleNames {
 		perms := permissions.DefaultRoles[roleName]
@@ -122,6 +138,66 @@ func (s *RoleService) SeedRolesAndPermissions() error {
 		}
 		return nil
 	})
+}
+
+// EnsureAgentOTCPermissions backfills the EmployeeAgent role with the extra
+// grants it needs — full OTC trading (otc.read.all to see the marketplace,
+// otc.trade.expire) and bank-account management (bank_accounts.manage.any) — on
+// already-deployed DBs whose role seeding ran before these grants existed. It is
+// idempotent and additive-only: it unions the missing grants onto the role and
+// NEVER removes an existing one, so admin customizations survive. It publishes a
+// single role-permissions-changed event if anything changed (so auth-service
+// force-refreshes affected sessions). No-op if the role is absent or already
+// holds every grant.
+func (s *RoleService) EnsureAgentOTCPermissions() error {
+	role, err := s.roleRepo.GetByName("EmployeeAgent")
+	if err != nil || role == nil {
+		// Role absent (e.g. a customized deployment) — nothing to backfill.
+		return nil
+	}
+
+	want := []string{
+		string(permissions.Otc.Read.All),
+		string(permissions.Otc.Trade.Expire),
+		string(permissions.BankAccounts.Manage.Any),
+	}
+	have := make(map[string]struct{}, len(role.Permissions))
+	for _, p := range role.Permissions {
+		have[p.Code] = struct{}{}
+	}
+
+	merged := role.Permissions
+	changed := false
+	for _, code := range want {
+		if _, ok := have[code]; ok {
+			continue
+		}
+		permRow, err := s.permRepo.GetByCode(code)
+		if err != nil {
+			// Lookup row missing even though it's a valid catalog permission —
+			// create it on demand so the union succeeds (mirrors
+			// AssignPermissionToRole).
+			permRow = &model.Permission{
+				Code:        code,
+				Description: code,
+				Category:    permissionCategory(code),
+			}
+			if err2 := s.permRepo.Create(permRow); err2 != nil {
+				return err2
+			}
+		}
+		merged = mergePermissions(merged, *permRow)
+		changed = true
+	}
+
+	if !changed {
+		return nil
+	}
+	if err := s.roleRepo.SetPermissions(role.ID, merged); err != nil {
+		return err
+	}
+	s.publishRolePermissionsChanged(role.ID, role.Name, "ensure_agent_otc_permissions")
+	return nil
 }
 
 // permissionCategory derives the catalog category for a permission from its

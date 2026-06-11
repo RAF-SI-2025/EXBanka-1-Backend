@@ -85,9 +85,6 @@ type OTCOffer struct {
 	StockID               uint64          `gorm:"not null;index:ix_otc_stock_status,priority:1" json:"stock_id"`
 	Ticker                string          `gorm:"size:16;not null;default:''" json:"ticker"`
 	Quantity              decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"quantity"`
-	StrikePrice           decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"strike_price"`
-	Premium               decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"premium"`
-	SettlementDate        time.Time       `gorm:"type:date;not null" json:"settlement_date"`
 	Status                string          `gorm:"size:16;not null;index:ix_otc_stock_status,priority:2;index:ix_otc_initiator,priority:3;index:ix_otc_counterparty,priority:3" json:"status"`
 	// LastModifiedByPrincipalType / ID is the principal (NOT owner) who last
 	// touched the offer. For employee-on-behalf actions this is the employee
@@ -114,19 +111,10 @@ type OTCOffer struct {
 	// Remote-mirror columns (SP-2a). Populated ONLY on remote rows
 	// (routing_number != OwnRouting()), folded in from the retired
 	// remote_otc_offer mirror. NULL on local rows.
-	//   StrikeCurrency / PremiumCurrency — the peer's published currencies
-	//     (OTCOffer carries no currency for local rows; it lives on the
-	//     StockExchange the listing trades on).
 	//   RemoteSellerID — the SI-TX wire seller id ("client-<N>" | "bank").
 	//   LastSeenAt — last successful peer poll that listed the offer; the
 	//     reconcile flip (open->cancelled) keys off it.
-	StrikeCurrency  *string `gorm:"size:8" json:"strike_currency,omitempty"`
-	PremiumCurrency *string `gorm:"size:8" json:"premium_currency,omitempty"`
-	RemoteSellerID  *string `gorm:"size:128" json:"remote_seller_id,omitempty"`
-	// HasPresetTerms: true ⇔ the offer carries owner-set terms (a /public-option-offers
-	// listing — a negotiable "start position"). false ⇔ synthesized from /public-stock
-	// (no preset strike/premium; fully buyer-negotiated).
-	HasPresetTerms bool       `gorm:"not null;default:true" json:"has_preset_terms"`
+	RemoteSellerID *string    `gorm:"size:128" json:"remote_seller_id,omitempty"`
 	LastSeenAt     *time.Time `gorm:"index" json:"last_seen_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`

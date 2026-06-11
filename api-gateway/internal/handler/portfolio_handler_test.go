@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/exbanka/api-gateway/internal/handler"
 	"github.com/exbanka/api-gateway/internal/middleware"
-	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
 
@@ -25,7 +23,6 @@ import (
 type portfolioStub struct {
 	listFn         func(*stockpb.ListHoldingsRequest) (*stockpb.ListHoldingsResponse, error)
 	summaryFn      func(*stockpb.GetPortfolioSummaryRequest) (*stockpb.PortfolioSummary, error)
-	makePublicFn   func(*stockpb.MakePublicRequest) (*stockpb.Holding, error)
 	exerciseFn     func(*stockpb.ExerciseOptionRequest) (*stockpb.ExerciseResult, error)
 	listTxFn       func(*stockpb.ListHoldingTransactionsRequest) (*stockpb.ListHoldingTransactionsResponse, error)
 	exerciseByIDFn func(*stockpb.ExerciseOptionByOptionIDRequest) (*stockpb.ExerciseResult, error)
@@ -43,12 +40,6 @@ func (s *portfolioStub) GetPortfolioSummary(_ context.Context, in *stockpb.GetPo
 		return s.summaryFn(in)
 	}
 	return &stockpb.PortfolioSummary{}, nil
-}
-func (s *portfolioStub) MakePublic(_ context.Context, in *stockpb.MakePublicRequest, _ ...grpc.CallOption) (*stockpb.Holding, error) {
-	if s.makePublicFn != nil {
-		return s.makePublicFn(in)
-	}
-	return &stockpb.Holding{Id: in.HoldingId}, nil
 }
 func (s *portfolioStub) ExerciseOption(_ context.Context, in *stockpb.ExerciseOptionRequest, _ ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
 	if s.exerciseFn != nil {
@@ -132,11 +123,8 @@ func portfolioRouter(h *handler.PortfolioHandler) *gin.Engine {
 	withCtx := setClientIdentity(42)
 	r.GET("/api/v2/me/holdings", withCtx, h.ListHoldings)
 	r.GET("/api/v2/me/portfolio/summary", withCtx, h.GetPortfolioSummary)
-	r.POST("/api/v2/me/holdings/:id/make-public", withCtx, h.MakePublic)
 	r.GET("/api/v2/me/holdings/:id/transactions", withCtx, h.ListHoldingTransactions)
 	r.POST("/api/v2/me/holdings/:id/exercise", withCtx, h.ExerciseOption)
-	r.GET("/api/v2/otc/offers", withCtx, h.ListOTCOffers)
-	r.POST("/api/v2/otc/offers/:id/buy", withCtx, h.BuyOTCOffer)
 	r.GET("/api/v3/otc/options", withCtx, h.ListOTCOptions)
 	r.GET("/api/v3/me/otc/options", withCtx, h.ListMyOTCOptions)
 	return r
@@ -194,59 +182,6 @@ func TestPortfolio_GetPortfolioSummary_Success(t *testing.T) {
 	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/portfolio/summary", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestPortfolio_MakePublic_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `{"quantity":1}`
-	req := httptest.NewRequest("POST", "/api/v2/me/holdings/x/make-public", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "invalid holding id")
-}
-
-func TestPortfolio_MakePublic_NegativeQuantity(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `{"quantity":-1}`
-	req := httptest.NewRequest("POST", "/api/v2/me/holdings/9/make-public", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "quantity must be positive")
-}
-
-func TestPortfolio_MakePublic_BadBody(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `not json`
-	req := httptest.NewRequest("POST", "/api/v2/me/holdings/9/make-public", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestPortfolio_MakePublic_Success(t *testing.T) {
-	st := &portfolioStub{
-		makePublicFn: func(req *stockpb.MakePublicRequest) (*stockpb.Holding, error) {
-			require.Equal(t, uint64(9), req.HoldingId)
-			require.Equal(t, int64(2), req.Quantity)
-			return &stockpb.Holding{Id: req.HoldingId}, nil
-		},
-	}
-	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `{"quantity":2}`
-	req := httptest.NewRequest("POST", "/api/v2/me/holdings/9/make-public", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -313,210 +248,6 @@ func TestPortfolio_ExerciseOption_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestPortfolio_ListOTCOffers_Default(t *testing.T) {
-	otc := &stubOTCClient{
-		listUnifiedFn: func(req *stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error) {
-			require.Equal(t, int32(1), req.Page)
-			require.Equal(t, int32(10), req.PageSize)
-			return &stockpb.ListUnifiedOTCOffersResponse{
-				Offers: []*stockpb.UnifiedOTCOffer{
-					{Kind: "local", BankCode: "111", Id: 7, Ticker: "BAC", SecurityType: "stock", Quantity: 3, PricePerUnit: "38.00"},
-				},
-				TotalCount:      1,
-				PeersTotal:      0,
-				PeersReached:    0,
-				Partial:         false,
-				LastRefreshUnix: 0,
-			}, nil
-		},
-	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{})
-	r := portfolioRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/otc/offers", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), `"kind":"local"`)
-	require.Contains(t, rec.Body.String(), `"ticker":"BAC"`)
-}
-
-func TestPortfolio_ListOTCOffers_BadSecurityType(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/otc/offers?security_type=option", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "security_type must be one of")
-}
-
-func TestPortfolio_BuyOTCOffer_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `{"quantity":1,"account_id":1}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/offers/x/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestPortfolio_BuyOTCOffer_BadBody(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `not json`
-	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestPortfolio_BuyOTCOffer_NegativeQuantity(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `{"quantity":-1,"account_id":1}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "quantity must be positive")
-}
-
-func TestPortfolio_BuyOTCOffer_MissingAccountID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	r := portfolioRouter(h)
-	body := `{"quantity":1}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "account_id is required")
-}
-
-func TestPortfolio_BuyOTCOffer_OwnershipMismatch_Returns404(t *testing.T) {
-	// Caller is client user_id=42; account owner is 99 → client must see 404.
-	acct := &accountFullStub{
-		getFn: func(req *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
-			return &accountpb.AccountResponse{Id: req.Id, OwnerId: 99}, nil
-		},
-	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, acct)
-	r := portfolioRouter(h)
-	body := `{"quantity":1,"account_id":1}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestPortfolio_BuyOTCOffer_Success(t *testing.T) {
-	acct := &accountFullStub{
-		getFn: func(req *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
-			return &accountpb.AccountResponse{Id: req.Id, OwnerId: 42}, nil
-		},
-	}
-	otc := &stubOTCClient{
-		buyFn: func(req *stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error) {
-			require.Equal(t, uint64(3), req.OfferId)
-			require.Equal(t, uint64(42), req.BuyerId)
-			require.Equal(t, "client", req.SystemType)
-			return &stockpb.OTCTransaction{Id: 1}, nil
-		},
-	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, acct)
-	r := portfolioRouter(h)
-	body := `{"quantity":1,"account_id":7}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestPortfolio_BuyOTCOfferOnBehalf_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy",
-		setEmployeeBankIdentity(1),
-		h.BuyOTCOfferOnBehalf)
-	body := `{"client_id":7,"account_id":3,"quantity":2}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/x/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestPortfolio_BuyOTCOfferOnBehalf_MissingFields(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy",
-		setEmployeeBankIdentity(1),
-		h.BuyOTCOfferOnBehalf)
-	body := `{"quantity":2}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "client_id and account_id are required")
-}
-
-func TestPortfolio_BuyOTCOfferOnBehalf_AccountClientMismatch(t *testing.T) {
-	acct := &accountFullStub{
-		getFn: func(req *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
-			return &accountpb.AccountResponse{Id: req.Id, OwnerId: 99}, nil
-		},
-	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, acct)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy",
-		setEmployeeBankIdentity(1),
-		h.BuyOTCOfferOnBehalf)
-	body := `{"client_id":7,"account_id":3,"quantity":2}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "account does not belong to client")
-}
-
-func TestPortfolio_BuyOTCOfferOnBehalf_Success(t *testing.T) {
-	acct := &accountFullStub{
-		getFn: func(req *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
-			return &accountpb.AccountResponse{Id: req.Id, OwnerId: 7}, nil
-		},
-	}
-	otc := &stubOTCClient{
-		buyFn: func(req *stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error) {
-			require.Equal(t, uint64(7), req.OnBehalfOfClientId)
-			require.Equal(t, uint64(1), req.ActingEmployeeId)
-			require.Equal(t, "employee", req.SystemType)
-			return &stockpb.OTCTransaction{Id: 99}, nil
-		},
-	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, acct)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy",
-		setEmployeeBankIdentity(1),
-		h.BuyOTCOfferOnBehalf)
-	body := `{"client_id":7,"account_id":3,"quantity":2}`
-	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/3/buy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
 // ListMyOTCOptions reshape: the marketplace endpoint, scoped to the
 // caller. Must populate owner_only_seller_id with the SI-TX seller id
 // derived from the caller's identity.
@@ -556,38 +287,4 @@ func TestPortfolio_ListOTCOptions_NoOwnerFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NotNil(t, captured)
 	require.Equal(t, "", captured.OwnerOnlySellerId)
-}
-
-// has_preset_terms must be forwarded from the gRPC response into each
-// offer's JSON object (tag 23 on UnifiedOptionOffer).
-func TestPortfolio_ListOTCOptions_HasPresetTerms(t *testing.T) {
-	otc := &stubOTCClient{
-		listUnifiedOptionFn: func(_ *stockpb.ListUnifiedOptionOffersRequest) (*stockpb.ListUnifiedOptionOffersResponse, error) {
-			return &stockpb.ListUnifiedOptionOffersResponse{
-				Offers: []*stockpb.UnifiedOptionOffer{
-					{
-						OfferId:        "1",
-						Ticker:         "OPT-PRESET",
-						HasPresetTerms: true,
-					},
-					{
-						OfferId:        "2",
-						Ticker:         "OPT-SHELL",
-						HasPresetTerms: false,
-					},
-				},
-				TotalCount: 2,
-			}, nil
-		},
-	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{})
-	r := portfolioRouter(h)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v3/otc/options", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-	body := rec.Body.String()
-	// Preset offer must carry has_preset_terms:true.
-	require.Contains(t, body, `"has_preset_terms":true`)
-	// Shell offer must carry has_preset_terms:false.
-	require.Contains(t, body, `"has_preset_terms":false`)
 }

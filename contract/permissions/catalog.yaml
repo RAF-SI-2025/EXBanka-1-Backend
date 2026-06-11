@@ -153,13 +153,16 @@ default_roles:
       - clients.update.contact
       - accounts.create.current
       - accounts.create.foreign
+      - bank_accounts.manage.any
       - cards.create.physical
       - orders.place.own
       - orders.place.on_behalf_client
       - securities.trade.any
       - securities.read.holdings_own
+      - otc.read.all
       - otc.trade.accept
       - otc.trade.exercise
+      - otc.trade.expire
       - otc.trade.on_behalf
       - funds.invest.own
       - funds.invest.on_behalf_client

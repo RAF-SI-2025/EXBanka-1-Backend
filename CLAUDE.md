@@ -90,7 +90,7 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `CARD_GRPC_ADDR` | localhost:50056 | card-service gRPC address |
 | `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
 | `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
-| `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service |
+| `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service and interbank-service (seller-side FX on cross-currency OTC credits) |
 | `VERIFICATION_GRPC_ADDR` | localhost:50061 | verification-service gRPC address; also required by transaction-service |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
 | `MOBILE_REFRESH_EXPIRY` | 2160h (90 days) | Mobile refresh token expiry (auth-service) |

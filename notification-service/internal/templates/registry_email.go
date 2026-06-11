@@ -5,18 +5,21 @@ package templates
 var emailDefs = []Definition{
 	{
 		Type: "ACTIVATION", Channel: "email",
-		Description: "Sent when an employee or client account is created — carries the activation link.",
+		Description: "Sent when an employee or client account is created — carries the activation link and the activation token shown separately.",
 		Variables: []Variable{
 			{"first_name", "Recipient's first name", "Ana"},
 			{"link", "Account activation URL", "https://app.exbanka.rs/activate?token=..."},
+			{"token", "Account activation token (also embedded in the link)", "a1b2c3d4e5f6..."},
 		},
 		DefaultSubject: "Activate Your EXBanka Account",
 		DefaultBody: `<h2>Welcome, {{first_name}}!</h2>
-<p>Your account has been created. Click the link below to activate your account and set your password:</p>
+<p>Your account has been created. Click the button below to activate your account and set your password:</p>
 <p><a href="{{link}}" style="display:inline-block;padding:12px 24px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:4px;">Activate Account</a></p>
 <p>Or copy this link into your browser:</p>
 <p>{{link}}</p>
-<p>This link expires in 24 hours.</p>`,
+<p>If you are asked for it separately, your activation token is:</p>
+<p style="font-family:monospace;font-size:16px;font-weight:bold;letter-spacing:1px;">{{token}}</p>
+<p>This link (and token) expires in 24 hours.</p>`,
 	},
 	{
 		Type: "PASSWORD_RESET", Channel: "email",

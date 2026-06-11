@@ -20,13 +20,15 @@ import (
 )
 
 // OTCExpiryCron expires OTC contracts (releases the seller's reservation,
-// seller keeps the premium) and OTC offers (no money flow) past their
-// settlement_date. Covers both intra-bank (local option_contracts) and
-// cross-bank (remote option_contracts rows, folded in by SP-2a) flows.
+// seller keeps the premium) past their settlement_date. Covers both intra-bank
+// (local option_contracts) and cross-bank (remote option_contracts rows, folded
+// in by SP-2a) flows.
+//
+// OTC offers are termless "inventory" and are NOT expired here — they end only
+// via cancel or accept. The former offer-expiry pass was removed.
 type OTCExpiryCron struct {
 	contracts     *repository.OptionContractRepository
 	peerContracts *repository.OptionContractRepository // optional; nil disables remote-contract expiry
-	offers        *repository.OTCOfferRepository
 	holdingRes    *HoldingReservationService
 	producer      *kafkaprod.Producer
 	batchSize     int
@@ -94,7 +96,6 @@ func (cr *OTCExpiryCron) WithPeerContracts(p *repository.OptionContractRepositor
 
 func NewOTCExpiryCron(
 	c *repository.OptionContractRepository,
-	o *repository.OTCOfferRepository,
 	h *HoldingReservationService,
 	p *kafkaprod.Producer,
 	batchSize int, cronUTC string,
@@ -106,14 +107,14 @@ func NewOTCExpiryCron(
 	if cronUTC == "" {
 		cronUTC = "02:00"
 	}
-	cr := &OTCExpiryCron{contracts: c, offers: o, holdingRes: h, producer: p, batchSize: batchSize, cronUTC: cronUTC}
+	cr := &OTCExpiryCron{contracts: c, holdingRes: h, producer: p, batchSize: batchSize, cronUTC: cronUTC}
 	// Wire the notifier to the same producer. Guard against assigning a typed
 	// nil into the interface (which would make cr.notifier != nil but panic on
 	// call) by only setting it when the producer is actually present.
 	if p != nil {
 		cr.notifier = p
 	}
-	cr.entry = registry.Register("otc-expiry-cron", "Expire OTC contracts and offers past their settlement date (daily)", 0)
+	cr.entry = registry.Register("otc-expiry-cron", "Expire OTC contracts past their settlement date (daily)", 0)
 	return cr
 }
 
@@ -132,7 +133,8 @@ func notifyOTCPartyVia(ctx context.Context, n otcNotifier, party kafkamsg.OTCPar
 	})
 }
 
-// RunOnce executes both expiry passes (contracts + offers).
+// RunOnce executes the contract-expiry pass (local + remote) plus the
+// expiring-soon warning pass. OTC offers are termless and never expire here.
 func (cr *OTCExpiryCron) RunOnce(ctx context.Context) error {
 	today := time.Now().UTC().Format("2006-01-02")
 	for {
@@ -159,20 +161,6 @@ func (cr *OTCExpiryCron) RunOnce(ctx context.Context) error {
 		} else {
 			for i := range rows {
 				cr.warnContractExpiring(ctx, &rows[i])
-			}
-		}
-	}
-	for {
-		rows, err := cr.offers.ListExpiringOffers(today, cr.batchSize)
-		if err != nil {
-			return err
-		}
-		if len(rows) == 0 {
-			break
-		}
-		for i := range rows {
-			if err := cr.expireOffer(ctx, &rows[i]); err != nil {
-				log.Printf("WARN: expire offer %d: %v", rows[i].ID, err)
 			}
 		}
 	}
@@ -290,39 +278,6 @@ func (cr *OTCExpiryCron) expireContract(ctx context.Context, c *model.OptionCont
 	ceData := map[string]string{"ticker": c.Ticker}
 	notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{OwnerType: string(c.BuyerOwnerType), OwnerID: c.BuyerOwnerID}, "OTC_CONTRACT_EXPIRED", "otc_contract", c.ID, ceData)
 	notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{OwnerType: string(c.SellerOwnerType), OwnerID: c.SellerOwnerID}, "OTC_CONTRACT_EXPIRED", "otc_contract", c.ID, ceData)
-	return nil
-}
-
-func (cr *OTCExpiryCron) expireOffer(ctx context.Context, o *model.OTCOffer) error {
-	o.Status = model.OTCOfferStatusExpired
-	if err := cr.offers.Save(o); err != nil {
-		return err
-	}
-	if cr.producer != nil {
-		payload := kafkamsg.OTCOfferExpiredMessage{
-			MessageID:  uuid.NewString(),
-			OccurredAt: time.Now().UTC().Format(time.RFC3339),
-			OfferID:    o.ID,
-			Initiator: kafkamsg.OTCParty{
-				OwnerType: string(o.InitiatorOwnerType),
-				OwnerID:   o.InitiatorOwnerID,
-			},
-			Counterparty: ptrCounterparty(o),
-		}
-		if data, err := json.Marshal(payload); err == nil {
-			publishSagaEvent(ctx, cr.outbox, cr.outboxDB, cr.producer, kafkamsg.TopicOTCOfferExpired, data, "")
-		}
-	}
-	// In-app notifications to the initiator + counterparty client parties
-	// (no-op for bank parties / nil notifier).
-	notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{
-		OwnerType: string(o.InitiatorOwnerType), OwnerID: o.InitiatorOwnerID,
-	}, "OTC_OFFER_EXPIRED", "otc_offer", o.ID, map[string]string{"ticker": o.Ticker})
-	if o.CounterpartyOwnerType != nil {
-		notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{
-			OwnerType: string(*o.CounterpartyOwnerType), OwnerID: o.CounterpartyOwnerID,
-		}, "OTC_OFFER_EXPIRED", "otc_offer", o.ID, map[string]string{"ticker": o.Ticker})
-	}
 	return nil
 }
 

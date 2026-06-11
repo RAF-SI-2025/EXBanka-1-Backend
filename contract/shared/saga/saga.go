@@ -29,6 +29,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -37,6 +38,16 @@ import (
 
 	"github.com/exbanka/contract/shared"
 )
+
+// ErrCompensationStuck is returned by Compensate when at least one step's
+// Backward could not be completed (left in compensating status). Recovery
+// callers propagate it so the recovery reconciler does NOT mark the stuck row
+// terminal — instead the row keeps failing, its retry count climbs, and it is
+// eventually dead-lettered for human review. Without this, Compensate returning
+// nil on a stuck rollback let the reconciler force-mark the row compensated,
+// permanently hiding money left in limbo (e.g. a seller-debit compensation that
+// fails because the seller already spent the credited funds).
+var ErrCompensationStuck = errors.New("saga: compensation incomplete; recovery required")
 
 // SagaStatus is the typed lifecycle state of a saga step row. Stored as
 // a string column so adapters can persist it directly without conversion.
@@ -361,7 +372,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 
 	for i, step := range s.steps {
 		if err := ctx.Err(); err != nil {
-			compensated := s.rollback(ctx, state, done)
+			compensated, _ := s.rollback(ctx, state, done)
 			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), err.Error(), compensated)
 			return err
 		}
@@ -380,7 +391,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			// the step itself: roll back what's already done so the saga
 			// doesn't sit half-applied with no audit trail.
 			s.logf("saga=%s step=%s record forward: %v", s.id, step.Name, err)
-			compensated := s.rollback(ctx, state, done)
+			compensated, _ := s.rollback(ctx, state, done)
 			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), err.Error(), compensated)
 			return fmt.Errorf("saga: record forward step %s: %w", step.Name, err)
 		}
@@ -390,7 +401,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			if mErr := s.recorder.MarkFailed(ctx, handle, fwdErr.Error()); mErr != nil {
 				s.logf("saga=%s step=%s mark failed: %v", s.id, step.Name, mErr)
 			}
-			compensated := s.rollback(ctx, state, done)
+			compensated, _ := s.rollback(ctx, state, done)
 			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), fwdErr.Error(), compensated)
 			return fwdErr
 		}
@@ -412,7 +423,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			if fErr := s.recorder.MarkFailed(ctx, handle, afterErr.Error()); fErr != nil {
 				s.logf("saga=%s step=%s mark failed (after-fault): %v", s.id, step.Name, fErr)
 			}
-			compensated := s.rollback(ctx, state, done)
+			compensated, _ := s.rollback(ctx, state, done)
 			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), afterErr.Error(), compensated)
 			return afterErr
 		}
@@ -457,8 +468,14 @@ func (s *Saga) Compensate(ctx context.Context, state *State) error {
 			done = append(done, completedStep{step: step, number: i + 1})
 		}
 	}
-	compensated := s.rollback(ctx, state, done)
+	compensated, stuck := s.rollback(ctx, state, done)
 	s.publisher.OnRolledBack(ctx, s.id, "", "recovery compensation", compensated)
+	if stuck {
+		// At least one Backward is still failing. Surface it so the recovery
+		// reconciler does NOT mark the row terminal — it stays stuck, its retry
+		// count climbs, and it is eventually dead-lettered for human review.
+		return ErrCompensationStuck
+	}
 	return nil
 }
 
@@ -506,7 +523,7 @@ func (s *Saga) runBackward(ctx context.Context, step Step, state *State) error {
 //   - A failed Backward leaves the compensation row in compensating status
 //     for the recovery loop; the walk continues so the rest of the chain
 //     gets a chance to undo their effects.
-func (s *Saga) rollback(ctx context.Context, state *State, done []completedStep) []string {
+func (s *Saga) rollback(ctx context.Context, state *State, done []completedStep) ([]string, bool) {
 	compensated := make([]string, 0, len(done))
 	stuck := false
 
@@ -547,5 +564,5 @@ func (s *Saga) rollback(ctx context.Context, state *State, done []completedStep)
 	if stuck {
 		s.publisher.OnStuck(ctx, s.id, "", "compensation incomplete; recovery required")
 	}
-	return compensated
+	return compensated, stuck
 }

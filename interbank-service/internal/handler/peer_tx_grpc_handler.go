@@ -781,6 +781,13 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 			Message:       "Cross-bank OTC " + txKind,
 		},
 	}
+	// finalStatus mirrors the row's terminal state so the caller can tell a settled
+	// accept from a rolled-back one. Previously the response was always "pending",
+	// which made the stock-service inbound accept consume the listing + report
+	// "accepted" even on a peer NO vote (the user's "listing deleted, no contract").
+	// "committed"/"committing" = will settle; "rolled_back" = aborted; "pending" =
+	// peer unreachable / will retry via OutboundReplayCron.
+	finalStatus := "pending"
 	if vote, err := h.httpClient.PostNewTx(ctx, target, envelope); err != nil {
 		_ = h.outRepo.MarkAttempt(idem, err.Error())
 	} else if vote.Vote == contractsitx.VoteYes {
@@ -791,8 +798,10 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		// back, which would strand settled money or desync from a committed peer).
 		if cerr := h.outRepo.MarkCommitting(idem); cerr != nil {
 			// Couldn't pivot (concurrent resolution / terminal) — leave it for the
-			// cron; do not attempt the commit inline.
-			return &transactionpb.SiTxInitiateResponse{TransactionId: idem, PollUrl: "/api/v3/me/otc/transactions/" + idem + "/status", Status: "pending"}, nil
+			// cron; do not attempt the commit inline. The peer voted YES so this is
+			// committing-forward, not a failure: report it as such so the caller
+			// proceeds (the cron drives it to committed).
+			return &transactionpb.SiTxInitiateResponse{TransactionId: idem, PollUrl: "/api/v3/me/otc/transactions/" + idem + "/status", Status: "committing"}, nil
 		}
 		// Finalise ALL local legs, then tell the peer to commit, then mark
 		// committed — but ONLY if every step succeeds. Any failure leaves the row
@@ -839,6 +848,12 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		}
 		if localOK {
 			_ = h.outRepo.MarkCommitted(idem)
+			finalStatus = "committed"
+		} else {
+			// Local finalisation hit a snag after the YES-vote pivot; the row stays
+			// `committing` and the cron drives it forward. Report committing (not
+			// pending) so the caller treats the accept as settling, not failed.
+			finalStatus = "committing"
 		}
 	} else {
 		reason := "peer voted NO"
@@ -854,8 +869,10 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		// (MarkAttempt) so the cron retries rather than stranding held funds.
 		if rerr := h.executor.ReverseLocal(ctx, postings, ownPeerCode, idem); rerr != nil {
 			_ = h.outRepo.MarkAttempt(idem, reason+" (local reversal failed, will retry: "+rerr.Error()+")")
+			// Reversal pending; the cron finishes it. Leave finalStatus "pending".
 		} else {
 			_ = h.outRepo.MarkRolledBack(idem, reason)
+			finalStatus = "rolled_back"
 			// Release any reservation the peer placed before its NO vote.
 			h.rollbackPeer(ctx, target, txID)
 		}
@@ -863,11 +880,12 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 
 	// OTC variant: postings come from a cross-bank OTC accept/exercise, so the
 	// poll URL points at the OTC transaction-status endpoint (resolves this
-	// idem via PeerTxService.GetTxStatus), not the payment endpoint.
+	// idem via PeerTxService.GetTxStatus), not the payment endpoint. Status is the
+	// row's terminal state so the caller can fail the accept on "rolled_back".
 	return &transactionpb.SiTxInitiateResponse{
 		TransactionId: idem,
 		PollUrl:       "/api/v3/me/otc/transactions/" + idem + "/status",
-		Status:        "pending",
+		Status:        finalStatus,
 	}, nil
 }
 

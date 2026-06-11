@@ -187,6 +187,42 @@ func TestExchangeService_IsExchangeOpen_NotFound(t *testing.T) {
 	}
 }
 
+func TestExchangeService_IsOpenForModel_TestingModeShortCircuit(t *testing.T) {
+	settingRepo := newFakeSettingRepo()
+	settingRepo.store["testing_mode"] = "true"
+	svc := NewExchangeService(newFakeExchangeSeedRepo(), settingRepo)
+	// Hours say closed (open == close), but testing mode forces open.
+	closed := &model.StockExchange{TimeZone: "0", OpenTime: "12:00", CloseTime: "12:00"}
+	if !svc.IsOpenForModel(closed) {
+		t.Error("testing mode should report open regardless of hours")
+	}
+}
+
+func TestExchangeService_IsOpenForModel_FromHours(t *testing.T) {
+	settingRepo := newFakeSettingRepo()
+	settingRepo.store["testing_mode"] = "false"
+	svc := NewExchangeService(newFakeExchangeSeedRepo(), settingRepo)
+
+	// open == close ⇒ always closed.
+	closed := &model.StockExchange{TimeZone: "0", OpenTime: "12:00", CloseTime: "12:00"}
+	if svc.IsOpenForModel(closed) {
+		t.Error("expected closed when open==close and testing mode off")
+	}
+
+	// 00:00–23:59 ⇒ open at essentially every minute (matches the helper logic).
+	open := &model.StockExchange{TimeZone: "0", OpenTime: "00:00", CloseTime: "23:59"}
+	if got, want := svc.IsOpenForModel(open), isWithinTradingHours(open); got != want {
+		t.Errorf("IsOpenForModel = %v, want %v (matching isWithinTradingHours)", got, want)
+	}
+}
+
+func TestExchangeService_IsOpenForModel_NilSafe(t *testing.T) {
+	svc := NewExchangeService(newFakeExchangeSeedRepo(), newFakeSettingRepo())
+	if svc.IsOpenForModel(nil) {
+		t.Error("expected false for nil exchange")
+	}
+}
+
 func TestExchangeService_SeedExchanges_BadCSVPath(t *testing.T) {
 	svc := NewExchangeService(newFakeExchangeSeedRepo(), newFakeSettingRepo())
 	if err := svc.SeedExchanges("/nonexistent.csv"); err == nil {

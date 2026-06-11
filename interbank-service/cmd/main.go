@@ -27,6 +27,7 @@ import (
 	adminpb "github.com/exbanka/contract/adminpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/contract/cronreg"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/contract/logger"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
@@ -111,6 +112,22 @@ func main() {
 		defer func() { _ = userConn.Close() }()
 	}
 
+	// exchange-service — seller-side FX on cross-currency OTC credits so a premium
+	// /strike lands in the recipient's own account currency rather than voting
+	// NO_SUCH_ACCOUNT. Lazy dial; a missing connection just disables FX (the
+	// executor then fails closed exactly as before for cross-currency credits).
+	var exchangeClient exchangepb.ExchangeServiceClient
+	exchangeConn, exchangeErr := grpc.NewClient(cfg.ExchangeGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
+	if exchangeErr != nil {
+		log.Printf("interbank-service: warn: exchange-service connection failed; seller-side FX on cross-currency OTC credits disabled: %v", exchangeErr)
+	} else {
+		defer func() { _ = exchangeConn.Close() }()
+		exchangeClient = exchangepb.NewExchangeServiceClient(exchangeConn)
+	}
+
 	// Repositories.
 	peerBankRepo := repository.NewPeerBankRepository(db)
 	peerIdemRepo := repository.NewPeerIdempotenceRepository(db)
@@ -120,6 +137,9 @@ func main() {
 	peerExecutor := sitx.NewPostingExecutor(accountClient, ownRouting)
 	if stockConn != nil {
 		peerExecutor.SetHoldingChecker(stockpb.NewPeerOTCServiceClient(stockConn))
+	}
+	if exchangeClient != nil {
+		peerExecutor.SetConverter(exchangeClient)
 	}
 
 	peerHTTPClient := sitx.NewPeerHTTPClient(&http.Client{Timeout: 30 * time.Second})

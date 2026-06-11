@@ -33,10 +33,6 @@ func (f *PeerOTCForwarder) GetPublicStocks(ctx context.Context, req *stockpb.Get
 	return f.stock.GetPublicStocks(ctx, req)
 }
 
-func (f *PeerOTCForwarder) GetPublicOptionOffers(ctx context.Context, req *stockpb.GetPublicOptionOffersRequest) (*stockpb.GetPublicOptionOffersResponse, error) {
-	return f.stock.GetPublicOptionOffers(ctx, req)
-}
-
 func (f *PeerOTCForwarder) CreateNegotiation(ctx context.Context, req *stockpb.CreateNegotiationRequest) (*stockpb.CreateNegotiationResponse, error) {
 	return f.stock.CreateNegotiation(ctx, req)
 }

@@ -368,17 +368,13 @@ func TestOTCOptionsHandler_GetOffer_RemoteResolution(t *testing.T) {
 	foreignID := "abc"
 	bankCode := "222"
 	sellerID := "client-9"
-	strikeCcy := "USD"
-	premiumCcy := "USD"
 	remote := &model.OTCOffer{
 		ID: 555, RoutingNumber: 222, NativeID: &foreignID,
 		InitiatorBankCode: &bankCode, RemoteSellerID: &sellerID,
 		InitiatorOwnerType: model.OwnerBank,
 		Direction:          model.OTCDirectionSellInitiated,
-		Ticker:             "AAPL", Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
-		StrikeCurrency: &strikeCcy, Premium: decimal.NewFromInt(20), PremiumCurrency: &premiumCcy,
-		SettlementDate: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
-		Status:         "open",
+		Ticker:             "AAPL", Quantity: decimal.NewFromInt(10),
+		Status: "open",
 	}
 	h := fx.h.WithRemoteOffers(&fakeRemoteOffers{row: remote}, "111")
 
@@ -436,106 +432,6 @@ func TestOTCOptionsHandler_GetOffer_RemoteInternalErrorSurfacedAsInternal(t *tes
 	})
 	if status.Code(err) != codes.Internal {
 		t.Fatalf("code = %v, want Internal (mirror DB error must not look like 404)", status.Code(err))
-	}
-}
-
-// ---------------- CounterOffer ----------------
-
-func TestOTCOptionsHandler_CounterOffer_HappyPath(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	fx.seedSellerHolding(t, 7, 42, 100)
-	id := fx.createOffer(t, 7, 42)
-	// Different actor (the buyer counters)
-	resp, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		OfferId: id, ActorUserId: 8, ActorSystemType: "client",
-		Quantity: "5", StrikePrice: "160", Premium: "25",
-		SettlementDate: time.Now().AddDate(0, 0, 31).Format("2006-01-02"),
-	})
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if resp.GetStatus() != model.OTCOfferStatusCountered {
-		t.Errorf("status=%s", resp.GetStatus())
-	}
-}
-
-func TestOTCOptionsHandler_CounterOffer_BadQuantity(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "x", StrikePrice: "1", Premium: "1", SettlementDate: "2030-01-01",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
-	}
-}
-
-func TestOTCOptionsHandler_CounterOffer_BadStrike(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "1", StrikePrice: "x", Premium: "1", SettlementDate: "2030-01-01",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
-	}
-}
-
-func TestOTCOptionsHandler_CounterOffer_BadPremium(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "1", StrikePrice: "1", Premium: "x", SettlementDate: "2030-01-01",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
-	}
-}
-
-func TestOTCOptionsHandler_CounterOffer_BadDate(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "1", StrikePrice: "1", Premium: "1", SettlementDate: "bad",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
-	}
-}
-
-// ---------------- RejectOffer ----------------
-
-func TestOTCOptionsHandler_RejectOffer_HappyPath(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	fx.seedSellerHolding(t, 7, 42, 100)
-	id := fx.createOffer(t, 7, 42)
-	resp, err := fx.h.RejectOffer(context.Background(), &stockpb.RejectOTCOfferRequest{
-		OfferId: id, ActorUserId: 8, ActorSystemType: "client",
-	})
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if resp.GetStatus() != model.OTCOfferStatusRejected {
-		t.Errorf("status=%s", resp.GetStatus())
-	}
-}
-
-func TestOTCOptionsHandler_RejectOffer_MissingOffer(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.RejectOffer(context.Background(), &stockpb.RejectOTCOfferRequest{
-		OfferId: 9999, ActorUserId: 8, ActorSystemType: "client",
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-// ---------------- AcceptOffer / ExerciseContract input validation ----------------
-
-func TestOTCOptionsHandler_AcceptOffer_BadInput(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.AcceptOffer(context.Background(), &stockpb.AcceptOTCOfferRequest{
-		OfferId: 1, ActorUserId: 7, ActorSystemType: "client",
-		// missing account_id
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
 	}
 }
 

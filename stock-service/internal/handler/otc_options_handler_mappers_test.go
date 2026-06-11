@@ -130,9 +130,6 @@ func TestToOTCOfferProto_Minimal(t *testing.T) {
 		Direction:                   model.OTCDirectionSellInitiated,
 		StockID:                     7,
 		Quantity:                    decimal.NewFromInt(50),
-		StrikePrice:                 decimal.NewFromInt(120),
-		Premium:                     decimal.NewFromInt(300),
-		SettlementDate:              now,
 		Status:                      model.OTCOfferStatusPending,
 		InitiatorOwnerType:          model.OwnerClient,
 		InitiatorOwnerID:            &uid,
@@ -167,7 +164,6 @@ func TestToOTCOfferProto_WithCounterparty(t *testing.T) {
 		InitiatorOwnerID:      &uid,
 		CounterpartyOwnerType: &cpt,
 		CounterpartyOwnerID:   nil,
-		SettlementDate:        now,
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}

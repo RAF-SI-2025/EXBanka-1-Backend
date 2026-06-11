@@ -34,17 +34,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 
 	accountpb "github.com/exbanka/contract/accountpb"
-	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/contract/shared/orderkind"
-	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/stock-service/internal/model"
-	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // MintFromNegotiationInput drives MintContractFromAcceptedNegotiation.
@@ -122,42 +117,17 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 		return nil, ErrOTCAccountsNotBound
 	}
 
-	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: buyerAccountID})
-	if err != nil {
-		return nil, fmt.Errorf("get buyer account: %w", err)
-	}
+	// Seller's account currency denominates the premium; capture it on the
+	// contract (PremiumCurrency/StrikeCurrency). buildAcceptSaga re-fetches both
+	// accounts and re-derives the FX/buyer-side amounts from the contract, so the
+	// saga can be rebuilt identically on crash recovery.
 	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: sellerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
-
-	// Premium denomination follows seller's account currency. Cross-
-	// currency: convert the buyer-side debit to the buyer's currency
-	// via exchange-service; seller credit stays in their currency.
-	premiumSellerCcy := neg.Premium
 	premiumCcy := sellerAcct.CurrencyCode
-	premiumBuyerCcy := premiumSellerCcy
-	buyerCcy := buyerAcct.CurrencyCode
-	if buyerCcy != premiumCcy {
-		if s.exchange == nil {
-			return nil, svcerr.New(codes.Internal, "cross-currency OTC accept requires exchange client")
-		}
-		conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
-			FromCurrency: premiumCcy, ToCurrency: buyerCcy,
-			Amount: premiumSellerCcy.String(),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("FX premium convert: %w", err)
-		}
-		converted, err := decimal.NewFromString(conv.ConvertedAmount)
-		if err != nil {
-			return nil, fmt.Errorf("FX premium convert: parse %q: %w", conv.ConvertedAmount, err)
-		}
-		premiumBuyerCcy = converted
-	}
 
 	sagaID := uuid.NewString()
-	qty := neg.Quantity.IntPart()
 
 	var onBehalfFundPtr *uint64
 	if in.OnBehalfOfFundID != 0 {
@@ -188,88 +158,10 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 		OnBehalfOfFundID: onBehalfFundPtr, // E2: nil for personal, non-nil for fund
 	}
 
-	settleMemo := "OTC premium for contract"
-	idemSeller := ""
-	creditMemo := ""
-
-	state := saga.NewState()
-	state.Set("step:reserve_and_contract:amount", neg.Quantity)
-	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
-	state.Set("step:reserve_premium:currency", buyerCcy)
-	state.Set("step:settle_premium_buyer:amount", premiumBuyerCcy)
-	state.Set("step:settle_premium_buyer:currency", buyerCcy)
-	state.Set("step:credit_premium_seller:amount", premiumSellerCcy)
-	state.Set("step:credit_premium_seller:currency", premiumCcy)
-
-	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(saga.Step{
-			Name: saga.StepReserveAndContract,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				if err := s.contracts.Create(contract); err != nil {
-					return err
-				}
-				// THIS is the seller-can-deliver check + lock. Reserves
-				// the underlying shares on the seller's holding; fails
-				// if the seller no longer has enough free shares.
-				if _, err := s.holdingRes.ReserveForOTCContract(ctx, sellerOwnerType, sellerOwnerID, "stock", parent.StockID, contract.ID, qty); err != nil {
-					_ = s.contracts.Delete(contract.ID)
-					return err
-				}
-				settleMemo = fmt.Sprintf("OTC premium for contract #%d (negotiation #%d)", contract.ID, neg.ID)
-				idemSeller = fmt.Sprintf("otc-accept-neg-%d-seller", contract.ID)
-				creditMemo = fmt.Sprintf("OTC premium credit for contract #%d", contract.ID)
-				return nil
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, _ = s.holdingRes.ReleaseForOTCContract(ctx, contract.ID)
-				return s.contracts.Delete(contract.ID)
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepReservePremium,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				// THIS is the buyer-has-cash check + lock. Reserves
-				// the premium on the buyer's account; fails if balance
-				// is insufficient.
-				_, e := s.accounts.ReserveFunds(ctx, buyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium), orderkind.OTCPremium)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReleaseReservation(ctx, contract.ID,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium)+":compensate", orderkind.OTCPremium)
-				return e
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepSettlePremiumBuyer,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				// order_transaction_id MUST be globally unique (account-service
-				// enforces UNIQUE(order_transaction_id) on the settlements
-				// table). A constant like literal 1 collides with the first-ever
-				// settlement and silently no-ops every later OTC settle (buyer
-				// never debited, seller still credited → money created). Derive
-				// it from the saga id so it is unique AND deterministic on retry.
-				settleTxnID := computeSettleSeq(sagaID, contract.ID, 0)
-				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, settleTxnID, premiumBuyerCcy, settleMemo,
-					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer), orderkind.OTCPremium)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, premiumBuyerCcy,
-					fmt.Sprintf("Compensating OTC premium #%d", contract.ID),
-					fmt.Sprintf("otc-accept-neg-%d-comp-buyer", contract.ID))
-				return e
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepCreditPremiumSeller,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
-				return e
-			},
-		})
-
+	sg, state, err := s.buildAcceptSaga(ctx, sagaID, contract)
+	if err != nil {
+		return nil, err
+	}
 	if err := sg.Execute(ctx, state); err != nil {
 		return nil, err
 	}

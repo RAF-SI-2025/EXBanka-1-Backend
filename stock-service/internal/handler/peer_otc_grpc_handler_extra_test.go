@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
@@ -92,50 +94,103 @@ func (f *fakeReserver) ExerciseBuyerCreditForPeerOption(_ context.Context, _ uin
 // GetPublicStocks
 // ---------------------------------------------------------------------------
 
-// TestPeerOTC_GetPublicStocks_HappyPath asserts the /public-stock catalog
-// publishes the STANDARD SI-TX participant id form (sellerIDForOwner): a
-// client-held holding surfaces as "client-<ownerId>" and a bank-held holding
-// as "bank" — the SAME opaque form parseSellerOwner accepts inbound on
-// /negotiations. The legacy bare-numeric owner id ("7"/"0") must NEVER appear
-// on the wire (it could not be addressed back; spec §2.3 ForeignBankId.id).
-func TestPeerOTC_GetPublicStocks_HappyPath(t *testing.T) {
-	h, _, _, holdings := newPeerOtcHandler(t)
-	uid := uint64(7)
-	holdings.rows = []model.Holding{
-		{OwnerType: model.OwnerClient, OwnerID: &uid, Ticker: "AAPL", PublicQuantity: 5},
-		{OwnerType: model.OwnerBank, OwnerID: nil, Ticker: "MSFT", PublicQuantity: 3},
+// seedPeerOffer inserts an OTCOffer into the handler test DB, filling the
+// required NOT-NULL columns with sane defaults so a caller need only set the
+// discriminating fields (owner, direction, status, public/private, routing).
+// db.Create runs BeforeCreate (stamps routing→Local) and BeforeSave (validates
+// the owner pair), exactly as production inserts do.
+func seedPeerOffer(t *testing.T, db *gorm.DB, o *model.OTCOffer) {
+	t.Helper()
+	if o.StockID == 0 {
+		o.StockID = 1
 	}
-	resp, err := h.GetPublicStocks(context.Background(), &stockpb.GetPublicStocksRequest{})
-	if err != nil {
-		t.Fatalf("err: %v", err)
+	if o.Quantity.IsZero() {
+		o.Quantity = decimal.NewFromInt(1)
 	}
-	if len(resp.GetStocks()) != 2 {
-		t.Fatalf("expected 2 stocks, got %d", len(resp.GetStocks()))
+	if o.LastModifiedByPrincipalType == "" {
+		o.LastModifiedByPrincipalType = "client"
 	}
-	first := resp.GetStocks()[0]
-	if first.GetOwnerId().GetId() != "client-7" {
-		t.Errorf("first owner id = %q want client-7", first.GetOwnerId().GetId())
-	}
-	second := resp.GetStocks()[1]
-	if second.GetOwnerId().GetId() != "bank" {
-		t.Errorf("bank-owned should map to \"bank\", got %q", second.GetOwnerId().GetId())
-	}
-	// Hard invariant: a bare numeric owner id must never reach the wire — it
-	// cannot be addressed back via /negotiations (parseSellerOwner rejects it).
-	for _, s := range resp.GetStocks() {
-		if id := s.GetOwnerId().GetId(); id == "7" || id == "0" {
-			t.Errorf("bare numeric owner id %q leaked onto the SI-TX wire", id)
-		}
-	}
+	require.NoError(t, db.Create(o).Error)
 }
 
-func TestPeerOTC_GetPublicStocks_ListErr(t *testing.T) {
-	h, _, _, holdings := newPeerOtcHandler(t)
-	holdings.err = errors.New("db down")
+// TestGetPublicStocks_ServesOptionOffers asserts the peer /public-stock catalog
+// now publishes our OPEN, sell-initiated, public, non-private, LOCAL option
+// offers (the optionable inventory peers negotiate options off) instead of the
+// holdings table — one seller entry per (owner, ticker). The seller id uses the
+// conformant SI-TX form (composePeerSellerID): a client offer → "client-<n>".
+func TestGetPublicStocks_ServesOptionOffers(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t)
+	uid := uint64(7)
+
+	// The one offer that MUST be published.
+	seedPeerOffer(t, db, &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid,
+		Direction: model.OTCDirectionSellInitiated, Ticker: "OPK",
+		Quantity: decimal.NewFromInt(75), Status: model.OTCOfferStatusOpen,
+		Public: true,
+	})
+
+	// Exclusions — none of these may surface on /public-stock:
+	//   buy_initiated  — poster is a BUYER (seller-centric discovery only)
+	seedPeerOffer(t, db, &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid,
+		Direction: model.OTCDirectionBuyInitiated, Ticker: "BUYT",
+		Status: model.OTCOfferStatusOpen, Public: true,
+	})
+	//   private        — only visible to a named bank, never on /public-stock
+	seedPeerOffer(t, db, &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid,
+		Direction: model.OTCDirectionSellInitiated, Ticker: "PRIV",
+		Status: model.OTCOfferStatusOpen, Public: true, Private: true,
+	})
+	//   remote (local=false) — a peer's row folded in; never re-published as ours
+	remoteNative := "ext-remote-1"
+	seedPeerOffer(t, db, &model.OTCOffer{
+		RoutingNumber:      222, // != OwnRouting(111) ⇒ BeforeCreate stamps Local=false
+		NativeID:           &remoteNative,
+		InitiatorOwnerType: model.OwnerBank,
+		Direction:          model.OTCDirectionSellInitiated, Ticker: "REMT",
+		Status: model.OTCOfferStatusOpen, Public: true,
+	})
+	//   consumed       — terminal status, no longer accepting negotiations
+	seedPeerOffer(t, db, &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid,
+		Direction: model.OTCDirectionSellInitiated, Ticker: "CONS",
+		Status: model.OTCOfferStatusConsumed, Public: true,
+	})
+
+	resp, err := h.GetPublicStocks(context.Background(), &stockpb.GetPublicStocksRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Stocks, 1)
+	require.Equal(t, "OPK", resp.Stocks[0].Ticker)
+	require.Equal(t, int64(75), resp.Stocks[0].Amount)
+	require.Equal(t, "client-7", resp.Stocks[0].OwnerId.Id)
+	require.Equal(t, int64(111), resp.Stocks[0].OwnerId.RoutingNumber)
+}
+
+// TestGetPublicStocks_SkipsNonConformantSeller asserts a bank offer with no
+// acting employee (composePeerSellerID == "") is dropped rather than published
+// with an empty / un-addressable seller id.
+func TestGetPublicStocks_SkipsNonConformantSeller(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t)
+	seedPeerOffer(t, db, &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerBank, // bank owner, no ActingEmployeeID ⇒ ""
+		Direction:          model.OTCDirectionSellInitiated, Ticker: "NOID",
+		Status: model.OTCOfferStatusOpen, Public: true,
+	})
+	resp, err := h.GetPublicStocks(context.Background(), &stockpb.GetPublicStocksRequest{})
+	require.NoError(t, err)
+	require.Empty(t, resp.Stocks)
+}
+
+// TestGetPublicStocks_ListErr asserts a list error from the offer reader surfaces
+// as codes.Internal. Dropping the otc_offers table forces the underlying query
+// to fail with the real repository.
+func TestGetPublicStocks_ListErr(t *testing.T) {
+	h, db, _, _ := newPeerOtcHandler(t)
+	require.NoError(t, db.Migrator().DropTable(&model.OTCOffer{}))
 	_, err := h.GetPublicStocks(context.Background(), &stockpb.GetPublicStocksRequest{})
-	if status.Code(err) != codes.Internal {
-		t.Errorf("expected Internal, got %v", err)
-	}
+	require.Equal(t, codes.Internal, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------

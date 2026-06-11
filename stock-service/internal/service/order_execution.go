@@ -40,6 +40,11 @@ type OrderExecutionEngine struct {
 	fillHandler FillHandler // processes fills (holdings + account)
 	mu          sync.Mutex
 	activeJobs  map[uint64]context.CancelFunc // orderID -> cancel
+	// wakeCh is a broadcast channel every order goroutine selects on while it
+	// waits between portions. WakeAll closes-and-replaces it so all sleeping
+	// goroutines wake immediately and re-evaluate (used when testing mode is
+	// enabled so existing orders fill at once instead of finishing their wait).
+	wakeCh chan struct{}
 }
 
 // NewOrderExecutionEngine constructs the engine. baseCtx MUST be a long-lived
@@ -65,6 +70,45 @@ func NewOrderExecutionEngine(
 		producer:    producer,
 		fillHandler: fillHandler,
 		activeJobs:  make(map[uint64]context.CancelFunc),
+		wakeCh:      make(chan struct{}),
+	}
+}
+
+// currentWake returns the live broadcast channel under the lock.
+func (e *OrderExecutionEngine) currentWake() chan struct{} {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.wakeCh
+}
+
+// testingModeEnabled reports the current global testing-mode setting.
+func (e *OrderExecutionEngine) testingModeEnabled() bool {
+	if e.settingRepo == nil {
+		return false
+	}
+	v, _ := e.settingRepo.Get("testing_mode")
+	return v == "true"
+}
+
+// WakeAll wakes every in-flight order goroutine so it re-evaluates immediately,
+// and (re)starts execution for any active-approved order that has no goroutine.
+// Called when testing mode is switched on so existing unfilled orders fill at
+// once — no waiting on the per-order timer. Idempotent and safe to call often.
+func (e *OrderExecutionEngine) WakeAll() {
+	e.mu.Lock()
+	old := e.wakeCh
+	e.wakeCh = make(chan struct{})
+	e.mu.Unlock()
+	close(old) // broadcast: unblocks every goroutine selecting on `old`
+
+	// Resume any approved order that lost (or never had) a goroutine.
+	orders, err := e.orderRepo.ListActiveApproved()
+	if err != nil {
+		log.Printf("WARN: order engine: WakeAll list active orders: %v", err)
+		return
+	}
+	for _, order := range orders {
+		e.StartOrderExecution(e.baseCtx, order.ID) // no-op if already active
 	}
 }
 
@@ -164,39 +208,46 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 			}
 		}
 
-		// Determine portion size
-		var portionSize int64
-		if order.AllOrNone {
-			portionSize = remaining // all at once
-		} else {
-			portionSize = rand.Int63n(remaining) + 1 // random [1, remaining]
-		}
-
-		// Calculate wait time
 		listing, err := e.listingRepo.GetByID(order.ListingID)
 		if err != nil {
 			log.Printf("WARN: order engine: listing %d not found: %v", order.ListingID, err)
 			return
 		}
 
-		// Re-evaluate after-hours against the CURRENT testing-mode setting
-		// rather than the value stamped on the order row at placement
-		// time. When an admin flips testing_mode=true after an order was
-		// queued under real market hours, the stored AfterHours=true
-		// would otherwise add +30 min per portion (bug surfaced
-		// 2026-05-15: old orders don't fill in test mode).
-		afterHours := order.AfterHours
-		if afterHours && e.settingRepo != nil {
-			if v, _ := e.settingRepo.Get("testing_mode"); v == "true" {
-				afterHours = false
-			}
-		}
-		waitSeconds := e.calculateWaitTime(listing.Volume, remaining, afterHours)
+		// Testing mode (admin "testing" toggle) means: fill immediately — the
+		// whole remaining at once, with NO wait — for already-queued and new
+		// orders alike. WakeAll (below) interrupts any in-flight wait so this
+		// re-evaluation happens the instant the toggle is flipped on.
+		testingOn := e.testingModeEnabled()
 
-		select {
-		case <-time.After(time.Duration(waitSeconds) * time.Second):
-		case <-ctx.Done():
-			return
+		// Determine portion size. Under testing mode fill the whole remainder.
+		var portionSize int64
+		if order.AllOrNone || testingOn {
+			portionSize = remaining // all at once
+		} else {
+			portionSize = rand.Int63n(remaining) + 1 // random [1, remaining]
+		}
+
+		// Wait time. Testing mode → 0 (immediate). Otherwise re-evaluate
+		// after-hours against the CURRENT testing-mode setting rather than the
+		// value stamped on the order row at placement time.
+		var waitSeconds int64
+		if !testingOn {
+			waitSeconds = e.calculateWaitTime(listing.Volume, remaining, order.AfterHours)
+		}
+
+		if waitSeconds > 0 {
+			// Interruptible wait: WakeAll closes the broadcast channel so we
+			// re-loop immediately (e.g. testing mode just turned on) rather than
+			// finishing the timer.
+			wake := e.currentWake()
+			select {
+			case <-time.After(time.Duration(waitSeconds) * time.Second):
+			case <-wake:
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 
 		// Execute this portion

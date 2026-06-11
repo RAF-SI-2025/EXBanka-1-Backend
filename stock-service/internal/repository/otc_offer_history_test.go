@@ -2,7 +2,6 @@ package repository
 
 import (
 	"testing"
-	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
@@ -29,9 +28,6 @@ func newHistoryTestDB(t *testing.T) *gorm.DB {
 func seedOffer(t *testing.T, db *gorm.DB, o *model.OTCOffer) {
 	t.Helper()
 	o.Quantity = decimal.NewFromInt(1)
-	o.StrikePrice = decimal.NewFromInt(10)
-	o.Premium = decimal.NewFromInt(1)
-	o.SettlementDate = time.Now().Add(30 * 24 * time.Hour)
 	if err := db.Create(o).Error; err != nil {
 		t.Fatalf("seed: %v", err)
 	}

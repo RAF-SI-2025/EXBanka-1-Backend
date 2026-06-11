@@ -21,7 +21,6 @@ type portfolioSvcFacade interface {
 	ListHoldings(ownerType model.OwnerType, ownerID *uint64, filter service.HoldingFilter) ([]model.Holding, int64, error)
 	GetCurrentPrice(listingID uint64) (decimal.Decimal, error)
 	GetHoldingByID(holdingID uint64) (*model.Holding, error)
-	MakePublic(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error)
 	ExerciseOption(holdingID uint64, ownerType model.OwnerType, ownerID *uint64) (*service.ExerciseResult, error)
 	ListHoldingTransactions(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
 	ExerciseOptionByOptionID(ctx context.Context, optionID uint64, ownerType model.OwnerType, ownerID *uint64, holdingID uint64) (*service.ExerciseResult, error)
@@ -60,8 +59,8 @@ func newPortfolioHandlerForTest(portfolioSvc portfolioSvcFacade, taxSvc taxSvcFa
 // Per-purchase price detail (average_price, current_price, profit) moved
 // to GET /me/holdings/{id}/transactions in Part B so the list stays small
 // and reflects the Part-A rollup (one row per (user, security)).
-// PublicQuantity and AccountID are still populated so the UI can surface
-// "X publicly offered" + the last-used account without a second round-trip.
+// AccountID is still populated so the UI can surface the last-used account
+// without a second round-trip.
 func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHoldingsRequest) (*pb.ListHoldingsResponse, error) {
 	filter := service.HoldingFilter{
 		SecurityType: req.SecurityType,
@@ -80,14 +79,13 @@ func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHolding
 		// Part C: strip average_price / current_price / profit. Use the
 		// Part-B transactions endpoint for per-purchase details.
 		pbHoldings[i] = &pb.Holding{
-			Id:             hld.ID,
-			SecurityType:   hld.SecurityType,
-			Ticker:         hld.Ticker,
-			Name:           hld.Name,
-			Quantity:       hld.Quantity,
-			PublicQuantity: hld.PublicQuantity,
-			AccountId:      hld.AccountID,
-			LastModified:   hld.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			Id:           hld.ID,
+			SecurityType: hld.SecurityType,
+			Ticker:       hld.Ticker,
+			Name:         hld.Name,
+			Quantity:     hld.Quantity,
+			AccountId:    hld.AccountID,
+			LastModified: hld.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 	}
 
@@ -166,38 +164,17 @@ func (h *PortfolioHandler) GetHolding(ctx context.Context, req *pb.GetHoldingReq
 	}
 	return &pb.HoldingWithOwner{
 		Holding: &pb.Holding{
-			Id:             holding.ID,
-			SecurityType:   holding.SecurityType,
-			Ticker:         holding.Ticker,
-			Name:           holding.Name,
-			Quantity:       holding.Quantity,
-			AveragePrice:   holding.AveragePrice.StringFixed(2),
-			PublicQuantity: holding.PublicQuantity,
-			AccountId:      holding.AccountID,
-			LastModified:   holding.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			Id:           holding.ID,
+			SecurityType: holding.SecurityType,
+			Ticker:       holding.Ticker,
+			Name:         holding.Name,
+			Quantity:     holding.Quantity,
+			AveragePrice: holding.AveragePrice.StringFixed(2),
+			AccountId:    holding.AccountID,
+			LastModified: holding.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		},
 		OwnerType: string(holding.OwnerType),
 		OwnerId:   ownerID,
-	}, nil
-}
-
-func (h *PortfolioHandler) MakePublic(ctx context.Context, req *pb.MakePublicRequest) (*pb.Holding, error) {
-	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
-	holding, err := h.portfolioSvc.MakePublic(req.HoldingId, ownerType, ownerID, req.Quantity)
-	if err != nil {
-		return nil, mapPortfolioError(err)
-	}
-
-	return &pb.Holding{
-		Id:             holding.ID,
-		SecurityType:   holding.SecurityType,
-		Ticker:         holding.Ticker,
-		Name:           holding.Name,
-		Quantity:       holding.Quantity,
-		AveragePrice:   holding.AveragePrice.StringFixed(2),
-		PublicQuantity: holding.PublicQuantity,
-		AccountId:      holding.AccountID,
-		LastModified:   holding.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}, nil
 }
 

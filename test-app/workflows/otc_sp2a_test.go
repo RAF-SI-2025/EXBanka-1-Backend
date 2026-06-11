@@ -217,13 +217,10 @@ func TestSP2a_OTCOptions_HasProvenanceFields(t *testing.T) {
 
 	// Create an OTC option listing.
 	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      sellerAcctID,
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "1",
+		"account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("SP-2a: create listing: %v", err)

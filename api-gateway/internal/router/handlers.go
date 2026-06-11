@@ -67,7 +67,6 @@ type Deps struct {
 	SourceAdminClient    stockpb.SourceAdminServiceClient
 	FundClient           stockpb.InvestmentFundServiceClient
 	OTCOptionsClient     stockpb.OTCOptionsServiceClient
-	OTCStockMarketClient stockpb.OTCStockMarketGRPCServiceClient
 	WatchlistClient      stockpb.WatchlistServiceClient
 	PriceAlertClient     stockpb.PriceAlertServiceClient
 	RecurringOrderClient stockpb.RecurringOrderServiceClient
@@ -154,7 +153,6 @@ type Handlers struct {
 	OptionsV2        *handler.OptionsV2Handler
 	Fund             *handler.InvestmentFundHandler
 	OTCOptions       *handler.OTCOptionsHandler
-	OTCStock         *handler.OTCStockHandler
 	PeerTxDispatcher *handler.PeerTxDispatcherHandler
 	Changelog        *handler.ChangelogHandler
 	Watchlist        *handler.WatchlistHandler
@@ -233,7 +231,6 @@ func NewHandlers(d Deps) *Handlers {
 		OptionsV2:        handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
 		Fund:             handler.NewInvestmentFundHandler(d.FundClient),
 		OTCOptions:       handler.NewOTCOptionsHandler(d.OTCOptionsClient, d.SecurityClient, d.AccountClient),
-		OTCStock:         handler.NewOTCStockHandler(d.OTCStockMarketClient, d.AccountClient),
 		PeerTxDispatcher: handler.NewPeerTxDispatcherHandler(tx, d.PeerTxClient, d.OwnBankCode),
 		Changelog:        handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
 		Watchlist:        handler.NewWatchlistHandler(d.WatchlistClient),

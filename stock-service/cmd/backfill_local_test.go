@@ -40,8 +40,6 @@ func TestBackfillLocalDiscriminator(t *testing.T) {
 			StockID:                     1,
 			Ticker:                      "TST",
 			Quantity:                    decimal.NewFromInt(1),
-			StrikePrice:                 decimal.NewFromInt(1),
-			Premium:                     decimal.NewFromInt(1),
 			Status:                      model.OTCOfferStatusOpen,
 			LastModifiedByPrincipalType: "client",
 			LastModifiedByPrincipalID:   1,

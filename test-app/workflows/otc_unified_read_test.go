@@ -101,13 +101,10 @@ func TestSP1_OfferList_HasProvenanceFields(t *testing.T) {
 
 	// Create the listing.
 	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      sellerAcctID,
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "1",
+		"account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("create listing: %v", err)
@@ -205,13 +202,10 @@ func TestSP1_GetOffer_LocalKindAndMeOwner(t *testing.T) {
 	}
 
 	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      sellerAcctID,
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "1",
+		"account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("create listing: %v", err)
@@ -394,13 +388,10 @@ func TestSP1_MyContracts_BuyerIsOwner(t *testing.T) {
 
 	// Seller creates listing.
 	createResp, err := sellerC.POST("/api/v3/me/otc/options", map[string]interface{}{
-		"direction":       "sell_initiated",
-		"ticker":          ticker,
-		"quantity":        "1",
-		"strike_price":    "100",
-		"premium":         "5",
-		"settlement_date": "2030-12-31",
-		"account_id":      sellerAcctID,
+		"direction":  "sell_initiated",
+		"ticker":     ticker,
+		"quantity":   "1",
+		"account_id": sellerAcctID,
 	})
 	if err != nil {
 		t.Fatalf("create listing: %v", err)

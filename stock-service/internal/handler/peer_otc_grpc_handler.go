@@ -35,10 +35,11 @@ type PeerNotifier interface {
 
 // HoldingReader is the subset of HoldingRepository methods that
 // PeerOTCGRPCHandler needs. Decoupled for testability.
-//   - ListPublic backs GetPublicStocks.
 //   - GetByOwnerAndTicker backs CheckSellerCanDeliver.
+//
+// GetPublicStocks no longer reads holdings — it serves our open option offers
+// via OTCOfferReader.ListPublicOptionOffersForPeer (Task C1).
 type HoldingReader interface {
-	ListPublic() ([]model.Holding, error)
 	GetByOwnerAndTicker(ownerType model.OwnerType, ownerID *uint64, securityType, ticker string) (*model.Holding, error)
 }
 
@@ -69,6 +70,17 @@ type LocalSellerValidator interface {
 // authoritatively, regardless of the best-effort cascade timing.
 type LocalParentChecker interface {
 	LocalParentIsOpen(offerID uint64) bool
+	// LocalSellOfferOpenForSeller is the TERMLESS analogue of LocalParentIsOpen:
+	// the /public-stock wire carries no offer id, so a termless bid's parent
+	// native id is "ps:<…>" (non-numeric) or absent and the numeric orphan guard
+	// above is skipped. When WE host the seller, the inbound accept resolves the
+	// listing by its (owner, ticker, sell_initiated) unique key to reject an accept
+	// on a listing already consumed (a prior accept) or cancelled.
+	LocalSellOfferOpenForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) bool
+	// ConsumeLocalSellOfferForSeller flips that listing to consumed once an inbound
+	// accept forms a contract against it — one listing backs exactly one accepted
+	// contract (symmetric with the outbound acceptRemoteNegotiation consume).
+	ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) error
 }
 
 // SellerAccountResolver returns the seller's NOMINATED account NUMBER for a
@@ -92,8 +104,9 @@ type SellerAccountResolver interface {
 
 // PeerOTCGRPCHandler implements stockpb.PeerOTCServiceServer.
 //
-// GetPublicStocks queries the local holdings table for rows flagged
-// public_quantity > 0 and returns them as PeerPublicStock entries.
+// GetPublicStocks serves our OPEN, sell-initiated, public, non-private, LOCAL
+// option offers (the optionable inventory peers negotiate options off) as
+// PeerPublicStock entries — one seller entry per (owner, ticker).
 //
 // Negotiation lifecycle: peers POST/PUT/GET/DELETE on
 // /negotiations/{rid}/{id}; we persist in peer_otc_negotiations.
@@ -154,19 +167,13 @@ type PeerOTCGRPCHandler struct {
 	ownRouting      int64
 	holdingReserver HoldingReserver // optional; nil disables seller-side share locking
 
-	// Phase 6 — cross-bank discovery of OPEN OTC OPTION listings. Wired
-	// via WithOTCOfferReader. When nil, GetPublicOptionOffers returns
+	// Open OTC option offers backing the cross-bank /public-stock catalog.
+	// Wired via WithOTCOfferReader. When nil, GetPublicStocks returns
 	// Unimplemented instead of nil-deref.
-	otcOffers         OTCOfferReader
-	otcOptionCurrency OptionCurrencyResolver
+	otcOffers OTCOfferReader
 
 	// Optional in-app notification producer. nil ⇒ silent (legacy mode).
 	notifier PeerNotifier
-
-	// Optional best-bid / best-ask aggregator (Part A 2026-05-16).
-	// nil ⇒ peer-facing rows omit the new fields (wire-compatible
-	// with peers that don't expect them).
-	bidsAgg AggregateBidsFn
 
 	// capitalGainRepo records the seller's realised P/L on cross-bank
 	// exercise (DEBIT direction). Optional — nil falls back to the
@@ -229,13 +236,6 @@ func (h *PeerOTCGRPCHandler) WithParentChecker(c LocalParentChecker) *PeerOTCGRP
 // the prior participant-id behaviour in place (legacy/test mode).
 func (h *PeerOTCGRPCHandler) WithSellerAccountResolver(r SellerAccountResolver) *PeerOTCGRPCHandler {
 	h.sellerAccountResolver = r
-	return h
-}
-
-// WithBidsAggregator wires the best-bid aggregator used by
-// GetPublicOptionOffers. Returns the handler for chaining.
-func (h *PeerOTCGRPCHandler) WithBidsAggregator(fn AggregateBidsFn) *PeerOTCGRPCHandler {
-	h.bidsAgg = fn
 	return h
 }
 
@@ -305,33 +305,16 @@ func notifDataFromOffer(offer contractsitx.OtcOffer) map[string]string {
 }
 
 // OTCOfferReader is the narrow interface the peer endpoint uses to
-// read open OTC listings. OTCOfferRepository.ListOpenForCache
-// satisfies it.
+// read open OTC listings. *OTCOfferRepository satisfies it.
+//   - ListPublicOptionOffersForPeer backs GetPublicStocks (/public-stock) —
+//     our open sell-initiated public local option offers (the optionable
+//     inventory peers negotiate options off).
+//   - ListOpenForCache is retained for the option-offer cache refresher
+//     (otccache), which consumes the same repository.
 type OTCOfferReader interface {
 	ListOpenForCache(limit int) ([]model.OTCOffer, error)
+	ListPublicOptionOffersForPeer() ([]model.OTCOffer, error)
 }
-
-// OptionCurrencyResolver maps a stockID → currency for the cache row.
-// Defined here (not in otccache/) so the handler doesn't depend on
-// the cache package.
-type OptionCurrencyResolver interface {
-	CurrencyForStock(stockID uint64) (string, error)
-}
-
-// PeerOfferAggregate is the handler-local projection used by
-// GetPublicOptionOffers when populating the per-row best_bid /
-// best_ask / active_chains_count surface.
-type PeerOfferAggregate struct {
-	BestBid     string
-	BestAsk     string
-	ActiveCount int32
-}
-
-// AggregateBidsFn is the narrow dependency GetPublicOptionOffers uses
-// to enrich each row. nil ⇒ those fields stay empty (older-bank-compat).
-// Wired in cmd/main.go as a thin adapter over the repository's typed
-// AggregateActiveBidsByOffer return.
-type AggregateBidsFn func(offerIDs []uint64) (map[uint64]PeerOfferAggregate, error)
 
 func NewPeerOTCGRPCHandler(
 	negRepo *repository.OTCNegotiationRepository,
@@ -357,125 +340,13 @@ func (h *PeerOTCGRPCHandler) SetHoldingReserver(r HoldingReserver) {
 	h.holdingReserver = r
 }
 
-// WithOTCOfferReader wires the Phase-6 cross-bank option-discovery
-// data source. Returns a copy so the caller can chain wire-up calls.
-// When called with a non-nil currency resolver, GetPublicOptionOffers
-// stamps strike/premium currency on each emitted row; otherwise the
-// peer endpoint falls back to "USD".
-func (h *PeerOTCGRPCHandler) WithOTCOfferReader(
-	offers OTCOfferReader, currency OptionCurrencyResolver,
-) *PeerOTCGRPCHandler {
+// WithOTCOfferReader wires the cross-bank option-discovery data source
+// backing the /public-stock catalog. Returns a copy so the caller can
+// chain wire-up calls.
+func (h *PeerOTCGRPCHandler) WithOTCOfferReader(offers OTCOfferReader) *PeerOTCGRPCHandler {
 	cp := *h
 	cp.otcOffers = offers
-	cp.otcOptionCurrency = currency
 	return &cp
-}
-
-// GetPublicOptionOffers serves the peer-facing
-// GET /api/v3/public-option-offers endpoint (Phase 6 cross-bank
-// discovery). Returns this bank's OPEN, undirected option listings —
-// see OTCOfferRepository.ListOpenForCache for the exact filter.
-//
-// PrivateToBankCode honors a per-listing visibility hint: rows marked
-// Private=true are dropped UNLESS PrivateToBankCode equals the
-// requesting peer's X-Bank-Code (stamped by the api-gateway after
-// PeerAuth resolves the inbound credential).
-func (h *PeerOTCGRPCHandler) GetPublicOptionOffers(ctx context.Context, req *stockpb.GetPublicOptionOffersRequest) (*stockpb.GetPublicOptionOffersResponse, error) {
-	if h.otcOffers == nil {
-		return nil, status.Error(codes.Unimplemented, "OTCOfferReader not wired")
-	}
-	rows, err := h.otcOffers.ListOpenForCache(1000)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list open option offers: %v", err)
-	}
-	// Aggregate best-bid / best-ask once for every row in this call
-	// (Part A 2026-05-16). Best-effort: a failed aggregation degrades
-	// to omitting the fields, not failing the peer endpoint.
-	var aggregates map[uint64]PeerOfferAggregate
-	if h.bidsAgg != nil && len(rows) > 0 {
-		ids := make([]uint64, 0, len(rows))
-		for i := range rows {
-			ids = append(ids, rows[i].ID)
-		}
-		if got, aggErr := h.bidsAgg(ids); aggErr != nil {
-			log.Printf("WARN: peer GetPublicOptionOffers: aggregate active bids failed (omitting fields): %v", aggErr)
-		} else {
-			aggregates = got
-		}
-	}
-	caller := req.GetPeerBankCode()
-	out := make([]*stockpb.PeerPublicOptionOffer, 0, len(rows))
-	for i := range rows {
-		o := &rows[i]
-		// Seller-centric discovery (SI-TX §3 / §3.1 / §3.2): only SELLER-side
-		// listings are published cross-bank. A buy_initiated listing's poster is
-		// a BUYER wanting to acquire shares — the protocol has no wire shape for
-		// it (PublicStock lists only `sellers`; POST /negotiations goes "from a
-		// Buyer's bank to a Seller's bank"). Publishing one would mislabel the
-		// buyer-poster as a `sellerId`, inviting peers to bid and inverting roles
-		// on accept/exercise. buy_initiated offers are intra-bank only.
-		if o.Direction == model.OTCDirectionBuyInitiated {
-			continue
-		}
-		// Honor per-listing privacy. Private listings only surface to
-		// the named bank in PrivateToBankCode.
-		if o.Private {
-			if o.PrivateToBankCode == nil || *o.PrivateToBankCode != caller {
-				continue
-			}
-		}
-		sellerID := composePeerSellerID(o)
-		// A non-conformant seller id (legacy/seed bank offer with no acting
-		// employee, or a client offer missing its owner id) cannot be addressed
-		// by a peer's POST /negotiations — its sellerId.id would fail the
-		// ^(client|employee)-\d+$ check. Drop it from public exposure rather
-		// than ever emitting the legacy literal "bank" (or an empty id) on the
-		// wire, which peers reject.
-		if sellerID == "" {
-			log.Printf("WARN: offer %d skipped from public exposure: no conformant seller id", o.ID)
-			continue
-		}
-		currency := "USD"
-		if h.otcOptionCurrency != nil {
-			if c, err := h.otcOptionCurrency.CurrencyForStock(o.StockID); err == nil && c != "" {
-				currency = c
-			}
-		}
-		row := &stockpb.PeerPublicOptionOffer{
-			OfferId: &stockpb.PeerForeignBankId{
-				RoutingNumber: h.ownRouting,
-				Id:            strconv.FormatUint(o.ID, 10),
-			},
-			Ticker:          o.Ticker,
-			Amount:          o.Quantity.IntPart(),
-			StrikePrice:     o.StrikePrice.String(),
-			StrikeCurrency:  currency,
-			Premium:         o.Premium.String(),
-			PremiumCurrency: currency,
-			SettlementDate:  o.SettlementDate.UTC().Format("2006-01-02T15:04:05Z"),
-			SellerId: &stockpb.PeerForeignBankId{
-				RoutingNumber: h.ownRouting,
-				Id:            sellerID,
-			},
-			Direction: o.Direction,
-			CreatedAt: o.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-			LastModifiedBy: &stockpb.PeerForeignBankId{
-				RoutingNumber: h.ownRouting,
-				Id:            sellerID,
-			},
-		}
-		if agg, ok := aggregates[o.ID]; ok {
-			row.ActiveChainsCount = agg.ActiveCount
-			switch o.Direction {
-			case "buy_initiated":
-				row.BestAsk = agg.BestAsk
-			default:
-				row.BestBid = agg.BestBid
-			}
-		}
-		out = append(out, row)
-	}
-	return &stockpb.GetPublicOptionOffersResponse{Offers: out}, nil
 }
 
 // composePeerSellerID builds the conformant SI-TX party id
@@ -534,50 +405,41 @@ func deriveLastModifiedBy(lm contractsitx.ForeignBankId, peerRouting int64) cont
 }
 
 func (h *PeerOTCGRPCHandler) GetPublicStocks(ctx context.Context, req *stockpb.GetPublicStocksRequest) (*stockpb.GetPublicStocksResponse, error) {
-	rows, err := h.holdings.ListPublic()
+	if h.otcOffers == nil {
+		return nil, status.Error(codes.Unimplemented, "OTCOfferReader not wired")
+	}
+	// Cross-bank discovery now serves our OPEN, sell-initiated, public,
+	// non-private, LOCAL option offers — the optionable inventory peers
+	// negotiate options off (Task C1) — instead of the holdings table. The
+	// partial unique index guarantees one open sell offer per (owner, ticker,
+	// direction), so the result is already one seller entry per (owner, ticker).
+	rows, err := h.otcOffers.ListPublicOptionOffersForPeer()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list public holdings: %v", err)
+		return nil, status.Errorf(codes.Internal, "list public option offers: %v", err)
 	}
 	out := make([]*stockpb.PeerPublicStock, 0, len(rows))
 	for i := range rows {
-		hd := rows[i]
-		// Publish the STANDARD SI-TX participant id (sellerIDForOwner):
-		// "client-<ownerId>" for a client-held holding, "bank" for a
-		// bank-held one. This is the SAME opaque form parseSellerOwner
-		// accepts inbound on POST /negotiations, so a discovering bank can
-		// echo our catalog's seller id back verbatim and have it resolve.
-		// We MUST NOT emit the bare numeric owner id (the prior "7"/"0"
-		// form): per SI-TX §2.3 the id is opaque and other banks return it
-		// verbatim, but the bare numeric could not be addressed back here.
-		ownerID := sellerIDForOwner(hd.OwnerType, hd.OwnerID)
-		if ownerID == "" {
-			// Defensive: a malformed row (client owner with nil id) has no
-			// addressable seller id; skip rather than publish an empty one.
-			log.Printf("WARN: public stock holding %d skipped: no conformant seller id (owner_type=%q)", hd.ID, hd.OwnerType)
+		o := &rows[i]
+		// Publish the conformant SI-TX seller id (composePeerSellerID):
+		// "client-<n>" / "employee-<n>", NEVER the legacy literal "bank" — the
+		// id form a discovering bank echoes back verbatim on POST /negotiations
+		// (SI-TX §2.3).
+		sellerID := composePeerSellerID(o)
+		if sellerID == "" {
+			// A legacy/seed bank offer with no acting employee (or a client offer
+			// with no owner id) has no addressable seller id; skip rather than
+			// ever publishing an empty / bare-numeric id a peer cannot address back.
+			log.Printf("WARN: public stock offer %d skipped: no conformant seller id", o.ID)
 			continue
 		}
-		// Phase 11 — surface the seller's set ask price + the listing's
-		// real currency. Fallbacks: AveragePrice (weighted-avg cost)
-		// for legacy rows without an explicit ask; "USD" if the
-		// currency resolver isn't wired or the lookup fails.
-		price := "0"
-		if hd.PublicPrice.Sign() > 0 {
-			price = hd.PublicPrice.String()
-		} else if hd.AveragePrice.Sign() > 0 {
-			price = hd.AveragePrice.String()
-		}
-		currency := "USD"
-		if h.otcOptionCurrency != nil {
-			if c, err := h.otcOptionCurrency.CurrencyForStock(hd.SecurityID); err == nil && c != "" {
-				currency = c
-			}
-		}
+		// The /public-stock wire shape carries ONLY seller + amount (the gateway
+		// groups by ticker). A termless option offer has no preset price/currency
+		// in this discovery surface, so PricePerStock/Currency are intentionally
+		// left unset — nothing downstream reads them for /public-stock.
 		out = append(out, &stockpb.PeerPublicStock{
-			OwnerId:       &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: ownerID},
-			Ticker:        hd.Ticker,
-			Amount:        hd.PublicQuantity,
-			PricePerStock: price,
-			Currency:      currency,
+			OwnerId: &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: sellerID},
+			Ticker:  o.Ticker,
+			Amount:  o.Quantity.IntPart(),
 		})
 	}
 	return &stockpb.GetPublicStocksResponse{Stocks: out}, nil
@@ -964,6 +826,25 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		}
 	}
 
+	// Termless orphan-accept guard. The /public-stock wire carries no offer id, so
+	// a termless bid's parent native id is non-numeric ("ps:…") or absent and the
+	// numeric guard above is skipped. When WE host the seller, resolve the listing
+	// by its (owner, ticker, sell_initiated) unique key and reject an accept once
+	// the listing is no longer open — the seller already consumed it (a prior
+	// accept) or cancelled it. Without this an inbound accept of a still-"ongoing"
+	// sibling bid forms a second contract and over-commits the seller's shares, or
+	// forms a contract + moves premium on a withdrawn listing. Symmetric with the
+	// OUTBOUND acceptRemoteNegotiation gate. Skipped when ticker is unknown so a
+	// malformed mirror never blocks a legitimate accept.
+	if h.parentChecker != nil && sellerRouting == h.ownRouting && offer.Ticker != "" {
+		if ot, oid, perr := parseSellerOwner(sellerID); perr == nil {
+			if !h.parentChecker.LocalSellOfferOpenForSeller(ot, oid, offer.Ticker) {
+				return nil, status.Error(codes.FailedPrecondition,
+					"listing is no longer open (cancelled or already consumed)")
+			}
+		}
+	}
+
 	// Atomically claim the negotiation for acceptance (ongoing → accepted) BEFORE
 	// composing/dispatching the option-formation SI-TX. This serialises concurrent
 	// accepts of the same negotiation: only one wins the compare-and-set and
@@ -986,7 +867,13 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 	// 3. Seller debits 1× OptionDescription (asset)
 	// 4. Buyer credits 1× OptionDescription
 	optDesc := contractsitx.OptionDescription{
-		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: h.ownRouting, ID: foreignID},
+		// The option pseudo-account always lives in the SELLER's bank (SI-TX §7), so
+		// the negotiationId authority is the seller's routing — NOT ours. These match
+		// when WE host as seller (Direction 1: sellerRouting == ownRouting), but when
+		// the seller is a peer (Direction 2: our bank is the buyer) using ownRouting
+		// made the seller's bank vote NO: UNACCEPTABLE_ASSET (it can't resolve an
+		// option keyed to our routing).
+		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: sellerRouting, ID: foreignID},
 		Stock:          contractsitx.StockDescription{Ticker: offer.Ticker},
 		PricePerUnit:   contractsitx.MonetaryValue{Amount: contractsitx.DecimalNumber{Decimal: offer.PricePerStock}, Currency: offer.Currency},
 		SettlementDate: offer.SettlementDate,
@@ -1078,6 +965,24 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		}
 		return nil, status.Errorf(codes.Internal, "dispatch: %v", err)
 	}
+
+	// Settlement-outcome gate. InitiateOutboundTxWithPostings returns the SI-TX
+	// row's terminal status. "rolled_back"/"failed" means a bank voted NO (e.g.
+	// genuine insufficiency) and NO contract formed. Revert the acceptance claim
+	// (accepted → ongoing) so the chain can be re-accepted, record NO accept
+	// revision, do NOT consume the listing, and return an error — so the OUTBOUND
+	// acceptRemoteNegotiation fails at its HTTP-code guard and the seller KEEPS
+	// their listing (closes the "listing deleted, no contract, money error" bug).
+	// committed/committing/pending all proceed (the contract has/will settle).
+	if txStatus := resp.GetStatus(); txStatus == "rolled_back" || txStatus == "failed" {
+		if _, rerr := h.negRepo.CompareAndSetRemoteNegStatus(peerRouting, req.GetNegotiationId().GetId(), "accepted", "ongoing"); rerr != nil {
+			log.Printf("WARN: peer-otc accept: failed to revert claim for %s/%s after %s settlement: %v",
+				req.GetPeerBankCode(), req.GetNegotiationId().GetId(), txStatus, rerr)
+		}
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"cross-bank settlement did not commit (%s): no contract formed", txStatus)
+	}
+
 	// Negotiation was already claimed as "accepted" before dispatch (the
 	// concurrency guard); no post-dispatch status update needed.
 	//
@@ -1098,6 +1003,22 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 	if aerr := h.negRepo.AppendRemoteRevision(peerRouting, foreignID, acceptRev); aerr != nil {
 		log.Printf("WARN: peer-otc accept: failed to record accept revision for %s/%s: %v",
 			req.GetPeerBankCode(), req.GetNegotiationId().GetId(), aerr)
+	}
+
+	// Consume the LOCAL listing this contract formed against (we host the seller):
+	// one listing backs exactly one accepted contract. The termless /public-stock
+	// wire carries no offer id, so the listing is resolved by the seller's
+	// (owner, ticker, sell_initiated) key. Best-effort — the contract already
+	// formed on both banks, so a consume failure must not fail the accept (the
+	// guard above is the authoritative pre-form gate; this just retires the
+	// listing). Symmetric with the OUTBOUND acceptRemoteNegotiation consume.
+	if h.parentChecker != nil && sellerRouting == h.ownRouting && offer.Ticker != "" {
+		if ot, oid, perr := parseSellerOwner(sellerID); perr == nil {
+			if cerr := h.parentChecker.ConsumeLocalSellOfferForSeller(ot, oid, offer.Ticker); cerr != nil {
+				log.Printf("WARN: peer-otc accept: consume local listing failed for %s/%s: %v",
+					req.GetPeerBankCode(), req.GetNegotiationId().GetId(), cerr)
+			}
+		}
 	}
 
 	// Seller-side notification: this bank is the SELLER's bank (the

@@ -45,6 +45,7 @@ func TestRegistry_AllPushTypesPresent(t *testing.T) {
 		"PRICE_ALERT_TRIGGERED",
 		"WATCHLIST_PRICE_MOVE",
 		"LIMIT_CHANGED", "OTC_CONTRACT_EXPIRING_SOON",
+		"MOBILE_ACTIVATION_REQUESTED",
 	}
 	for _, typ := range want {
 		if _, ok := Get(typ, "push"); !ok {

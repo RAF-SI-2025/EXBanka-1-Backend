@@ -44,8 +44,6 @@ func sampleRemoteOffer(peerRouting int64, nativeID string) *model.OTCOffer {
 	nid := nativeID
 	bankCode := "222"
 	sellerID := "employee-1"
-	strikeCcy := "USD"
-	premiumCcy := "USD"
 	return &model.OTCOffer{
 		RoutingNumber:               peerRouting,
 		NativeID:                    &nid,
@@ -55,11 +53,6 @@ func sampleRemoteOffer(peerRouting int64, nativeID string) *model.OTCOffer {
 		Direction:                   model.OTCDirectionSellInitiated,
 		Ticker:                      "BAC",
 		Quantity:                    decimal.NewFromInt(7),
-		StrikePrice:                 decimal.RequireFromString("100"),
-		Premium:                     decimal.RequireFromString("10"),
-		StrikeCurrency:              &strikeCcy,
-		PremiumCurrency:             &premiumCcy,
-		SettlementDate:              time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC),
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "system",
 		LastModifiedByPrincipalID:   0,
@@ -80,7 +73,9 @@ func TestUpsertRemote_IdempotentAndStableID(t *testing.T) {
 	}
 
 	o := sampleRemoteOffer(222, "1")
-	o.Premium = decimal.RequireFromString("12")
+	// Mutate a still-upserted column (quantity is in UpsertRemote's DoUpdates
+	// set) to prove the re-upsert refreshes the row under the same surrogate id.
+	o.Quantity = decimal.NewFromInt(12)
 	id2, err := r.UpsertRemote(o, now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
@@ -93,8 +88,8 @@ func TestUpsertRemote_IdempotentAndStableID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if !got.Premium.Equal(decimal.RequireFromString("12")) {
-		t.Fatalf("premium not updated: %s", got.Premium)
+	if !got.Quantity.Equal(decimal.NewFromInt(12)) {
+		t.Fatalf("quantity not updated: %s", got.Quantity)
 	}
 	if got.Status != model.OTCOfferStatusOpen {
 		t.Fatalf("status = %q, want open", got.Status)
@@ -159,9 +154,6 @@ func TestReconcileRemoteNotSeen_FlipsOnlyNotSeenAndScopedToPeer(t *testing.T) {
 		StockID:                     1,
 		Ticker:                      "AAA",
 		Quantity:                    decimal.NewFromInt(1),
-		StrikePrice:                 decimal.NewFromInt(1),
-		Premium:                     decimal.NewFromInt(1),
-		SettlementDate:              now.AddDate(0, 1, 0),
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   5,
@@ -230,43 +222,10 @@ func TestReconcileRemoteNotSeen_EmptySeenCancelsAllForPeer(t *testing.T) {
 	}
 }
 
-func TestUpsertRemote_SetsHasPresetTerms(t *testing.T) {
-	db := newRemoteOfferTestDB(t)
-	r := NewOTCOfferRepository(db)
-	ncy := "USD"
-	native := "peer-offer-1"
-	row := &model.OTCOffer{
-		RoutingNumber:               222,
-		NativeID:                    &native,
-		InitiatorOwnerType:          model.OwnerBank,
-		Direction:                   model.OTCDirectionSellInitiated,
-		Ticker:                      "AAPL",
-		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromInt(150),
-		Premium:                     decimal.NewFromInt(2),
-		StrikeCurrency:              &ncy,
-		PremiumCurrency:             &ncy,
-		SettlementDate:              time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC),
-		HasPresetTerms:              true,
-		LastModifiedByPrincipalType: "system",
-	}
-	id, err := r.UpsertRemote(row, time.Now().UTC())
-	if err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
-	got, err := r.GetRemoteByID(id)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if !got.HasPresetTerms {
-		t.Fatalf("HasPresetTerms = false, want true")
-	}
-}
-
 func TestReconcile_NamespaceScoped(t *testing.T) {
 	db := newRemoteOfferTestDB(t)
 	r := NewOTCOfferRepository(db)
-	mk := func(native string, preset bool) uint64 {
+	mk := func(native string) uint64 {
 		n := native
 		id, err := r.UpsertRemote(&model.OTCOffer{
 			RoutingNumber:               222,
@@ -275,7 +234,6 @@ func TestReconcile_NamespaceScoped(t *testing.T) {
 			Direction:                   model.OTCDirectionSellInitiated,
 			Ticker:                      "AAPL",
 			Quantity:                    decimal.NewFromInt(1),
-			HasPresetTerms:              preset,
 			LastModifiedByPrincipalType: "system",
 		}, time.Now().UTC())
 		if err != nil {
@@ -283,8 +241,8 @@ func TestReconcile_NamespaceScoped(t *testing.T) {
 		}
 		return id
 	}
-	optID := mk("peer-offer-1", true)
-	shellID := mk("ps:222:client-5:AAPL", false)
+	optID := mk("peer-offer-1")
+	shellID := mk("ps:222:client-5:AAPL")
 
 	// Reconcile option-offers namespace (non-shell): should cancel optID but spare shellID.
 	if _, err := r.ReconcileRemoteNotSeen(222, nil); err != nil {
@@ -305,11 +263,10 @@ func TestReconcile_NamespaceScoped(t *testing.T) {
 	}
 }
 
-// TestUpsertRemote_ShellPersistsFalse guards against the GORM default-skip bug:
-// HasPresetTerms is bool with gorm tag `default:true`, so GORM omits the
-// zero-value false from the INSERT and the DB DEFAULT (true) would apply.
-// UpsertRemoteShell fixes this by forcing has_preset_terms after the upsert.
-func TestUpsertRemote_ShellPersistsFalse(t *testing.T) {
+// TestUpsertRemoteShell_RoundTrips verifies a /public-stock shell row upserts
+// and resolves under a stable surrogate id. Shells are termless like every
+// other remote row (UpsertRemoteShell is a named alias over UpsertRemote).
+func TestUpsertRemoteShell_RoundTrips(t *testing.T) {
 	db := newRemoteOfferTestDB(t)
 	r := NewOTCOfferRepository(db)
 	native := "ps:222:client-5:AAPL"
@@ -324,7 +281,6 @@ func TestUpsertRemote_ShellPersistsFalse(t *testing.T) {
 		Direction:                   model.OTCDirectionSellInitiated,
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(1),
-		HasPresetTerms:              false,
 		LastModifiedByPrincipalType: "system",
 	}
 	id, err := r.UpsertRemoteShell(row, time.Now().UTC())
@@ -335,8 +291,11 @@ func TestUpsertRemote_ShellPersistsFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.HasPresetTerms {
-		t.Fatalf("shell persisted HasPresetTerms=true, want false (GORM default-skip bug)")
+	if got.NativeID == nil || *got.NativeID != native {
+		t.Fatalf("native_id = %v, want %q", got.NativeID, native)
+	}
+	if got.Status != model.OTCOfferStatusOpen {
+		t.Fatalf("status = %q, want open", got.Status)
 	}
 }
 
@@ -367,9 +326,6 @@ func TestGetRemoteByID_RemoteRowAndLocalIsNotFound(t *testing.T) {
 		StockID:                     1,
 		Ticker:                      "AAA",
 		Quantity:                    decimal.NewFromInt(1),
-		StrikePrice:                 decimal.NewFromInt(1),
-		Premium:                     decimal.NewFromInt(1),
-		SettlementDate:              now.AddDate(0, 1, 0),
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   5,

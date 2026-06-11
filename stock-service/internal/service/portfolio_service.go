@@ -888,9 +888,6 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 	}
 
 	holding.Quantity -= txn.Quantity
-	if holding.PublicQuantity > holding.Quantity {
-		holding.PublicQuantity = holding.Quantity
-	}
 
 	if holding.Quantity == 0 {
 		if err := s.holdingRepo.Delete(holding.ID); err != nil {
@@ -972,49 +969,10 @@ func (s *PortfolioService) GetCurrentPrice(listingID uint64) (decimal.Decimal, e
 	return listing.Price, nil
 }
 
-// MakePublic sets a number of shares as publicly available for OTC trading.
-// Ownership is enforced on (owner_type, owner_id) so cross-owner ID collisions
-// cannot mutate another owner's holding.
-func (s *PortfolioService) MakePublic(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error) {
-	holding, err := s.holdingRepo.GetByID(holdingID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("holding not found: %w", ErrHoldingNotFound)
-		}
-		return nil, err
-	}
-	if holding.OwnerType != ownerType || !ownerIDEqual(holding.OwnerID, ownerID) {
-		return nil, fmt.Errorf("holding does not belong to user: %w", ErrHoldingOwnership)
-	}
-	if holding.SecurityType != "stock" {
-		return nil, fmt.Errorf("only stocks can be made public for OTC trading: %w", ErrPublicOnlyStocks)
-	}
-	// Fix R3 (2026-05-16): cap PublicQuantity at the FREE balance
-	// (Quantity - ReservedQuantity), not just total Quantity. Previously
-	// a user with 100 shares + 50 reserved against an open OTC option
-	// contract could publish all 100; a downstream OTC stock fill would
-	// then try to debit 100 free shares (only 50 actually free) and the
-	// settle saga would fail mid-fill. Reject up front.
-	available := holding.Quantity - holding.ReservedQuantity
-	if available < 0 {
-		available = 0
-	}
-	if quantity < 0 || quantity > available {
-		return nil, fmt.Errorf("invalid public quantity (available %d): %w", available, ErrInvalidPublicQuantity)
-	}
-
-	holding.PublicQuantity = quantity
-
-	if err := s.holdingRepo.Update(holding); err != nil {
-		return nil, err
-	}
-	return holding, nil
-}
-
 // GetHoldingByID returns the raw Holding row for the gRPC GetHolding
 // RPC. Used by api-gateway for the CLAUDE.md ownership pre-check
-// before mutating ops like ExerciseOption / MakePublic (Fix R5,
-// 2026-05-16). Returns ErrHoldingNotFound if missing.
+// before mutating ops like ExerciseOption (Fix R5, 2026-05-16).
+// Returns ErrHoldingNotFound if missing.
 func (s *PortfolioService) GetHoldingByID(holdingID uint64) (*model.Holding, error) {
 	holding, err := s.holdingRepo.GetByID(holdingID)
 	if err != nil {
@@ -1145,9 +1103,6 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 
 		// Decrease stock holding
 		stockHolding.Quantity -= sharesAffected
-		if stockHolding.PublicQuantity > stockHolding.Quantity {
-			stockHolding.PublicQuantity = stockHolding.Quantity
-		}
 
 		if stockHolding.Quantity == 0 {
 			if err := s.holdingRepo.Delete(stockHolding.ID); err != nil {

@@ -2,9 +2,27 @@ package handler
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
+
+// OfferTerms is the string-formatted projection of one set of option terms
+// (strike / premium / settlement_date) re-sourced onto the unified offer DTO
+// per viewer (D2). Decimals are StringFixed(2); the date is RFC3339 UTC — the
+// same shape the option cache uses for the listing-derived fields it replaces.
+type OfferTerms struct {
+	StrikePrice    string
+	Premium        string
+	SettlementDate string
+}
+
+// OwnerLatestCounterFn returns the acting OWNER's most recent counter terms on
+// a LOCAL offer (the offer-row term projection for me_owner==true rows), or nil
+// when that principal never authored a revision on the offer. principalType is
+// the revision-author key ("client" | "employee"); principalID is its id. Wired
+// in cmd/main.go over OTCNegotiationRepository.LatestRevisionByAuthorForOffer.
+type OwnerLatestCounterFn func(offerID uint64, principalType string, principalID uint64) (*OfferTerms, error)
 
 // MyNegotiationLister fetches the AUTHENTICATED caller's own negotiation chains
 // (as BIDDER) so the offer-read paths (ListUnifiedOptionOffers + GetOffer) can
@@ -24,10 +42,14 @@ type MyNegotiationLister interface {
 	ListRemoteNegByBankParty(ownRouting int64, role string) ([]model.OTCNegotiation, error)
 }
 
-// myNegStamp is the caller's resolved chain on one offer.
+// myNegStamp is the caller's resolved chain on one offer. It carries the chain
+// id + status (for the my_negotiation_id/status stamp) AND that chain's CURRENT
+// terms (string-formatted), so the BIDDER branch of the offer-row term
+// projection can show the caller their own position without a second lookup (D2).
 type myNegStamp struct {
 	id     uint64
 	status string
+	terms  OfferTerms
 }
 
 // negStatusRank ranks a chain status for the active-chain tie-break. A LOWER
@@ -72,7 +94,15 @@ func pickActiveChain(chains []*model.OTCNegotiation) myNegStamp {
 	if best == nil {
 		return myNegStamp{}
 	}
-	return myNegStamp{id: best.ID, status: best.Status}
+	return myNegStamp{
+		id:     best.ID,
+		status: best.Status,
+		terms: OfferTerms{
+			StrikePrice:    best.StrikePrice.StringFixed(2),
+			Premium:        best.Premium.StringFixed(2),
+			SettlementDate: best.SettlementDate.UTC().Format(time.RFC3339),
+		},
+	}
 }
 
 // remoteParentKey is the lookup key for a REMOTE offer / remote chain's parent:

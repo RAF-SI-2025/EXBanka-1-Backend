@@ -58,6 +58,23 @@ func TestSetupV3_NoLimiterWhenRedisNil(t *testing.T) {
 	}
 }
 
+// TestPublicOptionOffers_RouteRemoved asserts the proprietary cross-bank
+// /public-option-offers endpoint is gone: cross-bank option discovery now
+// happens only via /public-stock. The route must no longer be mounted, so a
+// request resolves to 404 (not 401 from PeerAuthMW).
+func TestPublicOptionOffers_RouteRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := NewRouter()
+	h := NewHandlers(Deps{OwnBankCode: "111"})
+	SetupV3(r, h)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v3/cross-bank-protocol/public-option-offers", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("/public-option-offers should be removed: want 404, got %d", w.Code)
+	}
+}
+
 func TestNewRouter_Mounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := NewRouter()
@@ -115,7 +132,6 @@ func TestCrossBankProtocol_CanonicalMount(t *testing.T) {
 		{http.MethodPost, "/api/v3/cross-bank-protocol/interbank"},
 		{http.MethodGet, "/api/v3/cross-bank-protocol/interbank/:transaction_id/status"},
 		{http.MethodGet, "/api/v3/cross-bank-protocol/public-stock"},
-		{http.MethodGet, "/api/v3/cross-bank-protocol/public-option-offers"},
 		{http.MethodPost, "/api/v3/cross-bank-protocol/negotiations"},
 		{http.MethodPut, "/api/v3/cross-bank-protocol/negotiations/:rid/:id"},
 		{http.MethodGet, "/api/v3/cross-bank-protocol/negotiations/:rid/:id"},
@@ -138,7 +154,6 @@ func TestCrossBankProtocol_CanonicalMount(t *testing.T) {
 		{http.MethodPost, "/api/v3/cross-bank-protocol/interbank"},
 		{http.MethodGet, "/api/v3/cross-bank-protocol/interbank/tx-abc/status"},
 		{http.MethodGet, "/api/v3/cross-bank-protocol/public-stock"},
-		{http.MethodGet, "/api/v3/cross-bank-protocol/public-option-offers"},
 		{http.MethodPost, "/api/v3/cross-bank-protocol/negotiations"},
 		{http.MethodGet, "/api/v3/cross-bank-protocol/user/111/client-1"},
 	}

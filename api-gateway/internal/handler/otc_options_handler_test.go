@@ -70,9 +70,6 @@ type stubOTCOptionsClient struct {
 	createFn                 func(*stockpb.CreateOTCOfferRequest) (*stockpb.OTCOfferResponse, error)
 	listMyOffersFn           func(*stockpb.ListMyOTCOffersRequest) (*stockpb.ListMyOTCOffersResponse, error)
 	getOfferFn               func(*stockpb.GetOTCOfferRequest) (*stockpb.OTCOfferDetailResponse, error)
-	counterFn                func(*stockpb.CounterOTCOfferRequest) (*stockpb.OTCOfferResponse, error)
-	acceptFn                 func(*stockpb.AcceptOTCOfferRequest) (*stockpb.AcceptOfferResponse, error)
-	rejectFn                 func(*stockpb.RejectOTCOfferRequest) (*stockpb.OTCOfferResponse, error)
 	listContractsFn          func(*stockpb.ListMyContractsRequest) (*stockpb.ListContractsResponse, error)
 	getContractFn            func(*stockpb.GetContractRequest) (*stockpb.OptionContractResponse, error)
 	exerciseFn               func(*stockpb.ExerciseContractRequest) (*stockpb.ExerciseResponse, error)
@@ -85,6 +82,7 @@ type stubOTCOptionsClient struct {
 	listByListingFn          func(*stockpb.ListNegotiationsByListingRequest) (*stockpb.ListNegotiationsResponse, error)
 	getTimelineFn            func(*stockpb.GetOfferTimelineRequest) (*stockpb.GetOfferTimelineResponse, error)
 	openNegotiationFn        func(*stockpb.OpenNegotiationRequest) (*stockpb.OTCNegotiationResponse, error)
+	updateQuantityFn         func(*stockpb.UpdateOTCOfferQuantityRequest) (*stockpb.OTCOfferResponse, error)
 }
 
 func (s *stubOTCOptionsClient) CreateOffer(_ context.Context, in *stockpb.CreateOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
@@ -105,21 +103,9 @@ func (s *stubOTCOptionsClient) GetOffer(_ context.Context, in *stockpb.GetOTCOff
 	}
 	return &stockpb.OTCOfferDetailResponse{}, nil
 }
-func (s *stubOTCOptionsClient) CounterOffer(_ context.Context, in *stockpb.CounterOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
-	if s.counterFn != nil {
-		return s.counterFn(in)
-	}
-	return &stockpb.OTCOfferResponse{}, nil
-}
-func (s *stubOTCOptionsClient) AcceptOffer(_ context.Context, in *stockpb.AcceptOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.AcceptOfferResponse, error) {
-	if s.acceptFn != nil {
-		return s.acceptFn(in)
-	}
-	return &stockpb.AcceptOfferResponse{}, nil
-}
-func (s *stubOTCOptionsClient) RejectOffer(_ context.Context, in *stockpb.RejectOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
-	if s.rejectFn != nil {
-		return s.rejectFn(in)
+func (s *stubOTCOptionsClient) UpdateOTCOfferQuantity(_ context.Context, in *stockpb.UpdateOTCOfferQuantityRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
+	if s.updateQuantityFn != nil {
+		return s.updateQuantityFn(in)
 	}
 	return &stockpb.OTCOfferResponse{}, nil
 }
@@ -224,13 +210,11 @@ func otcOptionsRouter(h *handler.OTCOptionsHandler) *gin.Engine {
 	r.POST("/otc/offers", withCli, h.CreateOffer)
 	r.GET("/me/otc/offers", withCli, h.ListMyOffers)
 	r.GET("/otc/offers/:id", withCli, h.GetOffer)
-	r.POST("/otc/offers/:id/counter", withCli, h.CounterOffer)
-	r.POST("/otc/offers/:id/accept", withCli, h.AcceptOffer)
-	r.POST("/otc/offers/:id/reject", withCli, h.RejectOffer)
 	r.GET("/me/otc/contracts", withCli, h.ListMyContracts)
 	r.GET("/otc/contracts/:id", withCli, h.GetContract)
 	r.POST("/otc/contracts/:id/exercise", withCli, h.ExerciseContract)
 	r.GET("/me/otc/options/posted", withCli, h.ListMyPostedOffers)
+	r.PUT("/me/otc/options/:id", withCli, h.UpdateMyOption)
 	r.DELETE("/me/otc/options/:id", withCli, h.CancelMyListing)
 	r.POST("/otc/options/:id/bid", withCli, h.OpenNegotiationChain)
 	r.POST("/me/otc/options/:id/negotiations/:nid/counter", withCli, h.CounterMyNegotiation)
@@ -248,10 +232,36 @@ func TestOTCOpt_CreateOffer_Success(t *testing.T) {
 		},
 	}
 	r := otcOptionsRouter(otcHandler(cl))
-	body := `{"direction":"sell_initiated","ticker":"AAPL","quantity":"100","strike_price":"5","premium":"1","settlement_date":"2026-12-31","account_id":50}`
+	// Terms (strike_price/premium/settlement_date) are no longer part of the
+	// create body — offers are posted open and terms are negotiated later.
+	body := `{"direction":"sell_initiated","ticker":"AAPL","quantity":"100","account_id":50}`
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
 	require.Equal(t, http.StatusCreated, rec.Code)
+}
+
+// TestOTCOpt_CreateOffer_Duplicate_Conflict asserts that a duplicate open
+// offer per (owner, ticker, direction) — surfaced by the service as a gRPC
+// AlreadyExists — is mapped to HTTP 409 with an apiError body whose code is
+// "conflict".
+func TestOTCOpt_CreateOffer_Duplicate_Conflict(t *testing.T) {
+	cl := &stubOTCOptionsClient{
+		createFn: func(*stockpb.CreateOTCOfferRequest) (*stockpb.OTCOfferResponse, error) {
+			return nil, status.Error(codes.AlreadyExists, "an open offer for this ticker and direction already exists")
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl))
+	body := `{"direction":"sell_initiated","ticker":"AAPL","quantity":"100","account_id":50}`
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	var body2 struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body2))
+	require.Equal(t, "conflict", body2.Error.Code)
 }
 
 func TestOTCOpt_CreateOffer_EmployeeBank_ForwardsActingEmployee(t *testing.T) {
@@ -275,7 +285,7 @@ func TestOTCOpt_CreateOffer_EmployeeBank_ForwardsActingEmployee(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/otc/offers", setEmployeeBankIdentity(17), h.CreateOffer)
-	body := `{"direction":"buy_initiated","ticker":"AAPL","quantity":"100","strike_price":"5","premium":"1","settlement_date":"2026-12-31","account_id":50}`
+	body := `{"direction":"buy_initiated","ticker":"AAPL","quantity":"100","account_id":50}`
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -287,7 +297,7 @@ func TestOTCOpt_CreateOffer_UnknownTicker(t *testing.T) {
 	}}
 	h := handler.NewOTCOptionsHandler(&stubOTCOptionsClient{}, sec, &otcStubAccountClient{})
 	r := otcOptionsRouter(h)
-	body := `{"direction":"sell_initiated","ticker":"NOPE","quantity":"1","strike_price":"5","premium":"1","settlement_date":"2026-12-31","account_id":50}`
+	body := `{"direction":"sell_initiated","ticker":"NOPE","quantity":"1","account_id":50}`
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -299,7 +309,7 @@ func TestOTCOpt_CreateOffer_AccountNotOwned(t *testing.T) {
 	}}
 	h := handler.NewOTCOptionsHandler(&stubOTCOptionsClient{}, &otcStubSecurityClient{}, acct)
 	r := otcOptionsRouter(h)
-	body := `{"direction":"sell_initiated","ticker":"AAPL","quantity":"1","strike_price":"5","premium":"1","settlement_date":"2026-12-31","account_id":50}`
+	body := `{"direction":"sell_initiated","ticker":"AAPL","quantity":"1","account_id":50}`
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
 	require.Equal(t, http.StatusForbidden, rec.Code)
@@ -307,7 +317,7 @@ func TestOTCOpt_CreateOffer_AccountNotOwned(t *testing.T) {
 
 func TestOTCOpt_CreateOffer_BadDirection(t *testing.T) {
 	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
-	body := `{"direction":"weird","stock_id":1,"quantity":"100","strike_price":"5","settlement_date":"2026-12-31"}`
+	body := `{"direction":"weird","stock_id":1,"quantity":"100"}`
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -338,7 +348,7 @@ func TestOTCOpt_CreateOffer_WithCounterparty(t *testing.T) {
 		},
 	}
 	r := otcOptionsRouter(otcHandler(cl))
-	body := `{"direction":"buy_initiated","ticker":"AAPL","quantity":"100","strike_price":"5","premium":"1","settlement_date":"2026-12-31","counterparty_user_id":7,"account_id":50}`
+	body := `{"direction":"buy_initiated","ticker":"AAPL","quantity":"100","counterparty_user_id":7,"account_id":50}`
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -351,7 +361,7 @@ func TestOTCOpt_CreateOffer_GRPCError(t *testing.T) {
 		},
 	}
 	r := otcOptionsRouter(otcHandler(cl))
-	body := `{"direction":"sell_initiated","ticker":"AAPL","quantity":"100","strike_price":"5","premium":"1","settlement_date":"2026-12-31","account_id":50}`
+	body := `{"direction":"sell_initiated","ticker":"AAPL","quantity":"100","account_id":50}`
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers", strings.NewReader(body)))
 	require.Equal(t, http.StatusForbidden, rec.Code)
@@ -473,113 +483,6 @@ func TestOTCOpt_CounterNegotiation_RejectsNegativePremium(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/otc/options/1/negotiations/2/counter", strings.NewReader(body)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestOTCOpt_CounterOffer_Success(t *testing.T) {
-	cl := &stubOTCOptionsClient{
-		counterFn: func(in *stockpb.CounterOTCOfferRequest) (*stockpb.OTCOfferResponse, error) {
-			require.Equal(t, uint64(3), in.OfferId)
-			return &stockpb.OTCOfferResponse{Id: in.OfferId}, nil
-		},
-	}
-	r := otcOptionsRouter(otcHandler(cl))
-	body := `{"quantity":"100","strike_price":"7","premium":"2","settlement_date":"2026-12-31"}`
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/3/counter", strings.NewReader(body)))
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestOTCOpt_CounterOffer_BadID(t *testing.T) {
-	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/abc/counter", strings.NewReader(`{}`)))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestOTCOpt_CounterOffer_BadBody(t *testing.T) {
-	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/1/counter", strings.NewReader("nope")))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestOTCOpt_AcceptOffer_Success(t *testing.T) {
-	cl := &stubOTCOptionsClient{
-		acceptFn: func(in *stockpb.AcceptOTCOfferRequest) (*stockpb.AcceptOfferResponse, error) {
-			require.Equal(t, uint64(3), in.OfferId)
-			require.Equal(t, uint64(10), in.AccountId)
-			return &stockpb.AcceptOfferResponse{}, nil
-		},
-	}
-	r := otcOptionsRouter(otcHandler(cl))
-	body := `{"account_id":10}`
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/3/accept", strings.NewReader(body)))
-	require.Equal(t, http.StatusCreated, rec.Code)
-}
-
-func TestOTCOpt_AcceptOffer_MissingFields(t *testing.T) {
-	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/3/accept", strings.NewReader(`{}`)))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestOTCOpt_AcceptOffer_AccountNotOwned(t *testing.T) {
-	acct := &otcStubAccountClient{getFn: func(in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
-		return &accountpb.AccountResponse{Id: in.Id, OwnerId: 999, AccountKind: "current"}, nil
-	}}
-	h := handler.NewOTCOptionsHandler(&stubOTCOptionsClient{}, &otcStubSecurityClient{}, acct)
-	r := otcOptionsRouter(h)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/1/accept", strings.NewReader(`{"account_id":50}`)))
-	require.Equal(t, http.StatusForbidden, rec.Code)
-}
-
-func TestOTCOpt_AcceptOffer_BadID(t *testing.T) {
-	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/x/accept", strings.NewReader(`{"buyer_account_id":1,"seller_account_id":2}`)))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestOTCOpt_AcceptOffer_BadBody(t *testing.T) {
-	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/3/accept", strings.NewReader("xxx")))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestOTCOpt_RejectOffer_Success(t *testing.T) {
-	cl := &stubOTCOptionsClient{
-		rejectFn: func(in *stockpb.RejectOTCOfferRequest) (*stockpb.OTCOfferResponse, error) {
-			require.Equal(t, uint64(3), in.OfferId)
-			return &stockpb.OTCOfferResponse{Id: in.OfferId}, nil
-		},
-	}
-	r := otcOptionsRouter(otcHandler(cl))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/3/reject", nil))
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestOTCOpt_RejectOffer_BadID(t *testing.T) {
-	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/x/reject", nil))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestOTCOpt_RejectOffer_GRPCError(t *testing.T) {
-	cl := &stubOTCOptionsClient{
-		rejectFn: func(*stockpb.RejectOTCOfferRequest) (*stockpb.OTCOfferResponse, error) {
-			return nil, status.Error(codes.NotFound, "no")
-		},
-	}
-	r := otcOptionsRouter(otcHandler(cl))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("POST", "/otc/offers/3/reject", nil))
-	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestOTCOpt_ListMyContracts_Success(t *testing.T) {
@@ -855,6 +758,67 @@ func TestOTCOpt_CancelMyListing_BadID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/me/otc/options/abc", nil))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---- UpdateMyOption (PUT /me/otc/options/:id) gateway handler tests ----
+
+// Happy path: PUT sets the total quantity; the new quantity + acting identity
+// are forwarded to the gRPC UpdateOTCOfferQuantity and 200 is returned.
+func TestOTCOpt_UpdateMyOption_SetsQuantity(t *testing.T) {
+	var captured *stockpb.UpdateOTCOfferQuantityRequest
+	cl := &stubOTCOptionsClient{
+		updateQuantityFn: func(in *stockpb.UpdateOTCOfferQuantityRequest) (*stockpb.OTCOfferResponse, error) {
+			captured = in
+			return &stockpb.OTCOfferResponse{Id: in.GetOfferId(), Quantity: in.GetQuantity()}, nil
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("PUT", "/me/otc/options/6", strings.NewReader(`{"quantity":"200"}`)))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, uint64(6), captured.GetOfferId())
+	require.Equal(t, "200", captured.GetQuantity())
+	require.Equal(t, "client", captured.GetActingOwnerType())
+	require.Equal(t, uint64(42), captured.GetActingOwnerId())
+	require.Contains(t, rec.Body.String(), `"offer"`)
+}
+
+// Non-positive quantity is rejected with 400 BEFORE the gRPC call.
+func TestOTCOpt_UpdateMyOption_RejectsNonPositive(t *testing.T) {
+	called := false
+	cl := &stubOTCOptionsClient{
+		updateQuantityFn: func(*stockpb.UpdateOTCOfferQuantityRequest) (*stockpb.OTCOfferResponse, error) {
+			called = true
+			return &stockpb.OTCOfferResponse{}, nil
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("PUT", "/me/otc/options/6", strings.NewReader(`{"quantity":"0"}`)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.False(t, called, "stock-service must NOT be called for a non-positive quantity")
+}
+
+// Bad id format yields 400.
+func TestOTCOpt_UpdateMyOption_BadID(t *testing.T) {
+	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("PUT", "/me/otc/options/abc", strings.NewReader(`{"quantity":"5"}`)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// A PermissionDenied from the service (caller is not the owner) maps to 403.
+func TestOTCOpt_UpdateMyOption_ServiceForbidden(t *testing.T) {
+	cl := &stubOTCOptionsClient{
+		updateQuantityFn: func(*stockpb.UpdateOTCOfferQuantityRequest) (*stockpb.OTCOfferResponse, error) {
+			return nil, status.Error(codes.PermissionDenied, "only the offer's owner can edit it")
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("PUT", "/me/otc/options/6", strings.NewReader(`{"quantity":"5"}`)))
+	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 // ---- ListMyNegotiationRevisions gateway handler tests ----

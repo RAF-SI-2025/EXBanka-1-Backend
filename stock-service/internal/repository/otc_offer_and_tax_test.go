@@ -30,9 +30,7 @@ func sampleSellOffer(uid uint64, stockID uint64, qty int64, status string) *mode
 	return &model.OTCOffer{
 		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid2,
 		Direction: model.OTCDirectionSellInitiated, StockID: stockID,
-		Quantity: decimal.NewFromInt(qty), StrikePrice: decimal.NewFromInt(150),
-		Premium:                     decimal.NewFromInt(20),
-		SettlementDate:              time.Now().Add(30 * 24 * time.Hour),
+		Quantity:                    decimal.NewFromInt(qty),
 		Status:                      status,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   uid,
@@ -97,21 +95,6 @@ func TestOTCOfferRepository_ListByOwner(t *testing.T) {
 	}
 }
 
-func TestOTCOfferRepository_ListExpiringOffers(t *testing.T) {
-	r, _ := newOTCOfferDB(t)
-	o := sampleSellOffer(7, 42, 10, model.OTCOfferStatusPending)
-	o.SettlementDate = time.Now().Add(-24 * time.Hour) // expired yesterday
-	_ = r.Create(o)
-	today := time.Now().Format("2006-01-02")
-	rows, err := r.ListExpiringOffers(today, 100)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Errorf("expected 1 expired, got %d", len(rows))
-	}
-}
-
 func TestOTCOfferRepository_SumActiveQuantityForSeller(t *testing.T) {
 	r, _ := newOTCOfferDB(t)
 	uid := uint64(7)
@@ -137,8 +120,8 @@ func TestOTCOfferRevisionRepository_AppendAndList(t *testing.T) {
 	_ = r.Create(o)
 	rev := &model.OTCOfferRevision{
 		OfferID: o.ID, RevisionNumber: 1,
-		Quantity: o.Quantity, StrikePrice: o.StrikePrice,
-		Premium: o.Premium, SettlementDate: o.SettlementDate,
+		Quantity: o.Quantity, StrikePrice: decimal.Zero,
+		Premium: decimal.Zero, SettlementDate: time.Time{},
 		ModifiedByPrincipalType: "client", ModifiedByPrincipalID: 7,
 		Action: model.OTCActionCreate,
 	}

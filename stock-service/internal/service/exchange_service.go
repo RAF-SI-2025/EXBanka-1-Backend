@@ -83,6 +83,18 @@ func (s *ExchangeService) GetTestingMode() bool {
 	return val == "true"
 }
 
+// IsOpenForModel reports whether an already-loaded exchange is currently open
+// for trading, WITHOUT any per-row DB lookup. Mirrors IsExchangeOpen's
+// testing-mode short-circuit (testing mode ⇒ always open) but operates on a
+// model the caller already has in hand, so List/Get can stamp is_open on every
+// row cheaply.
+func (s *ExchangeService) IsOpenForModel(ex *model.StockExchange) bool {
+	if ex == nil {
+		return false
+	}
+	return s.GetTestingMode() || isWithinTradingHours(ex)
+}
+
 // IsExchangeOpen checks if the given exchange is currently open for trading.
 // When testing mode is enabled, always returns true.
 func (s *ExchangeService) IsExchangeOpen(exchangeID uint64) (bool, error) {

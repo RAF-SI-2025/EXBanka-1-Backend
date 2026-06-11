@@ -236,6 +236,31 @@ func (r *OTCNegotiationRepository) ListRevisions(negotiationID uint64) ([]model.
 	return out, err
 }
 
+// LatestRevisionByAuthorForOffer returns the most recent OTCNegotiationRevision
+// AUTHORED BY the given principal across all chains under a local parent offer —
+// i.e. "the owner's latest counter" for the offer-row term projection. Returns
+// (nil, nil) when that principal never authored a revision on the offer.
+//
+// Author is matched on the audit columns (modified_by_principal_type /
+// modified_by_principal_id); ordering is created_at DESC with an id DESC
+// tie-break so the result is deterministic when two revisions share a timestamp.
+func (r *OTCNegotiationRepository) LatestRevisionByAuthorForOffer(offerID uint64, principalType string, principalID uint64) (*model.OTCNegotiationRevision, error) {
+	var rev model.OTCNegotiationRevision
+	err := r.db.
+		Joins("JOIN otc_negotiations n ON n.id = otc_negotiation_revisions.negotiation_id").
+		Where("n.parent_offer_id = ? AND otc_negotiation_revisions.modified_by_principal_type = ? AND otc_negotiation_revisions.modified_by_principal_id = ?",
+			offerID, principalType, principalID).
+		Order("otc_negotiation_revisions.created_at DESC, otc_negotiation_revisions.id DESC").
+		First(&rev).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rev, nil
+}
+
 // NextRevisionNumber returns the next sequential revision number for the
 // chain. Must be called inside the same TX that inserts the revision so
 // the (negotiation_id, revision_number) unique index serializes.

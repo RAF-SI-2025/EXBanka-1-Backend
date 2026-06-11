@@ -70,13 +70,6 @@ type HoldingFilter struct {
 	PageSize     int
 }
 
-type OTCFilter struct {
-	SecurityType string
-	Ticker       string
-	Page         int
-	PageSize     int
-}
-
 type TaxFilter struct {
 	UserType string // "client", "actuary"
 	Search   string

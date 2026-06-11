@@ -135,7 +135,6 @@ type HoldingTransactionRepo interface {
 
 // Type aliases for filter/summary types defined in repository package.
 type HoldingFilter = repository.HoldingFilter
-type OTCFilter = repository.OTCFilter
 type TaxFilter = repository.TaxFilter
 type AccountGainSummary = repository.AccountGainSummary
 type TaxUserSummary = repository.TaxUserSummary
@@ -154,7 +153,6 @@ type HoldingRepo interface {
 	Delete(id uint64) error
 	GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error)
 	ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter HoldingFilter) ([]model.Holding, int64, error)
-	ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error)
 	// FindOldestLongOptionHolding returns the oldest (by created_at) holding
 	// with security_type="option", security_id=optionID, (owner_type, owner_id),
 	// quantity>0. Returns (nil, nil) when no such holding exists.

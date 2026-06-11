@@ -1,5 +1,5 @@
 // Package handler — freshness guard + shell-bid tests for /public-stock shell offers.
-// Shell offers (HasPresetTerms=false) are synthesized from a peer's /public-stock
+// Shell offers are termless rows synthesized from a peer's /public-stock
 // endpoint. Because the mirror can lag a refresh cycle, openRemoteNegotiation
 // re-fetches the LIVE /public-stock before dispatching to avoid a doomed bid.
 // These tests exercise that guard plus the shell-bid currency derivation path:
@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -24,10 +23,9 @@ import (
 	"github.com/exbanka/stock-service/internal/model"
 )
 
-// seedShellRemoteOffer inserts a shell OTCOffer row (HasPresetTerms=false,
-// ticker AAPL, seller {222,"client-5"}, nil strike/premium currencies).
-// Real shells synthesized by the refresher have nil currencies — the buyer
-// derives the currency from their bound account when bidding (Bug-3 fix).
+// seedShellRemoteOffer inserts a termless shell OTCOffer row (ticker AAPL,
+// seller {222,"client-5"}). Shells carry no preset terms — the buyer derives
+// the currency from their bound account when bidding (Bug-3 fix).
 func seedShellRemoteOffer(t *testing.T, db *gorm.DB) uint64 {
 	t.Helper()
 	nid := "shell-offer-1"
@@ -37,29 +35,17 @@ func seedShellRemoteOffer(t *testing.T, db *gorm.DB) uint64 {
 		RoutingNumber:               222,
 		NativeID:                    &nid,
 		InitiatorBankCode:           &bankCode,
-		RemoteSellerID:              &sellerID,
-		HasPresetTerms:              false, // shell: synthesized from /public-stock, no preset terms
+		RemoteSellerID:              &sellerID, // shell: synthesized from /public-stock, no preset terms
 		InitiatorOwnerType:          model.OwnerBank,
 		Direction:                   model.OTCDirectionSellInitiated,
 		Ticker:                      "AAPL",
-		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.Zero, // shells have zero strike (buyer proposes)
-		Premium:                     decimal.Zero, // shells have zero premium (buyer proposes)
-		StrikeCurrency:              nil,          // nil — buyer derives from account (Bug-3 fix)
-		PremiumCurrency:             nil,          // nil — buyer derives from account (Bug-3 fix)
-		SettlementDate:              time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Quantity:                    decimal.NewFromInt(10), // shells are termless (buyer proposes terms)
 		Status:                      model.OTCOfferStatusOpen,
 		LastModifiedByPrincipalType: "system",
 		LastModifiedByPrincipalID:   0,
 	}
 	if err := db.Create(o).Error; err != nil {
 		t.Fatalf("seed shell remote offer: %v", err)
-	}
-	// GORM skips false (zero-value bool) during Create when the field has a
-	// `default:true` GORM tag, letting the DB default TRUE be applied. We must
-	// explicitly patch it to 0 after the insert so the freshness guard fires.
-	if err := db.Model(o).UpdateColumn("has_preset_terms", false).Error; err != nil {
-		t.Fatalf("seed shell remote offer: patch has_preset_terms: %v", err)
 	}
 	return o.ID
 }
