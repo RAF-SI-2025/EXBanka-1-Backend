@@ -99,6 +99,71 @@ func TestStampNegotiationViewerFlags_NonParty(t *testing.T) {
 	}
 }
 
+// Marketplace-row flags: a caller with NO chain on an OPEN listing may bid.
+func TestComputeOfferRowFlags_CanBid(t *testing.T) {
+	f := computeOfferRowFlags(myNegStamp{}, false, false, true)
+	if !f.canBid {
+		t.Error("no chain on an open listing → can_bid must be true")
+	}
+	if f.canAccept || f.canCounter || f.canReject || f.viewerRole != "" {
+		t.Error("no chain → no role/accept/counter/reject")
+	}
+	// A closed listing offers no bid.
+	if computeOfferRowFlags(myNegStamp{}, false, false, false).canBid {
+		t.Error("closed listing → can_bid must be false")
+	}
+}
+
+// Bidder whose chain awaits them (poster countered): accept+counter+reject+withdraw.
+func TestComputeOfferRowFlags_BidderAwaiting(t *testing.T) {
+	f := computeOfferRowFlags(myNegStamp{status: "countered", lastActionMine: false}, true, false, true)
+	if f.viewerRole != "bidder" || !f.awaiting || !f.canAccept || !f.canReject || !f.canCounter || !f.canWithdraw {
+		t.Errorf("bidder awaiting: want all action hints, got %+v", f)
+	}
+	if f.canBid {
+		t.Error("a caller with a chain cannot also can_bid")
+	}
+}
+
+// Bidder who just bid (last_action_mine): counter+withdraw only, no accept/reject.
+func TestComputeOfferRowFlags_BidderJustBid(t *testing.T) {
+	f := computeOfferRowFlags(myNegStamp{status: "open", lastActionMine: true}, true, false, true)
+	if f.canAccept || f.canReject || f.awaiting {
+		t.Error("after my own move: no accept/reject, not awaiting")
+	}
+	if !f.canCounter || !f.canWithdraw {
+		t.Error("the bidder can still counter and withdraw while live")
+	}
+}
+
+// Remote chains use the "ongoing" live vocabulary.
+func TestComputeOfferRowFlags_RemoteOngoingLive(t *testing.T) {
+	f := computeOfferRowFlags(myNegStamp{status: "ongoing", lastActionMine: false}, true, false, true)
+	if !f.canCounter || !f.canAccept {
+		t.Error("ongoing (remote live) must be treated as live")
+	}
+}
+
+// A terminal chain (rejected) yields no action hints.
+func TestComputeOfferRowFlags_TerminalNoActions(t *testing.T) {
+	f := computeOfferRowFlags(myNegStamp{status: "rejected", lastActionMine: false}, true, false, true)
+	if f.canAccept || f.canCounter || f.canReject || f.canWithdraw || f.awaiting {
+		t.Errorf("terminal chain: no action hints, got %+v", f)
+	}
+}
+
+// The listing's own poster gets viewer_role=poster and NO row-level actions
+// (they act per-bid in the negotiations list).
+func TestComputeOfferRowFlags_PosterRowNoActions(t *testing.T) {
+	f := computeOfferRowFlags(myNegStamp{status: "open"}, true, true, true)
+	if f.viewerRole != "poster" {
+		t.Errorf("me_owner → viewer_role poster, got %q", f.viewerRole)
+	}
+	if f.canAccept || f.canCounter || f.canReject || f.canBid || f.canWithdraw {
+		t.Error("poster row carries no action buttons (uses the per-bid panel)")
+	}
+}
+
 func TestOwnerFromPrincipal(t *testing.T) {
 	if ot, oid := ownerFromPrincipal("client", 7); ot != model.OwnerClient || oid == nil || *oid != 7 {
 		t.Errorf("client → (%v,%v), want (client,7)", ot, oid)

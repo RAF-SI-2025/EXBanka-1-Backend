@@ -10,4 +10,4 @@ package version
 // It is a var (not a const) so the build can override it via -ldflags.
 // Keep it in sync with the repo-root VERSION file — both are bumped on
 // every change per the Versioning Requirement in CLAUDE.md.
-var Version = "4.6.2"
+var Version = "4.7.0"

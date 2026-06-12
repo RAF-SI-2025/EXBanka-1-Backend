@@ -116,7 +116,7 @@ func TestPickActiveChain_NonTerminalWins(t *testing.T) {
 		{ID: 1, Status: model.OTCNegotiationStatusCancelled, CreatedAt: newer}, // terminal, newest
 		{ID: 2, Status: model.OTCNegotiationStatusCountered, CreatedAt: old},   // live, older
 	}
-	got := pickActiveChain(chains)
+	got := pickActiveChain(chains, nil)
 	require.Equal(t, uint64(2), got.id, "non-terminal chain must beat a newer terminal one")
 	require.Equal(t, model.OTCNegotiationStatusCountered, got.status)
 }
@@ -126,7 +126,7 @@ func TestPickActiveChain_AcceptedBeatsOpen(t *testing.T) {
 		{ID: 1, Status: model.OTCNegotiationStatusOpen, CreatedAt: time.Now()},
 		{ID: 2, Status: model.OTCNegotiationStatusAccepted, CreatedAt: time.Now().Add(-time.Hour)},
 	}
-	got := pickActiveChain(chains)
+	got := pickActiveChain(chains, nil)
 	require.Equal(t, uint64(2), got.id, "accepted (contract) outranks open")
 }
 
@@ -137,7 +137,7 @@ func TestPickActiveChain_AllTerminalMostRecent(t *testing.T) {
 		{ID: 1, Status: model.OTCNegotiationStatusRejected, CreatedAt: old},
 		{ID: 2, Status: model.OTCNegotiationStatusCancelled, CreatedAt: newer},
 	}
-	got := pickActiveChain(chains)
+	got := pickActiveChain(chains, nil)
 	require.Equal(t, uint64(2), got.id, "all terminal → most recently created wins")
 }
 

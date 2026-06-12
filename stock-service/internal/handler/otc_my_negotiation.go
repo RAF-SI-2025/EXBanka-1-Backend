@@ -50,6 +50,11 @@ type myNegStamp struct {
 	id     uint64
 	status string
 	terms  OfferTerms
+	// lastActionMine is true when the CALLER (always the bidder for these stamps)
+	// authored the chosen chain's latest action. Drives the awaiting/accept/reject
+	// row hints (computeOfferRowFlags). Computed from the chain's LastActionByOwner
+	// (local) or the wire LastModifiedBy.routing (remote) when the index is built.
+	lastActionMine bool
 }
 
 // negStatusRank ranks a chain status for the active-chain tie-break. A LOWER
@@ -79,7 +84,10 @@ func negStatusRank(status string) int {
 //
 // Returns the surrogate id + status of the chosen chain. With one chain it is
 // trivially that chain.
-func pickActiveChain(chains []*model.OTCNegotiation) myNegStamp {
+// pickActiveChain selects the caller's most relevant chain and builds its stamp.
+// `mine` reports whether the caller authored the chosen chain's latest action
+// (computed by the caller, who knows the local-owner vs remote-routing context).
+func pickActiveChain(chains []*model.OTCNegotiation, mine func(*model.OTCNegotiation) bool) myNegStamp {
 	var best *model.OTCNegotiation
 	for _, c := range chains {
 		if best == nil {
@@ -102,6 +110,7 @@ func pickActiveChain(chains []*model.OTCNegotiation) myNegStamp {
 			Premium:        best.Premium.StringFixed(2),
 			SettlementDate: best.SettlementDate.UTC().Format(time.RFC3339),
 		},
+		lastActionMine: mine != nil && mine(best),
 	}
 }
 
@@ -193,8 +202,13 @@ func buildMyNegotiationIndex(
 		r := &localRows[i]
 		localGroups[r.ParentOfferID] = append(localGroups[r.ParentOfferID], r)
 	}
+	// lastActionMine for a LOCAL chain: the chain's recorded LastActionByOwner is
+	// the caller (the bidder identity resolved above).
+	localMine := func(c *model.OTCNegotiation) bool {
+		return ownerEquals(model.OwnerType(c.LastActionByOwnerType), c.LastActionByOwnerID, ownerType, ownerID)
+	}
 	for pid, group := range localGroups {
-		idx.local[pid] = pickActiveChain(group)
+		idx.local[pid] = pickActiveChain(group, localMine)
 	}
 
 	// REMOTE bidder chains. Both a CLIENT principal and the BANK (an employee
@@ -238,8 +252,13 @@ func buildMyNegotiationIndex(
 		key := remoteParentKey(*r.RemoteParentRouting, *r.RemoteParentNativeID)
 		remoteGroups[key] = append(remoteGroups[key], r)
 	}
+	// lastActionMine for a REMOTE chain: OUR side (this bank's routing) authored
+	// the wire LastModifiedBy — the caller is always the local party on a mirror.
+	remoteMine := func(c *model.OTCNegotiation) bool {
+		return remoteLastActionMine(c, ownRouting)
+	}
 	for key, group := range remoteGroups {
-		idx.remote[key] = pickActiveChain(group)
+		idx.remote[key] = pickActiveChain(group, remoteMine)
 	}
 
 	return idx, nil

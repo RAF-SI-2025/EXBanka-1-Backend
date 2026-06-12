@@ -8657,6 +8657,7 @@ Resolve a single OTC option offer by its **stable surrogate id** — the `local_
 - `me_owner` is `true` when the acting identity owns the listing (client whose `seller_id` is `client-<their owner id>`, or an employee acting as the bank on a `bank`-owned listing), else `false`.
 - **`seller_id`** — the LOCAL read view's SI-TX seller identity of the offer's initiator: `"bank"` for a bank-owned listing, `"client-<N>"` for a client-owned one. The same value the unified marketplace listing surfaces, now stamped uniformly on every single-offer response (create / detail / counter / cancel). Distinct from the cross-bank wire id `"employee-<N>"`, composed only on the SI-TX publish path.
 - **`my_negotiation_id` / `my_negotiation_status` (SP-2b, 2026-06-05):** when the authenticated caller has an own (bidder) negotiation chain against this offer, these carry that chain's surrogate id + status so the FE can jump straight to its chain. **Omitted/0 / "" when the caller has no bidder chain** — note a poster who never bid on their own listing is `me_owner=true` but has NO `my_negotiation_id` (the two are independent). When several chains exist on one offer the **active** one wins: an accepted chain beats a live (`open`/`countered`/`ongoing`) one beats a terminal one; ties break to the most recently created. Works for local and remote offers.
+- **Viewer-relative action hints (4.7.0):** this detail response also carries `viewer_role` / `last_action_mine` / `awaiting_viewer` / `can_bid` / `can_accept` / `can_counter` / `can_reject` / `can_withdraw`, computed per caller from their own bidder chain — identical to the marketplace-row flags documented under `GET /api/v3/otc/options`. The poster of the listing (`me_owner`) gets only `viewer_role="poster"`.
 
 **Response 200 — remote (cross-bank) offer** (resolved from the mirror; flat shape):
 ```json
@@ -8756,6 +8757,21 @@ Unified cross-bank discovery view: every open OTC option listing on this bank + 
 |---|---|---|
 | `my_negotiation_id` | uint64 | Surrogate id of the caller's own (as **bidder**) negotiation chain on this offer, so the FE can jump straight to its chain. **Omitted when the caller has no chain here** (0). A poster who never bid is `me_owner=true` but has no `my_negotiation_id` — the two are independent. Works for local and remote offers (remote chains match on the chain's remote parent routing+native id). When multiple chains exist, the **active** one wins (accepted > live `open`/`countered`/`ongoing` > terminal; ties → most recently created). |
 | `my_negotiation_status` | string | That chain's status. Omitted when `my_negotiation_id` is absent. |
+
+**Viewer-relative ACTION hints on each row (4.7.0).** So the FE can render Bid / Counter / Accept / Reject / Withdraw buttons **directly on the marketplace row** (and on `GET /api/v3/otc/options/:id`) without a separate negotiation fetch. Computed per caller from their own bidder chain on the listing; omitted-when-false (treat an absent flag as `false`). The semantics match the per-chain flags on the negotiations endpoints, applied to the caller's chain:
+
+| Field | Type | Notes |
+|---|---|---|
+| `viewer_role` | string | `"bidder"` (caller has a chain on this listing), `"poster"` (`me_owner` — their own listing), or `""` (read-only/non-party). |
+| `last_action_mine` | bool | The caller authored their chain's latest offer (it's the counterparty's turn). |
+| `awaiting_viewer` | bool | The caller's turn — chain is live AND the other side moved last. |
+| `can_bid` | bool | The caller has **no live chain** on this **open** listing → may open a bid. (Mirrors the existing "Bid vs Counter" rule: `can_bid` ⇔ `my_negotiation_id` absent.) |
+| `can_accept` | bool | May accept the latest offer (`== awaiting_viewer`) — only the party who didn't make it. |
+| `can_counter` | bool | May counter (chain is live; **not** turn-based — either party can counter any time). |
+| `can_reject` | bool | May reject the latest offer (`== awaiting_viewer`). |
+| `can_withdraw` | bool | The bidder may withdraw their own live chain. |
+
+For the listing's own **poster** (`me_owner`) only `viewer_role="poster"` is set — the poster acts on individual bids via `GET /api/v3/otc/options/:id/negotiations` (the Activity panel), not on the row.
 
 **Best-bid / best-ask surface (Part A 2026-05-16).** Three optional fields surface aggregated active-chain pricing so a prospective bidder sees that competition is live before placing an offer at the seller's static ask:
 

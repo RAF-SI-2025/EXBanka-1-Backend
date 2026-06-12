@@ -807,6 +807,32 @@ message UnifiedOptionOffer {
   // my_negotiation_status carries that chain's status. (SP-2b)
   uint64 my_negotiation_id     = 21;
   string my_negotiation_status = 22;
+  // Viewer-relative ACTION hints for this LISTING row (computed per caller, like
+  // my_negotiation_id) so the FE can render Bid / Counter / Accept / Reject /
+  // Withdraw buttons straight off the marketplace row without a separate
+  // negotiation fetch. Semantics match the per-chain flags on
+  // OTCNegotiationResponse, applied to the caller's OWN bidder chain on this
+  // listing:
+  //   viewer_role      — "bidder" (caller has a chain here) | "poster" (me_owner)
+  //                      | "" (read-only / non-party)
+  //   last_action_mine — caller authored their chain's latest offer
+  //   awaiting_viewer  — caller's turn (the other side moved last); chain live
+  //   can_bid          — caller has NO live chain on this OPEN listing → may open one
+  //   can_accept       — may accept the latest offer (== awaiting_viewer)
+  //   can_counter      — may counter (chain live; NOT turn-based)
+  //   can_reject       — may reject the latest offer (== awaiting_viewer)
+  //   can_withdraw     — bidder may withdraw their own live chain
+  // For the listing's OWN poster (me_owner) only viewer_role="poster" is set —
+  // the poster acts per-bid via GET /otc/options/:id/negotiations, not on the row.
+  // (4.7.0)
+  string viewer_role      = 23;
+  bool   last_action_mine = 24;
+  bool   awaiting_viewer  = 25;
+  bool   can_bid          = 26;
+  bool   can_accept       = 27;
+  bool   can_counter      = 28;
+  bool   can_reject       = 29;
+  bool   can_withdraw     = 30;
   // NOTE: strike_price / premium / settlement_date (fields 10/12/14) are NO
   // LONGER preset on the listing (option offers are termless inventory). They
   // are re-sourced PER VIEWER from the negotiation chain (D2): a bidder sees
@@ -1608,6 +1634,19 @@ message OTCOfferResponse {
   // Works for local and remote offers. (SP-2b)
   uint64 my_negotiation_id     = 22;
   string my_negotiation_status = 23;
+  // Viewer-relative ACTION hints for this offer (same semantics as the
+  // UnifiedOptionOffer row flags — see that message). Computed per caller from
+  // their own bidder chain on this offer so an offer-detail view can render the
+  // Bid / Counter / Accept / Reject / Withdraw buttons. me_owner ⇒ only
+  // viewer_role="poster" (poster acts per-bid in the negotiations list). (4.7.0)
+  string viewer_role      = 25;
+  bool   last_action_mine = 26;
+  bool   awaiting_viewer  = 27;
+  bool   can_bid          = 28;
+  bool   can_accept       = 29;
+  bool   can_counter      = 30;
+  bool   can_reject       = 31;
+  bool   can_withdraw     = 32;
   // seller_id — the LOCAL read view's SI-TX-prefixed seller identity of the
   // offer's initiator: "bank" for a bank-owned listing, "client-<N>" for a
   // client-owned one. This is the same value the unified marketplace listing

@@ -5544,8 +5544,36 @@ type UnifiedOptionOffer struct {
 	// my_negotiation_status carries that chain's status. (SP-2b)
 	MyNegotiationId     uint64 `protobuf:"varint,21,opt,name=my_negotiation_id,json=myNegotiationId,proto3" json:"my_negotiation_id,omitempty"`
 	MyNegotiationStatus string `protobuf:"bytes,22,opt,name=my_negotiation_status,json=myNegotiationStatus,proto3" json:"my_negotiation_status,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Viewer-relative ACTION hints for this LISTING row (computed per caller, like
+	// my_negotiation_id) so the FE can render Bid / Counter / Accept / Reject /
+	// Withdraw buttons straight off the marketplace row without a separate
+	// negotiation fetch. Semantics match the per-chain flags on
+	// OTCNegotiationResponse, applied to the caller's OWN bidder chain on this
+	// listing:
+	//
+	//	viewer_role      — "bidder" (caller has a chain here) | "poster" (me_owner)
+	//	                   | "" (read-only / non-party)
+	//	last_action_mine — caller authored their chain's latest offer
+	//	awaiting_viewer  — caller's turn (the other side moved last); chain live
+	//	can_bid          — caller has NO live chain on this OPEN listing → may open one
+	//	can_accept       — may accept the latest offer (== awaiting_viewer)
+	//	can_counter      — may counter (chain live; NOT turn-based)
+	//	can_reject       — may reject the latest offer (== awaiting_viewer)
+	//	can_withdraw     — bidder may withdraw their own live chain
+	//
+	// For the listing's OWN poster (me_owner) only viewer_role="poster" is set —
+	// the poster acts per-bid via GET /otc/options/:id/negotiations, not on the row.
+	// (4.7.0)
+	ViewerRole     string `protobuf:"bytes,23,opt,name=viewer_role,json=viewerRole,proto3" json:"viewer_role,omitempty"`
+	LastActionMine bool   `protobuf:"varint,24,opt,name=last_action_mine,json=lastActionMine,proto3" json:"last_action_mine,omitempty"`
+	AwaitingViewer bool   `protobuf:"varint,25,opt,name=awaiting_viewer,json=awaitingViewer,proto3" json:"awaiting_viewer,omitempty"`
+	CanBid         bool   `protobuf:"varint,26,opt,name=can_bid,json=canBid,proto3" json:"can_bid,omitempty"`
+	CanAccept      bool   `protobuf:"varint,27,opt,name=can_accept,json=canAccept,proto3" json:"can_accept,omitempty"`
+	CanCounter     bool   `protobuf:"varint,28,opt,name=can_counter,json=canCounter,proto3" json:"can_counter,omitempty"`
+	CanReject      bool   `protobuf:"varint,29,opt,name=can_reject,json=canReject,proto3" json:"can_reject,omitempty"`
+	CanWithdraw    bool   `protobuf:"varint,30,opt,name=can_withdraw,json=canWithdraw,proto3" json:"can_withdraw,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UnifiedOptionOffer) Reset() {
@@ -5730,6 +5758,62 @@ func (x *UnifiedOptionOffer) GetMyNegotiationStatus() string {
 		return x.MyNegotiationStatus
 	}
 	return ""
+}
+
+func (x *UnifiedOptionOffer) GetViewerRole() string {
+	if x != nil {
+		return x.ViewerRole
+	}
+	return ""
+}
+
+func (x *UnifiedOptionOffer) GetLastActionMine() bool {
+	if x != nil {
+		return x.LastActionMine
+	}
+	return false
+}
+
+func (x *UnifiedOptionOffer) GetAwaitingViewer() bool {
+	if x != nil {
+		return x.AwaitingViewer
+	}
+	return false
+}
+
+func (x *UnifiedOptionOffer) GetCanBid() bool {
+	if x != nil {
+		return x.CanBid
+	}
+	return false
+}
+
+func (x *UnifiedOptionOffer) GetCanAccept() bool {
+	if x != nil {
+		return x.CanAccept
+	}
+	return false
+}
+
+func (x *UnifiedOptionOffer) GetCanCounter() bool {
+	if x != nil {
+		return x.CanCounter
+	}
+	return false
+}
+
+func (x *UnifiedOptionOffer) GetCanReject() bool {
+	if x != nil {
+		return x.CanReject
+	}
+	return false
+}
+
+func (x *UnifiedOptionOffer) GetCanWithdraw() bool {
+	if x != nil {
+		return x.CanWithdraw
+	}
+	return false
 }
 
 type ListUnifiedOptionOffersRequest struct {
@@ -11171,6 +11255,19 @@ type OTCOfferResponse struct {
 	// Works for local and remote offers. (SP-2b)
 	MyNegotiationId     uint64 `protobuf:"varint,22,opt,name=my_negotiation_id,json=myNegotiationId,proto3" json:"my_negotiation_id,omitempty"`
 	MyNegotiationStatus string `protobuf:"bytes,23,opt,name=my_negotiation_status,json=myNegotiationStatus,proto3" json:"my_negotiation_status,omitempty"`
+	// Viewer-relative ACTION hints for this offer (same semantics as the
+	// UnifiedOptionOffer row flags — see that message). Computed per caller from
+	// their own bidder chain on this offer so an offer-detail view can render the
+	// Bid / Counter / Accept / Reject / Withdraw buttons. me_owner ⇒ only
+	// viewer_role="poster" (poster acts per-bid in the negotiations list). (4.7.0)
+	ViewerRole     string `protobuf:"bytes,25,opt,name=viewer_role,json=viewerRole,proto3" json:"viewer_role,omitempty"`
+	LastActionMine bool   `protobuf:"varint,26,opt,name=last_action_mine,json=lastActionMine,proto3" json:"last_action_mine,omitempty"`
+	AwaitingViewer bool   `protobuf:"varint,27,opt,name=awaiting_viewer,json=awaitingViewer,proto3" json:"awaiting_viewer,omitempty"`
+	CanBid         bool   `protobuf:"varint,28,opt,name=can_bid,json=canBid,proto3" json:"can_bid,omitempty"`
+	CanAccept      bool   `protobuf:"varint,29,opt,name=can_accept,json=canAccept,proto3" json:"can_accept,omitempty"`
+	CanCounter     bool   `protobuf:"varint,30,opt,name=can_counter,json=canCounter,proto3" json:"can_counter,omitempty"`
+	CanReject      bool   `protobuf:"varint,31,opt,name=can_reject,json=canReject,proto3" json:"can_reject,omitempty"`
+	CanWithdraw    bool   `protobuf:"varint,32,opt,name=can_withdraw,json=canWithdraw,proto3" json:"can_withdraw,omitempty"`
 	// seller_id — the LOCAL read view's SI-TX-prefixed seller identity of the
 	// offer's initiator: "bank" for a bank-owned listing, "client-<N>" for a
 	// client-owned one. This is the same value the unified marketplace listing
@@ -11371,6 +11468,62 @@ func (x *OTCOfferResponse) GetMyNegotiationStatus() string {
 		return x.MyNegotiationStatus
 	}
 	return ""
+}
+
+func (x *OTCOfferResponse) GetViewerRole() string {
+	if x != nil {
+		return x.ViewerRole
+	}
+	return ""
+}
+
+func (x *OTCOfferResponse) GetLastActionMine() bool {
+	if x != nil {
+		return x.LastActionMine
+	}
+	return false
+}
+
+func (x *OTCOfferResponse) GetAwaitingViewer() bool {
+	if x != nil {
+		return x.AwaitingViewer
+	}
+	return false
+}
+
+func (x *OTCOfferResponse) GetCanBid() bool {
+	if x != nil {
+		return x.CanBid
+	}
+	return false
+}
+
+func (x *OTCOfferResponse) GetCanAccept() bool {
+	if x != nil {
+		return x.CanAccept
+	}
+	return false
+}
+
+func (x *OTCOfferResponse) GetCanCounter() bool {
+	if x != nil {
+		return x.CanCounter
+	}
+	return false
+}
+
+func (x *OTCOfferResponse) GetCanReject() bool {
+	if x != nil {
+		return x.CanReject
+	}
+	return false
+}
+
+func (x *OTCOfferResponse) GetCanWithdraw() bool {
+	if x != nil {
+		return x.CanWithdraw
+	}
+	return false
 }
 
 func (x *OTCOfferResponse) GetSellerId() string {
@@ -17822,7 +17975,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x1fListHoldingTransactionsResponse\x12=\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x19.stock.HoldingTransactionR\ftransactions\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\"\xe8\x05\n" +
+	"totalCount\"\xf7\a\n" +
 	"\x12UnifiedOptionOffer\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1b\n" +
 	"\tbank_code\x18\x02 \x01(\tR\bbankCode\x12%\n" +
@@ -17848,7 +18001,19 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\blocal_id\x18\x13 \x01(\x04R\alocalId\x12\x19\n" +
 	"\bme_owner\x18\x14 \x01(\bR\ameOwner\x12*\n" +
 	"\x11my_negotiation_id\x18\x15 \x01(\x04R\x0fmyNegotiationId\x122\n" +
-	"\x15my_negotiation_status\x18\x16 \x01(\tR\x13myNegotiationStatus\"\x8d\x03\n" +
+	"\x15my_negotiation_status\x18\x16 \x01(\tR\x13myNegotiationStatus\x12\x1f\n" +
+	"\vviewer_role\x18\x17 \x01(\tR\n" +
+	"viewerRole\x12(\n" +
+	"\x10last_action_mine\x18\x18 \x01(\bR\x0elastActionMine\x12'\n" +
+	"\x0fawaiting_viewer\x18\x19 \x01(\bR\x0eawaitingViewer\x12\x17\n" +
+	"\acan_bid\x18\x1a \x01(\bR\x06canBid\x12\x1d\n" +
+	"\n" +
+	"can_accept\x18\x1b \x01(\bR\tcanAccept\x12\x1f\n" +
+	"\vcan_counter\x18\x1c \x01(\bR\n" +
+	"canCounter\x12\x1d\n" +
+	"\n" +
+	"can_reject\x18\x1d \x01(\bR\tcanReject\x12!\n" +
+	"\fcan_withdraw\x18\x1e \x01(\bR\vcanWithdraw\"\x8d\x03\n" +
 	"\x1eListUnifiedOptionOffersRequest\x12\x16\n" +
 	"\x06ticker\x18\x01 \x01(\tR\x06ticker\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1b\n" +
@@ -18349,7 +18514,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	" \x01(\x04R\taccountId\x122\n" +
 	"\x16on_behalf_of_client_id\x18\v \x01(\x04R\x12onBehalfOfClientId\x12\x16\n" +
 	"\x06ticker\x18\f \x01(\tR\x06ticker\x12,\n" +
-	"\x12acting_employee_id\x18\r \x01(\x04R\x10actingEmployeeId\"\xcd\x06\n" +
+	"\x12acting_employee_id\x18\r \x01(\x04R\x10actingEmployeeId\"\xdc\b\n" +
 	"\x10OTCOfferResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1c\n" +
 	"\tdirection\x18\x02 \x01(\tR\tdirection\x12\x19\n" +
@@ -18376,7 +18541,19 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\tbank_code\x18\x14 \x01(\tR\bbankCode\x12\x19\n" +
 	"\bme_owner\x18\x15 \x01(\bR\ameOwner\x12*\n" +
 	"\x11my_negotiation_id\x18\x16 \x01(\x04R\x0fmyNegotiationId\x122\n" +
-	"\x15my_negotiation_status\x18\x17 \x01(\tR\x13myNegotiationStatus\x12\x1b\n" +
+	"\x15my_negotiation_status\x18\x17 \x01(\tR\x13myNegotiationStatus\x12\x1f\n" +
+	"\vviewer_role\x18\x19 \x01(\tR\n" +
+	"viewerRole\x12(\n" +
+	"\x10last_action_mine\x18\x1a \x01(\bR\x0elastActionMine\x12'\n" +
+	"\x0fawaiting_viewer\x18\x1b \x01(\bR\x0eawaitingViewer\x12\x17\n" +
+	"\acan_bid\x18\x1c \x01(\bR\x06canBid\x12\x1d\n" +
+	"\n" +
+	"can_accept\x18\x1d \x01(\bR\tcanAccept\x12\x1f\n" +
+	"\vcan_counter\x18\x1e \x01(\bR\n" +
+	"canCounter\x12\x1d\n" +
+	"\n" +
+	"can_reject\x18\x1f \x01(\bR\tcanReject\x12!\n" +
+	"\fcan_withdraw\x18  \x01(\bR\vcanWithdraw\x12\x1b\n" +
 	"\tseller_id\x18\x18 \x01(\tR\bsellerId\"\xaa\x01\n" +
 	"\x1dUpdateOTCOfferQuantityRequest\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\x04R\aofferId\x12\x1a\n" +

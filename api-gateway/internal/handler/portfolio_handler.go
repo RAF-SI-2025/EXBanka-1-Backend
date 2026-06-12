@@ -311,6 +311,19 @@ func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySeller
 			row["my_negotiation_id"] = o.GetMyNegotiationId()
 			row["my_negotiation_status"] = o.GetMyNegotiationStatus()
 		}
+		// Viewer-relative action hints (4.7.0) — drive the row's Bid / Counter /
+		// Accept / Reject / Withdraw buttons. ALWAYS present (explicit booleans)
+		// so the FE can read them unambiguously rather than inferring from an
+		// absent field. For the listing's own poster only viewer_role="poster"
+		// is meaningful (they act per-bid via /otc/options/:id/negotiations).
+		row["viewer_role"] = o.GetViewerRole()
+		row["last_action_mine"] = o.GetLastActionMine()
+		row["awaiting_viewer"] = o.GetAwaitingViewer()
+		row["can_bid"] = o.GetCanBid()
+		row["can_accept"] = o.GetCanAccept()
+		row["can_counter"] = o.GetCanCounter()
+		row["can_reject"] = o.GetCanReject()
+		row["can_withdraw"] = o.GetCanWithdraw()
 		offers = append(offers, row)
 	}
 	var lastRefresh string

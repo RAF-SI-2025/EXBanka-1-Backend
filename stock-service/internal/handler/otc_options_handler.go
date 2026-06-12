@@ -622,6 +622,8 @@ func (h *OTCOptionsHandler) GetOffer(ctx context.Context, in *stockpb.GetOTCOffe
 		offer.MyNegotiationId = stamp.id
 		offer.MyNegotiationStatus = stamp.status
 	}
+	// Viewer-relative action hints for the detail-view buttons (4.7.0).
+	applyOfferRowFlagsDetail(offer, computeOfferRowFlags(stamp, haveStamp, offer.GetMeOwner(), o.IsOpenListing()))
 	// D2 — the listing is termless; re-source strike/premium/settlement per
 	// viewer. The toOTCOfferProto projection above copied the (now zero) listing
 	// terms, so clear them first, then fill from the caller's position: a BIDDER
@@ -726,15 +728,20 @@ func (h *OTCOptionsHandler) resolveRemoteOffer(id uint64, myNegIdx myNegotiation
 	// SP-2b — caller's own (bidder) chain on this REMOTE offer. The chain keys
 	// on the peer-hosted parent (routing, native); the remote offer row carries
 	// that as (RoutingNumber, NativeID).
+	var stamp myNegStamp
+	var haveStamp bool
 	if m.NativeID != nil {
-		if s, ok := myNegIdx.remoteFor(m.RoutingNumber, *m.NativeID); ok {
-			offer.MyNegotiationId = s.id
-			offer.MyNegotiationStatus = s.status
-			offer.StrikePrice = s.terms.StrikePrice
-			offer.Premium = s.terms.Premium
-			offer.SettlementDate = s.terms.SettlementDate
+		if stamp, haveStamp = myNegIdx.remoteFor(m.RoutingNumber, *m.NativeID); haveStamp {
+			offer.MyNegotiationId = stamp.id
+			offer.MyNegotiationStatus = stamp.status
+			offer.StrikePrice = stamp.terms.StrikePrice
+			offer.Premium = stamp.terms.Premium
+			offer.SettlementDate = stamp.terms.SettlementDate
 		}
 	}
+	// Viewer-relative action hints (4.7.0). A remote shell is never me_owner and
+	// is a live (open) listing in discovery.
+	applyOfferRowFlagsDetail(offer, computeOfferRowFlags(stamp, haveStamp, false, true))
 	return &stockpb.OTCOfferDetailResponse{
 		Offer:     offer,
 		Revisions: nil,

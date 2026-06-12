@@ -185,6 +185,9 @@ func (h *OTCHandler) ListUnifiedOptionOffers(ctx context.Context, req *pb.ListUn
 			item.MyNegotiationId = stamp.id
 			item.MyNegotiationStatus = stamp.status
 		}
+		// Viewer-relative action hints for the row buttons (4.7.0). The unified
+		// cache is OPEN-only, so listingOpen is always true here.
+		applyOfferRowFlagsUnified(item, computeOfferRowFlags(stamp, haveStamp, item.MeOwner, true))
 		// D2 — the listing is termless; re-source strike/premium/settlement per
 		// viewer. BIDDER (not the owner, has a chain) → that chain's current
 		// terms. OWNER of a LOCAL offer → their most recent counter. Else empty.

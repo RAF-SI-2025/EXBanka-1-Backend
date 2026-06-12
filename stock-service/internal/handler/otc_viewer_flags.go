@@ -107,6 +107,78 @@ func stampNegotiationViewerFlags(item *stockpb.OTCNegotiationResponse, viewerRol
 	item.CanWithdraw = live && viewerRole == "bidder"
 }
 
+// offerViewerFlags is the per-caller action-hint projection for an OTC option
+// LISTING row (UnifiedOptionOffer / OTCOfferResponse), derived from the caller's
+// own bidder chain on that listing. It mirrors the per-chain negotiation flags
+// but adds can_bid (no live chain yet → may open one).
+type offerViewerFlags struct {
+	viewerRole     string
+	lastActionMine bool
+	awaiting       bool
+	canBid         bool
+	canAccept      bool
+	canCounter     bool
+	canReject      bool
+	canWithdraw    bool
+}
+
+// computeOfferRowFlags derives the marketplace-row action hints from the caller's
+// chain stamp. A listing OWNER (meOwner) gets only viewer_role="poster" — they act
+// per-bid in the negotiations list, not on the row. A caller WITH a live bidder
+// chain gets the chain's turn-based hints (accept/reject only on their turn;
+// counter any time it's live; withdraw their own chain). A caller with NO chain on
+// an OPEN listing gets can_bid. Statuses cover local (open/countered) and remote
+// (ongoing) live vocabularies.
+func computeOfferRowFlags(stamp myNegStamp, haveStamp, meOwner, listingOpen bool) offerViewerFlags {
+	if meOwner {
+		return offerViewerFlags{viewerRole: "poster"}
+	}
+	if haveStamp {
+		live := stamp.status == "open" || stamp.status == "countered" || stamp.status == "ongoing"
+		awaiting := live && !stamp.lastActionMine
+		return offerViewerFlags{
+			viewerRole:     "bidder",
+			lastActionMine: stamp.lastActionMine,
+			awaiting:       awaiting,
+			canAccept:      awaiting,
+			canReject:      awaiting,
+			canCounter:     live,
+			canWithdraw:    live,
+		}
+	}
+	return offerViewerFlags{canBid: listingOpen}
+}
+
+// applyOfferRowFlagsUnified writes the computed hints onto a marketplace row.
+func applyOfferRowFlagsUnified(o *stockpb.UnifiedOptionOffer, f offerViewerFlags) {
+	if o == nil {
+		return
+	}
+	o.ViewerRole = f.viewerRole
+	o.LastActionMine = f.lastActionMine
+	o.AwaitingViewer = f.awaiting
+	o.CanBid = f.canBid
+	o.CanAccept = f.canAccept
+	o.CanCounter = f.canCounter
+	o.CanReject = f.canReject
+	o.CanWithdraw = f.canWithdraw
+}
+
+// applyOfferRowFlagsDetail writes the computed hints onto an offer-detail row.
+func applyOfferRowFlagsDetail(o *stockpb.OTCOfferResponse, f offerViewerFlags) {
+	if o == nil {
+		return
+	}
+	o.ViewerRole = f.viewerRole
+	o.LastActionMine = f.lastActionMine
+	o.AwaitingViewer = f.awaiting
+	o.CanBid = f.canBid
+	o.CanAccept = f.canAccept
+	o.CanCounter = f.canCounter
+	o.CanReject = f.canReject
+	o.CanWithdraw = f.canWithdraw
+}
+
 // stampRevisionViewerFlags sets mine (via the supplied predicate over the SOURCE
 // row, index-aligned with out) and is_latest (the highest revision_number) on a
 // revision list. out[i] corresponds to src[i] (revsToProto preserves order).
