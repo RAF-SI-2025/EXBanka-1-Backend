@@ -5283,6 +5283,8 @@ GET /api/v3/securities/candles?listing_id=42&interval=1h&from=2026-04-01T00:00:0
 
 Create a new stock / futures / forex / option order. Ownership is derived from the JWT — the `account_id` (and `base_account_id`, when provided) must belong to the JWT caller. Mismatches return `403 forbidden`.
 
+An **employee** may also pass `on_behalf_of_fund_id` here to place the order against an investment fund they manage. For fund orders the caller-account ownership check is skipped and `account_id` is **optional** (auto-resolves to the fund's RSD account); a **buy** credits `fund_holdings`, a **sell** draws down `fund_holdings`. A non-employee passing `on_behalf_of_fund_id` is rejected with `403 forbidden`.
+
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Request Body:**
@@ -5299,7 +5301,8 @@ Create a new stock / futures / forex / option order. Ownership is derived from t
 | `stop_value` | string | Conditional | Required for `stop` or `stop_limit` orders |
 | `all_or_none` | boolean | No | Default: false |
 | `margin` | boolean | No | Default: false |
-| `account_id` | uint64 | Yes (buy) | Account to debit; must belong to the JWT caller |
+| `account_id` | uint64 | Conditional | Account to debit; must belong to the JWT caller. Required for buy. **Optional for fund orders** (`on_behalf_of_fund_id` set) — auto-resolves to the fund's RSD account. |
+| `on_behalf_of_fund_id` | uint64 | No | Employee-only. Place the order against an investment fund the caller manages. `account_id` auto-resolves; fills target `fund_holdings`. |
 | `base_account_id` | uint64 | Yes (forex) | Required when `security_type=forex`. Account that will be credited with the base currency on fill. MUST differ from `account_id`; MUST be owned by the JWT caller. Ignored for non-forex orders. |
 
 **Example Request (buy market order):**
@@ -5478,7 +5481,7 @@ Reject a pending order that requires supervisor approval. Renamed from `/decline
 Place a stock/futures/forex/option order on behalf of **either** a named client **or** an investment fund. Supply exactly one of `client_id` or `on_behalf_of_fund_id`:
 
 - **On behalf of a client** (`client_id`): the gateway verifies that `account_id` (and `base_account_id`, when present) belongs to `client_id` before forwarding to stock-service.
-- **On behalf of a fund** (`on_behalf_of_fund_id`): `account_id` is the fund's RSD account, not a client account — the client-ownership check is skipped at the gateway. stock-service re-validates that the acting employee is the fund's manager and binds the account to the fund. The fill lands in `fund_holdings`, mirroring `POST /api/v3/me/orders` with `on_behalf_of_fund_id`.
+- **On behalf of a fund** (`on_behalf_of_fund_id`): the order targets the fund's RSD account, not a client account — the client-ownership check is skipped at the gateway. `account_id` is **OPTIONAL**: omit it and it auto-resolves to the fund's RSD account; if supplied it must equal that account. stock-service re-validates that the acting employee is the fund's manager and binds the account to the fund. A **buy** fill lands in `fund_holdings`; a **sell** draws down `fund_holdings` (the fund's portfolio) and credits proceeds to the fund's RSD account — mirroring `POST /api/v3/me/orders` with `on_behalf_of_fund_id`.
 
 The order is recorded with `acting_employee_id` set to the caller's employee ID.
 
@@ -5490,10 +5493,10 @@ The order is recorded with `acting_employee_id` set to the caller's employee ID.
 |---|---|---|---|
 | `client_id` | uint64 | Conditional | Client for whom the order is placed. Required unless `on_behalf_of_fund_id` is set. Mutually exclusive with `on_behalf_of_fund_id`. |
 | `on_behalf_of_fund_id` | uint64 | Conditional | Investment fund for which the order is placed. Required unless `client_id` is set. Mutually exclusive with `client_id`. Acting employee must be the fund's manager. |
-| `account_id` | uint64 | Yes | Account to debit; for client orders must belong to `client_id`, for fund orders must be the fund's RSD account |
+| `account_id` | uint64 | Conditional | Account to debit/credit. For client orders: **required**, must belong to `client_id`. For fund orders: **optional** — auto-resolves to the fund's RSD account when omitted; if supplied must equal it. |
 | `security_type` | string | Optional | `stock`, `futures`, `forex`, or `option`. Required for forex-specific gateway validation. |
-| `listing_id` | uint64 | Yes (buy) | Listing ID (required for buy orders) |
-| `holding_id` | uint64 | Yes (sell) | Holding ID (required for sell orders) |
+| `listing_id` | uint64 | Yes | Listing ID (the execution venue) — required for both buy and sell |
+| `holding_id` | uint64 | No | Optional. Holdings aggregate per (owner, security); the sell venue is named by `listing_id`. |
 | `direction` | string | Yes | `buy` or `sell` (forex orders MUST be `buy`) |
 | `order_type` | string | Yes | `market`, `limit`, `stop`, or `stop_limit` |
 | `quantity` | int64 | Yes | Must be positive |
@@ -5515,17 +5518,17 @@ The order is recorded with `acting_employee_id` set to the caller's employee ID.
 }
 ```
 
-**Example Request (on behalf of a fund):**
+**Example Request (on behalf of a fund — account_id auto-resolves, sell from the fund's portfolio):**
 ```json
 {
   "on_behalf_of_fund_id": 9,
-  "account_id": 100,
   "listing_id": 42,
-  "direction": "buy",
+  "direction": "sell",
   "order_type": "market",
   "quantity": 10
 }
 ```
+`account_id` is omitted and auto-resolves to fund #9's RSD account. The 10 shares are drawn from the fund's `fund_holdings` position and the proceeds credit the fund's RSD account.
 
 **Response 201:** Order object.
 
@@ -7160,7 +7163,7 @@ Register a new peer bank.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `bank_code` | string | Yes | 3-digit prefix (e.g. "222") |
-| `routing_number` | int64 | Yes | Numeric form of bank_code |
+| `routing_number` | int64 | Yes | The peer's routing number. MUST equal the numeric value of `bank_code` (e.g. `bank_code` `"222"` ⇒ `routing_number` `222`); a non-numeric `bank_code` or a mismatch is rejected (see the invariant note below). |
 | `base_url` | string | Yes | Peer's `/api/v3` base URL |
 | `api_token` | string | Yes | Plaintext API token issued by peer; bcrypt-hashed before persist |
 | `hmac_inbound_key` | string | No | HMAC key to verify inbound HMAC-mode requests from this peer |
@@ -7179,9 +7182,11 @@ Register a new peer bank.
 ```
 
 **Response 201:** Peer bank object (`api_token_preview` returned, never the full token).
-**Response 400:** Validation error (missing required field, OR `bank_code`/`routing_number` equals this bank's own — peer-collision rejected; SP-2a).
+**Response 400:** Validation error — a missing required field; OR `bank_code`/`routing_number` equals this bank's own (peer-collision rejected, SP-2a); OR `bank_code` is not the numeric `routing_number` (non-numeric, or numerically different — routing-invariant, 4.4.7).
 
-> **Peer-collision guard (SP-2a):** `POST /api/v3/peer-banks` returns `400 validation_error` when `bank_code` or `routing_number` matches this bank's own configuration. This is enforced at the gRPC service layer (transaction-service `CreatePeerBank` returns `InvalidArgument` → gateway maps to 400). The invariant ensures `routing_number == OwnRouting()` reliably distinguishes local rows from remote (folded-in) rows in the unified OTC tables.
+> **Peer-collision guard (SP-2a):** `POST /api/v3/peer-banks` returns `400 validation_error` when `bank_code` or `routing_number` matches this bank's own configuration. This is enforced at the gRPC service layer (interbank-service `CreatePeerBank` returns `InvalidArgument` → gateway maps to 400). The invariant ensures `routing_number == OwnRouting()` reliably distinguishes local rows from remote (folded-in) rows in the unified OTC tables.
+
+> **bank_code = routing_number invariant (4.4.7):** `CreatePeerBank` also returns `400 validation_error` when `bank_code` is not numeric or does not numerically equal `routing_number`. Inbound peer authentication resolves a caller to its `bank_code`, and the cross-bank OTC paths derive the caller's routing from it (`peerRoutingForCode`); the two MUST agree, or the peer could authenticate yet its derived routing would never match the routing stored on a negotiation/contract mirror — every inbound `GET`/`PUT`/`accept` for it would `404`. Enforcing the invariant at registration makes the derivation provably exact for every registered peer.
 
 ---
 
@@ -8211,9 +8216,9 @@ Open a new negotiation chain by placing the initial bid on an open listing. `:id
 | `quantity` | string (decimal) | Initial bid quantity. Must be **> 0**. |
 | `strike_price` | string (decimal) | Initial bid strike. Must be **> 0**. |
 | `premium` | string (decimal) | Initial bid premium. Must be **>= 0** (zero allowed; negative rejected with 400). |
-| `settlement_date` | string | RFC3339 or YYYY-MM-DD |
+| `settlement_date` | string | RFC3339 or YYYY-MM-DD. **Must not be before today (UTC)** — a past settlement date is rejected with 400. |
 
-The gateway validates `quantity`/`strike_price` as strictly positive and `premium` as non-negative decimals before forwarding (a malformed or non-positive amount ⇒ 400). The same checks apply to the `counter` route below.
+The gateway validates `quantity`/`strike_price` as strictly positive, `premium` as non-negative decimals, and `settlement_date` as a parseable date **not before today** before forwarding (a malformed/non-positive amount or a past settlement date ⇒ 400). The same checks apply to the `counter` route below.
 
 **Response 201:** `{ "negotiation": OTCNegotiationResponse }`. Status `open` (local) / `ongoing` (remote, peer status vocabulary). `kind` is `local` or `remote`.
 
@@ -8235,7 +8240,7 @@ The gateway validates `quantity`/`strike_price` as strictly positive and `premiu
 
 Counter the current terms on one of the caller's chains. Either party (the chain's bidder OR the listing's poster) may counter. Handles local and remote chains uniformly (see the dispatch note above).
 
-**Request Body:** new `{ quantity, strike_price, premium, settlement_date }`.
+**Request Body:** new `{ quantity, strike_price, premium, settlement_date }`. `settlement_date` must not be before today (UTC) — a past date is rejected with 400.
 
 **Response 200:** updated `OTCNegotiationResponse`. Status flips to `countered`. Snapshot terms updated; a new COUNTER revision is appended to the chain's history.
 
@@ -8523,6 +8528,20 @@ rows that successfully minted a contract), every item now carries:
 | `bank_code` | string | Owning/peer bank's code, matching `routing_number`. |
 | `me_owner` | bool | `true` ONLY when the caller is the parent listing's poster/seller (someone is bidding on MY listing). A chain the caller opened **as the bidder** is `false`. For `remote`: `true` iff WE host the seller/poster side (`seller_routing == own_routing`). |
 
+**Viewer-relative action hints** (computed per caller, like `me_owner`) — the FE renders buttons directly from these without re-deriving turn rules. Omitted-when-false (treat an absent flag as `false`):
+
+| Field | Type | Description |
+|---|---|---|
+| `viewer_role` | string | The caller's side on this chain: `"bidder"` or `"poster"` (omitted/`""` when the caller is neither — e.g. an employee browsing a client's listing read-only). |
+| `last_action_mine` | bool | The caller authored the chain's latest revision (it is currently the counterparty's turn). |
+| `awaiting_viewer` | bool | It is the caller's turn — the chain is live (`open`/`countered`) AND the OTHER side made the last move. |
+| `can_accept` | bool | The caller may accept the current terms. **Turn-based** (`== awaiting_viewer`): only the party who did NOT make the latest offer may accept it, and only the latest offer. You can never accept your own standing offer. |
+| `can_counter` | bool | The caller may post a counter. **NOT turn-based** (`== chain is live`): either party may counter at any time while the chain is `open`/`countered`; a new counter supersedes prior offers (they become non-acceptable). So the side that just bid/countered can still place a new counter while awaiting a reply. |
+| `can_reject` | bool | The caller may reject (decline) the latest offer. **Turn-based** (`== awaiting_viewer`): surfaced to the receiver of the latest offer (either role). The maker instead supersedes with a counter, or — if the bidder — withdraws. |
+| `can_withdraw` | bool | The caller (the **bidder**) may withdraw their own chain while it is live. The poster cancels the whole listing instead, so this is never set for the poster. |
+
+The same `viewer_role` / `last_action_mine` / `awaiting_viewer` / `can_*` block is added to `GET /api/v3/otc/options/:id/negotiations` (poster's view of bids on a listing).
+
 For `remote` items, `id` is the **local surrogate primary key** of this
 bank's peer-negotiation mirror row (so callers correlate within this
 bank's id namespace), and the terms (`quantity`, `strike_price`, `premium`,
@@ -8568,13 +8587,17 @@ Retrieve the full revision chain (bid, counter, counter, accept/reject) for a si
       "action_by_principal_type": "client",
       "action_by_principal_id":   42,
       "action_by_wire_id":        "",
-      "created_at":               "2026-06-01T12:00:00Z"
+      "created_at":               "2026-06-01T12:00:00Z",
+      "mine":                     true,
+      "is_latest":                false
     }
   ]
 }
 ```
 
 Revisions are ordered by `revision_number ASC`. For **remote** chains, `action_by_principal_type` is the mover's role (`buyer`/`seller`), `action_by_principal_id` is `0`, and `action_by_wire_id` carries the mover's opaque SI-TX id (`client-N`/`employee-N`/`bank`). For **local** chains `action_by_wire_id` is an empty string.
+
+Each revision also carries two **viewer-relative** flags (computed per caller): `mine` (`bool` — the caller authored this revision) and `is_latest` (`bool` — this is the chain's most recent revision). The FE shows Accept/Counter when the latest revision is NOT `mine` and the chain is live. The same `mine`/`is_latest` flags are added to each entry of `GET /api/v3/otc/options/:id/timeline` (for the timeline, `is_latest` is per-chain — the most recent revision of each `negotiation_id` in the merged stream).
 
 **Response 403:** (LOCAL chain) caller is neither the bidder nor the listing's poster.
 

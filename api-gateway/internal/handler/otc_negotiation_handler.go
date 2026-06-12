@@ -78,6 +78,10 @@ func (h *OTCOptionsHandler) OpenNegotiationChain(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "quantity, strike_price, settlement_date are required")
 		return
 	}
+	if err := notBeforeToday("settlement_date", req.SettlementDate); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
 	if req.BidderAccountID == 0 {
 		apiError(c, http.StatusBadRequest, ErrValidation, "bidder_account_id is required")
 		return
@@ -154,6 +158,10 @@ func (h *OTCOptionsHandler) CounterMyNegotiation(c *gin.Context) {
 	}
 	if req.Quantity == "" || req.StrikePrice == "" || req.SettlementDate == "" {
 		apiError(c, http.StatusBadRequest, ErrValidation, "quantity, strike_price, settlement_date are required")
+		return
+	}
+	if err := notBeforeToday("settlement_date", req.SettlementDate); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
 		return
 	}
 	// Money-safety: same positivity checks as the bid path.

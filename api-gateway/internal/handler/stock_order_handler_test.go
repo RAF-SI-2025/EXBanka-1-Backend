@@ -295,6 +295,60 @@ func TestCreateOrder_Employee_PassesActingEmployeeID(t *testing.T) {
 		"per-actuary EmployeeLimit gate keys on this — must be the JWT employee id")
 }
 
+// A fund SELL may omit account_id entirely: the gateway must NOT reject it
+// (the old "account_id is required for sell orders" 400) and must NOT call the
+// account-ownership check — the fund's RSD account auto-resolves in
+// stock-service. The outgoing request carries on_behalf_of_fund_id and a zero
+// account_id for stock-service to fill.
+func TestCreateOrder_FundSell_NoAccountID_AutoResolves(t *testing.T) {
+	ord := &stubOrderClient{}
+	acct := &stubAccountClient{
+		getAccountFn: func(_ *accountpb.GetAccountRequest) *accountpb.AccountResponse {
+			t.Fatal("fund order must NOT trigger a gateway account-ownership lookup")
+			return nil
+		},
+	}
+	h := handler.NewStockOrderHandler(ord, acct)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/me/orders", employeeIdentity(11), h.CreateOrder)
+
+	// No account_id field at all; on_behalf_of_fund_id set; sell direction.
+	body := `{"listing_id":5,"direction":"sell","order_type":"market","quantity":3,"on_behalf_of_fund_id":42}`
+	req := httptest.NewRequest("POST", "/api/v1/me/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+	require.NotNil(t, ord.lastCreateReq, "stock-service must be called")
+	require.Equal(t, uint64(42), ord.lastCreateReq.OnBehalfOfFundId)
+	require.Equal(t, uint64(0), ord.lastCreateReq.AccountId,
+		"account_id stays 0 at the gateway; stock-service resolves it to the fund RSD account")
+}
+
+// A client (non-employee) attempting a fund order is still rejected, even with
+// account_id omitted — the employee-only gate fires before the gRPC call.
+func TestCreateOrder_FundOrder_ClientRejected(t *testing.T) {
+	ord := &stubOrderClient{}
+	acct := &stubAccountClient{}
+	h := handler.NewStockOrderHandler(ord, acct)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/me/orders", clientIdentity(7), h.CreateOrder)
+
+	body := `{"listing_id":5,"direction":"sell","order_type":"market","quantity":3,"on_behalf_of_fund_id":42}`
+	req := httptest.NewRequest("POST", "/api/v1/me/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code, "body: %s", rec.Body.String())
+	require.Nil(t, ord.lastCreateReq, "stock-service must NOT be called for a rejected client fund order")
+}
+
 func TestListMyOrders_ForwardsClientIdentity(t *testing.T) {
 	ord := &stubOrderClient{}
 	acct := &stubAccountClient{}

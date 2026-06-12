@@ -193,6 +193,34 @@ func TestPeerBankAdmin_RejectsOwnCode(t *testing.T) {
 	}
 }
 
+// TestPeerBankAdmin_RejectsBankCodeRoutingMismatch pins the SI-TX invariant that a
+// peer's bank_code IS its numeric routing number. A registration where they differ
+// — or a non-numeric code — is rejected, so the inbound peerRoutingForCode(bank_code)
+// derivation used by the cross-bank OTC lookups is provably exact for every
+// registered peer (no "authenticates but never resolves" peer can exist).
+func TestPeerBankAdmin_RejectsBankCodeRoutingMismatch(t *testing.T) {
+	h := newAdminTestHandler(t)
+	ctx := context.Background()
+	// bank_code != routing (neither is our own 111).
+	if _, err := h.CreatePeerBank(ctx, &transactionpb.CreatePeerBankRequest{
+		BankCode: "333", RoutingNumber: 444, BaseUrl: "http://x/api/v3", ApiToken: "t", Active: true,
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("bank_code 333 / routing 444: want InvalidArgument, got %v", err)
+	}
+	// non-numeric bank_code can never resolve via peerRoutingForCode → rejected.
+	if _, err := h.CreatePeerBank(ctx, &transactionpb.CreatePeerBankRequest{
+		BankCode: "bank4", RoutingNumber: 444, BaseUrl: "http://x/api/v3", ApiToken: "t", Active: true,
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("non-numeric bank_code: want InvalidArgument, got %v", err)
+	}
+	// bank_code == routing succeeds.
+	if _, err := h.CreatePeerBank(ctx, &transactionpb.CreatePeerBankRequest{
+		BankCode: "444", RoutingNumber: 444, BaseUrl: "http://x/api/v3", ApiToken: "t", Active: true,
+	}); err != nil {
+		t.Fatalf("matching bank_code/routing should succeed: %v", err)
+	}
+}
+
 func endsWith(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }

@@ -55,10 +55,10 @@ func (s *stubEvents) SendEmail(_ context.Context, m kafkamsg.SendEmailMessage) e
 	return nil
 }
 
-type stubClients struct{ email string }
+type stubClients struct{ email, first, last string }
 
 func (s stubClients) GetClient(_ context.Context, in *clientpb.GetClientRequest, _ ...grpc.CallOption) (*clientpb.ClientResponse, error) {
-	return &clientpb.ClientResponse{Id: in.Id, Email: s.email}, nil
+	return &clientpb.ClientResponse{Id: in.Id, Email: s.email, FirstName: s.first, LastName: s.last}, nil
 }
 
 // newEventsService wires a real AccountService with stub events + client lookup.
@@ -93,6 +93,43 @@ func (s *stubReplicaRepo) Upsert(_ context.Context, in model.ClientReplica) erro
 	cp := in
 	s.upserted = &cp
 	return nil
+}
+
+// TestCreateAccount_DenormalizesOwnerName_FromClient pins the fix for client
+// accounts being stored with an EMPTY owner_name (they looked ownerless in the
+// UI). CreateAccount must resolve the owner's name from client-service and
+// persist it onto the account.
+func TestCreateAccount_DenormalizesOwnerName_FromClient(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	ev := &stubEvents{}
+	svc := NewAccountService(repo, db, nil).WithEvents(ev).
+		WithClientLookup(stubClients{email: "c@b.com", first: "Test", last: "Client"})
+
+	acct := &model.Account{OwnerID: 1, CurrencyCode: "USD", AccountKind: "foreign", AccountType: "personal"}
+	require.NoError(t, svc.CreateAccount(acct))
+
+	// Reload from the DB to prove the name was PERSISTED, not just set on the struct.
+	got, err := repo.GetByID(acct.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Test Client", got.OwnerName, "client account owner_name must be denormalised from client-service")
+}
+
+// TestCreateAccount_KeepsSuppliedOwnerName — a caller-supplied owner_name is never
+// overwritten by the lookup.
+func TestCreateAccount_KeepsSuppliedOwnerName(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	ev := &stubEvents{}
+	svc := NewAccountService(repo, db, nil).WithEvents(ev).
+		WithClientLookup(stubClients{email: "c@b.com", first: "Test", last: "Client"})
+
+	acct := &model.Account{OwnerID: 1, CurrencyCode: "USD", AccountKind: "foreign", AccountType: "personal", OwnerName: "Custom Name"}
+	require.NoError(t, svc.CreateAccount(acct))
+
+	got, err := repo.GetByID(acct.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Custom Name", got.OwnerName)
 }
 
 func TestResolveClientEmail_ReplicaHit_NoGRPC(t *testing.T) {

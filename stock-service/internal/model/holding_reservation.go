@@ -16,6 +16,8 @@ const (
 
 // HoldingReservation locks a quantity of shares on a Holding for one of:
 //   - a sell ORDER (legacy bank-safe-settlement flow): OrderID is set; or
+//   - an on-behalf-of-FUND sell ORDER: OrderID is set AND FundHoldingID points
+//     at the locked `fund_holdings` row (HoldingID stays 0); or
 //   - an intra-bank OTC option CONTRACT (Celina-4 OTC trading): OTCContractID
 //     is set; or
 //   - a cross-bank OTC option CONTRACT (Celina-5 SI-TX, seller's bank
@@ -34,8 +36,19 @@ const (
 // the model layer (BeforeCreate hook) and at the DB layer (CHECK constraint
 // installed by explicit DDL in main.go).
 type HoldingReservation struct {
-	ID                   uint64    `gorm:"primaryKey" json:"id"`
-	HoldingID            uint64    `gorm:"not null;index" json:"holding_id"`
+	ID uint64 `gorm:"primaryKey" json:"id"`
+	// HoldingID points at the `holdings` row this reservation locks for USER /
+	// BANK orders. For on-behalf-of-FUND sell orders it is left 0 (sentinel) and
+	// FundHoldingID instead points at the `fund_holdings` row — the reserve /
+	// settle / release lifecycle then mutates fund_holdings. There is no FK on
+	// holding_id, so the 0 sentinel is safe. Exactly one of (HoldingID>0) or
+	// (FundHoldingID!=nil) identifies the locked position.
+	HoldingID uint64 `gorm:"not null;index" json:"holding_id"`
+	// FundHoldingID, when set, re-targets this reservation at a `fund_holdings`
+	// row (on-behalf-of-fund sell). nil ⇒ a plain `holdings` reservation. It is
+	// NOT one of the mutually-exclusive key columns below (a fund sell still
+	// carries OrderID as its key) — it is purely the holding-table discriminator.
+	FundHoldingID        *uint64   `gorm:"index" json:"fund_holding_id,omitempty"`
 	OrderID              *uint64   `gorm:"uniqueIndex:ux_holding_reservation_order" json:"order_id,omitempty"`                            // legacy sell-order reservations
 	OTCContractID        *uint64   `gorm:"uniqueIndex:ux_holding_reservation_otc_contract" json:"otc_contract_id,omitempty"`              // intra-bank OTC option contracts
 	PeerOptionContractID *uint64   `gorm:"uniqueIndex:ux_holding_reservation_peer_otc_contract" json:"peer_option_contract_id,omitempty"` // cross-bank OTC option contracts (seller side)

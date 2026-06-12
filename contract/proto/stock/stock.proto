@@ -447,9 +447,11 @@ message CreateOrderRequest {
   // for non-forex orders.
   optional uint64 base_account_id = 15;
   // on_behalf_of_fund_id, when non-zero, places the order against the fund's
-  // RSD account; owner becomes the bank sentinel and fills credit
-  // fund_holdings instead of the user's holdings. Caller must be the fund's
-  // manager (or an admin). account_id must equal the fund's RSD account id.
+  // RSD account; owner becomes the bank sentinel. A BUY fill credits
+  // fund_holdings and a SELL draws down fund_holdings (the fund's portfolio),
+  // instead of the user's holdings. Caller must be the fund's manager (or an
+  // admin). account_id is OPTIONAL: if 0 it auto-resolves to the fund's RSD
+  // account; if non-zero it must equal the fund's RSD account id.
   uint64 on_behalf_of_fund_id = 16;
 }
 
@@ -1237,6 +1239,24 @@ message OTCNegotiationResponse {
   int64  routing_number              = 19;
   string bank_code                   = 20;
   bool   me_owner                    = 21;
+  // Viewer-relative action hints (computed per caller, like me_owner). They let
+  // the FE render the right buttons without re-deriving turn rules:
+  //   viewer_role      — the caller's side on this chain: "bidder" | "poster"
+  //                      ("" if the caller is neither, e.g. a read-only employee)
+  //   last_action_mine — the caller authored the chain's latest revision
+  //   awaiting_viewer  — it is the caller's turn (chain live AND the OTHER side
+  //                      made the last move) → Accept/Counter are available
+  //   can_accept       — caller may accept the current terms (== awaiting_viewer)
+  //   can_counter      — caller may post a counter (== awaiting_viewer; turn-based)
+  //   can_reject       — caller (the poster) may reject a bid on their listing
+  //   can_withdraw     — caller (the bidder) may withdraw their own chain
+  string viewer_role                 = 22;
+  bool   last_action_mine            = 23;
+  bool   awaiting_viewer             = 24;
+  bool   can_accept                  = 25;
+  bool   can_counter                 = 26;
+  bool   can_reject                  = 27;
+  bool   can_withdraw                = 28;
 }
 
 // OTCNegotiationRevisionResponse is one entry in the revision chain.
@@ -1254,6 +1274,12 @@ message OTCNegotiationRevisionResponse {
   uint64 action_by_principal_id   = 10;
   string created_at               = 11;
   string action_by_wire_id        = 12; // remote chains: opaque mover id (client-N/employee-N/bank); empty for local
+  // Viewer-relative (computed per caller): mine = the caller authored this
+  // revision; is_latest = this is the chain's most recent revision (highest
+  // revision_number). The FE shows Accept/Counter when the latest revision is
+  // NOT mine and the chain is live.
+  bool   mine                     = 13;
+  bool   is_latest                = 14;
 }
 
 message ListNegotiationRevisionsRequest {
@@ -1443,6 +1469,11 @@ message OTCTimelineEntry {
   uint64 action_by_principal_id   = 11;
   string created_at               = 12; // ISO-8601
   string action_by_wire_id        = 13; // remote chains: opaque mover id (client-N/employee-N/bank); empty for local
+  // Viewer-relative (computed for the timeline's caller — the listing poster):
+  // mine = the caller authored this entry; is_latest = it is the most recent
+  // revision of ITS chain (highest revision_number for that negotiation_id).
+  bool   mine                     = 14;
+  bool   is_latest                = 15;
 }
 
 message GetOfferTimelineResponse {

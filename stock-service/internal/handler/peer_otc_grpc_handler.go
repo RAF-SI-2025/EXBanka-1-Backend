@@ -588,20 +588,17 @@ func (h *PeerOTCGRPCHandler) UpdateNegotiation(ctx context.Context, req *stockpb
 	if req.GetOffer() == nil || req.GetNegotiationId() == nil {
 		return nil, status.Error(codes.InvalidArgument, "offer and negotiation_id required")
 	}
-	peerRouting := peerRoutingForCode(req.GetPeerBankCode())
-
 	// SI-TX §3.3 ("Posting a counter-offer"): "If the receiving bank deems that
 	// it is its turn to make a counter-offer, rather than the [other party's]
 	// bank, or if negotiations are closed, a 409 Conflict response code is
 	// produced." Both guards run on the PERSISTED row BEFORE we persist the new
 	// counter. FailedPrecondition is mapped by the gateway to 409
 	// business_rule_violation, which reaches the peer as the required 409.
-	existing, err := h.negRepo.GetRemoteNegByRoutingAndNative(peerRouting, req.GetNegotiationId().GetId())
+	// Resolve by the URL native id + authorise the caller (spec §3.2); peerRouting
+	// is the negotiation's authoritative counterparty routing.
+	existing, peerRouting, err := h.resolveInboundRemoteNeg(req.GetPeerBankCode(), req.GetNegotiationId().GetId())
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Error(codes.NotFound, "negotiation not found")
-		}
-		return nil, status.Errorf(codes.Internal, "load negotiation: %v", err)
+		return nil, err
 	}
 	// Closed guard: a counter may only be posted while the negotiation is
 	// ongoing. Cancelled / accepted / rejected / expired → 409.
@@ -696,12 +693,9 @@ func (h *PeerOTCGRPCHandler) GetNegotiation(ctx context.Context, req *stockpb.Ge
 	if req.GetNegotiationId() == nil {
 		return nil, status.Error(codes.InvalidArgument, "negotiation_id required")
 	}
-	row, err := h.negRepo.GetRemoteNegByRoutingAndNative(peerRoutingForCode(req.GetPeerBankCode()), req.GetNegotiationId().GetId())
+	row, _, err := h.resolveInboundRemoteNeg(req.GetPeerBankCode(), req.GetNegotiationId().GetId())
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Error(codes.NotFound, "negotiation not found")
-		}
-		return nil, status.Errorf(codes.Internal, "get: %v", err)
+		return nil, err
 	}
 	var offer contractsitx.OtcOffer
 	_ = json.Unmarshal([]byte(remoteOfferJSONOf(row)), &offer)
@@ -726,33 +720,36 @@ func (h *PeerOTCGRPCHandler) DeleteNegotiation(ctx context.Context, req *stockpb
 	// (ParentOfferID set — discovered chain whose seller accepted a
 	// competing bid). Only used for the notification choice; the row
 	// state change is identical either way.
-	peerRouting := peerRoutingForCode(req.GetPeerBankCode())
-	row, gerr := h.negRepo.GetRemoteNegByRoutingAndNative(peerRouting, req.GetNegotiationId().GetId())
+	// Resolve by the URL native id + authorise the caller (spec §3.2). An unknown
+	// id — or a caller that is not a party — deletes nothing: report success
+	// without mutating (idempotent), mirroring the prior best-effort no-op flip.
+	row, peerRouting, rerr := h.resolveInboundRemoteNeg(req.GetPeerBankCode(), req.GetNegotiationId().GetId())
+	if rerr != nil {
+		if status.Code(rerr) == codes.NotFound {
+			return &stockpb.DeleteNegotiationResponse{}, nil
+		}
+		return nil, rerr
+	}
 
-	// Record the inbound terminal as a REJECT revision (full-history parity) when
-	// the row is known; the mover is the authenticated peer. SetRemoteNegStatusWith
-	// Revision only records on a real ongoing→cancelled transition (idempotent).
-	// Falls back to the plain status flip when the row could not be loaded.
-	if gerr == nil && row != nil {
-		var rejOffer contractsitx.OtcOffer
-		_ = json.Unmarshal([]byte(remoteOfferJSONOf(row)), &rejOffer)
-		rejRole, rejWire := remoteSideAtRouting(row, peerRouting)
-		rejectRev := &model.OTCNegotiationRevision{
-			Quantity:                decimal.NewFromInt(rejOffer.Amount),
-			StrikePrice:             rejOffer.PricePerStock,
-			Premium:                 rejOffer.Premium,
-			SettlementDate:          parseSITXDate(rejOffer.SettlementDate),
-			Action:                  model.OTCNegotiationActionReject,
-			ModifiedByPrincipalType: rejRole,
-			RemoteActorWireID:       &rejWire,
-		}
-		if _, err := h.negRepo.SetRemoteNegStatusWithRevision(peerRouting, req.GetNegotiationId().GetId(), "cancelled", rejectRev); err != nil {
-			return nil, status.Errorf(codes.Internal, "cancel: %v", err)
-		}
-	} else if err := h.negRepo.UpdateRemoteNegStatus(peerRouting, req.GetNegotiationId().GetId(), "cancelled"); err != nil {
+	// Record the inbound terminal as a REJECT revision (full-history parity); the
+	// mover is the authenticated peer. SetRemoteNegStatusWithRevision only records
+	// on a real ongoing→cancelled transition (idempotent on a re-delete).
+	var rejOffer contractsitx.OtcOffer
+	_ = json.Unmarshal([]byte(remoteOfferJSONOf(row)), &rejOffer)
+	rejRole, rejWire := remoteSideAtRouting(row, peerRouting)
+	rejectRev := &model.OTCNegotiationRevision{
+		Quantity:                decimal.NewFromInt(rejOffer.Amount),
+		StrikePrice:             rejOffer.PricePerStock,
+		Premium:                 rejOffer.Premium,
+		SettlementDate:          parseSITXDate(rejOffer.SettlementDate),
+		Action:                  model.OTCNegotiationActionReject,
+		ModifiedByPrincipalType: rejRole,
+		RemoteActorWireID:       &rejWire,
+	}
+	if _, err := h.negRepo.SetRemoteNegStatusWithRevision(peerRouting, req.GetNegotiationId().GetId(), "cancelled", rejectRev); err != nil {
 		return nil, status.Errorf(codes.Internal, "cancel: %v", err)
 	}
-	if gerr == nil && row != nil && h.notifier != nil {
+	if h.notifier != nil {
 		notifType := "OTC_OFFER_CANCELLED"
 		data := map[string]string{}
 		// Cascade heuristic: a discovered-group chain DELETEd by the
@@ -788,13 +785,12 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 	if req.GetNegotiationId() == nil {
 		return nil, status.Error(codes.InvalidArgument, "negotiation_id required")
 	}
-	peerRouting := peerRoutingForCode(req.GetPeerBankCode())
-	row, err := h.negRepo.GetRemoteNegByRoutingAndNative(peerRouting, req.GetNegotiationId().GetId())
+	// Resolve by the URL native id + authorise the caller (spec §3.2); peerRouting
+	// is the negotiation's authoritative counterparty routing, used for the claim
+	// CAS + reverts below.
+	row, peerRouting, err := h.resolveInboundRemoteNeg(req.GetPeerBankCode(), req.GetNegotiationId().GetId())
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Error(codes.NotFound, "negotiation not found")
-		}
-		return nil, status.Errorf(codes.Internal, "get: %v", err)
+		return nil, err
 	}
 	var offer contractsitx.OtcOffer
 	if err := json.Unmarshal([]byte(remoteOfferJSONOf(row)), &offer); err != nil {
@@ -1342,6 +1338,41 @@ func peerRoutingForCode(peerCode string) int64 {
 		return 0
 	}
 	return n
+}
+
+// resolveInboundRemoteNeg resolves the remote-negotiation mirror that an inbound
+// peer call (GET / PUT / DELETE / GET-accept on /negotiations/{rn}/{id})
+// addresses, SPEC-FAITHFULLY and routing-resolution-independently:
+//
+//   - Lookup by the globally-unique NATIVE id — the {id} segment of the SI-TX URL,
+//     which is the negotiation id minted by whichever bank hosts it. Per SI-TX §3.2
+//     the negotiation is served under THAT id, so we key the lookup on it directly
+//     (GetRemoteNegByNative) instead of on the caller's bank_code→routing
+//     resolution. Earlier the lookup was GetRemoteNegByRoutingAndNative(
+//     peerRoutingForCode(peerBankCode), id), which 404s if a peer's registered
+//     bank_code does not numerically equal its routing number even though the row
+//     exists — a fragility this removes.
+//   - AUTHORISE the caller: a remote mirror is ALWAYS keyed by the counterparty's
+//     routing (row.RoutingNumber is the remote party — we host the other side), so
+//     the calling peer's routing must equal it. A caller that is not the
+//     counterparty gets NotFound (same code as "no such id" — a peer can never
+//     probe or mutate a negotiation it is not part of, no existence leak).
+//
+// Returns the row and its AUTHORITATIVE counterparty routing (row.RoutingNumber);
+// callers use that for every downstream CAS / status-update / notify op so none of
+// them depend on bank_code == routing.
+func (h *PeerOTCGRPCHandler) resolveInboundRemoteNeg(peerBankCode, native string) (*model.OTCNegotiation, int64, error) {
+	row, err := h.negRepo.GetRemoteNegByNative(native)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, 0, status.Error(codes.NotFound, "negotiation not found")
+		}
+		return nil, 0, status.Errorf(codes.Internal, "get: %v", err)
+	}
+	if peerRoutingForCode(peerBankCode) != row.RoutingNumber {
+		return nil, 0, status.Error(codes.NotFound, "negotiation not found")
+	}
+	return row, row.RoutingNumber, nil
 }
 
 // remoteBuyer / remoteSeller / remoteOfferJSONOf / remoteNativeIDOf /

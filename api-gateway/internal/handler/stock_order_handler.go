@@ -28,7 +28,7 @@ func NewStockOrderHandler(client stockpb.OrderGRPCServiceClient, accountClient a
 // @Tags         orders
 // @Accept       json
 // @Produce      json
-// @Param        body body object true "Order. security_type is optional ('stock'|'futures'|'forex'|'option'); required for forex validation. base_account_id is required for forex buy orders."
+// @Param        body body object true "Order. security_type is optional ('stock'|'futures'|'forex'|'option'); required for forex validation. base_account_id is required for forex buy orders. on_behalf_of_fund_id (employee-only) places the order against an investment fund — account_id is then OPTIONAL and auto-resolves to the fund's RSD account; a fund sell draws from the fund's portfolio (fund_holdings)."
 // @Security     BearerAuth
 // @Success      201 {object} map[string]interface{}
 // @Failure      400 {object} map[string]interface{} "validation_error — forex orders must be direction=buy; forex orders require base_account_id; base_account_id must differ from account_id"
@@ -68,6 +68,13 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
+	// Fund orders name the fund's RSD account, which auto-resolves in
+	// stock-service — account_id is OPTIONAL and the gateway's caller-account
+	// ownership checks are skipped (the account is the fund's, not the caller's;
+	// stock-service binds it to the fund and re-validates the manager). The
+	// employee-only gate is still enforced below before the gRPC call.
+	isFundOrder := req.OnBehalfOfFundID != 0
+
 	// security_type is optional in the HTTP body (stock-service derives it from the listing),
 	// but when provided must be one of the known kinds. When provided as "forex" we enforce
 	// additional gateway-level constraints per the bank-safe settlement design (defense in depth).
@@ -93,11 +100,11 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "listing_id is required")
 		return
 	}
-	if direction == "buy" && req.AccountID == 0 {
+	if !isFundOrder && direction == "buy" && req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required for buy orders")
 		return
 	}
-	if direction == "buy" {
+	if !isFundOrder && direction == "buy" {
 		acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
 		if err != nil {
 			handleGRPCError(c, err)
@@ -110,7 +117,7 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	// Post-rollup (Part A): holdings aggregate per (user, security) so
 	// holding_id is no longer required for sell orders. The request's
 	// account_id is the proceeds destination; ownership is enforced below.
-	if direction == "sell" {
+	if !isFundOrder && direction == "sell" {
 		if req.AccountID == 0 {
 			apiError(c, 400, ErrValidation, "account_id is required for sell orders (proceeds destination)")
 			return
@@ -293,7 +300,7 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 // @Tags         orders
 // @Accept       json
 // @Produce      json
-// @Param        body body object true "Order. Provide client_id OR on_behalf_of_fund_id (not both)."
+// @Param        body body object true "Order. Provide client_id OR on_behalf_of_fund_id (not both). For fund orders account_id is OPTIONAL and auto-resolves to the fund's RSD account; a fund sell draws from the fund's portfolio (fund_holdings)."
 // @Security     BearerAuth
 // @Success      201 {object} map[string]interface{}
 // @Failure      400 {object} map[string]interface{} "validation_error — provide exactly one of client_id / on_behalf_of_fund_id"
@@ -367,11 +374,13 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "listing_id is required")
 		return
 	}
-	if direction == "buy" && req.AccountID == 0 {
+	// Fund orders auto-resolve to the fund's RSD account in stock-service, so
+	// account_id is optional for them (and bound to the fund there).
+	if !isFundOrder && direction == "buy" && req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required for buy orders")
 		return
 	}
-	if direction == "sell" && req.AccountID == 0 {
+	if !isFundOrder && direction == "sell" && req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required for sell orders (proceeds destination)")
 		return
 	}

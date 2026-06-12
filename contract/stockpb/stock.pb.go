@@ -3356,9 +3356,11 @@ type CreateOrderRequest struct {
 	// for non-forex orders.
 	BaseAccountId *uint64 `protobuf:"varint,15,opt,name=base_account_id,json=baseAccountId,proto3,oneof" json:"base_account_id,omitempty"`
 	// on_behalf_of_fund_id, when non-zero, places the order against the fund's
-	// RSD account; owner becomes the bank sentinel and fills credit
-	// fund_holdings instead of the user's holdings. Caller must be the fund's
-	// manager (or an admin). account_id must equal the fund's RSD account id.
+	// RSD account; owner becomes the bank sentinel. A BUY fill credits
+	// fund_holdings and a SELL draws down fund_holdings (the fund's portfolio),
+	// instead of the user's holdings. Caller must be the fund's manager (or an
+	// admin). account_id is OPTIONAL: if 0 it auto-resolves to the fund's RSD
+	// account; if non-zero it must equal the fund's RSD account id.
 	OnBehalfOfFundId uint64 `protobuf:"varint,16,opt,name=on_behalf_of_fund_id,json=onBehalfOfFundId,proto3" json:"on_behalf_of_fund_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -8482,8 +8484,27 @@ type OTCNegotiationResponse struct {
 	RoutingNumber int64  `protobuf:"varint,19,opt,name=routing_number,json=routingNumber,proto3" json:"routing_number,omitempty"`
 	BankCode      string `protobuf:"bytes,20,opt,name=bank_code,json=bankCode,proto3" json:"bank_code,omitempty"`
 	MeOwner       bool   `protobuf:"varint,21,opt,name=me_owner,json=meOwner,proto3" json:"me_owner,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Viewer-relative action hints (computed per caller, like me_owner). They let
+	// the FE render the right buttons without re-deriving turn rules:
+	//
+	//	viewer_role      — the caller's side on this chain: "bidder" | "poster"
+	//	                   ("" if the caller is neither, e.g. a read-only employee)
+	//	last_action_mine — the caller authored the chain's latest revision
+	//	awaiting_viewer  — it is the caller's turn (chain live AND the OTHER side
+	//	                   made the last move) → Accept/Counter are available
+	//	can_accept       — caller may accept the current terms (== awaiting_viewer)
+	//	can_counter      — caller may post a counter (== awaiting_viewer; turn-based)
+	//	can_reject       — caller (the poster) may reject a bid on their listing
+	//	can_withdraw     — caller (the bidder) may withdraw their own chain
+	ViewerRole     string `protobuf:"bytes,22,opt,name=viewer_role,json=viewerRole,proto3" json:"viewer_role,omitempty"`
+	LastActionMine bool   `protobuf:"varint,23,opt,name=last_action_mine,json=lastActionMine,proto3" json:"last_action_mine,omitempty"`
+	AwaitingViewer bool   `protobuf:"varint,24,opt,name=awaiting_viewer,json=awaitingViewer,proto3" json:"awaiting_viewer,omitempty"`
+	CanAccept      bool   `protobuf:"varint,25,opt,name=can_accept,json=canAccept,proto3" json:"can_accept,omitempty"`
+	CanCounter     bool   `protobuf:"varint,26,opt,name=can_counter,json=canCounter,proto3" json:"can_counter,omitempty"`
+	CanReject      bool   `protobuf:"varint,27,opt,name=can_reject,json=canReject,proto3" json:"can_reject,omitempty"`
+	CanWithdraw    bool   `protobuf:"varint,28,opt,name=can_withdraw,json=canWithdraw,proto3" json:"can_withdraw,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *OTCNegotiationResponse) Reset() {
@@ -8663,6 +8684,55 @@ func (x *OTCNegotiationResponse) GetMeOwner() bool {
 	return false
 }
 
+func (x *OTCNegotiationResponse) GetViewerRole() string {
+	if x != nil {
+		return x.ViewerRole
+	}
+	return ""
+}
+
+func (x *OTCNegotiationResponse) GetLastActionMine() bool {
+	if x != nil {
+		return x.LastActionMine
+	}
+	return false
+}
+
+func (x *OTCNegotiationResponse) GetAwaitingViewer() bool {
+	if x != nil {
+		return x.AwaitingViewer
+	}
+	return false
+}
+
+func (x *OTCNegotiationResponse) GetCanAccept() bool {
+	if x != nil {
+		return x.CanAccept
+	}
+	return false
+}
+
+func (x *OTCNegotiationResponse) GetCanCounter() bool {
+	if x != nil {
+		return x.CanCounter
+	}
+	return false
+}
+
+func (x *OTCNegotiationResponse) GetCanReject() bool {
+	if x != nil {
+		return x.CanReject
+	}
+	return false
+}
+
+func (x *OTCNegotiationResponse) GetCanWithdraw() bool {
+	if x != nil {
+		return x.CanWithdraw
+	}
+	return false
+}
+
 // OTCNegotiationRevisionResponse is one entry in the revision chain.
 // Populated by ListNegotiationRevisions.
 type OTCNegotiationRevisionResponse struct {
@@ -8679,8 +8749,14 @@ type OTCNegotiationRevisionResponse struct {
 	ActionByPrincipalId   uint64                 `protobuf:"varint,10,opt,name=action_by_principal_id,json=actionByPrincipalId,proto3" json:"action_by_principal_id,omitempty"`
 	CreatedAt             string                 `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	ActionByWireId        string                 `protobuf:"bytes,12,opt,name=action_by_wire_id,json=actionByWireId,proto3" json:"action_by_wire_id,omitempty"` // remote chains: opaque mover id (client-N/employee-N/bank); empty for local
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Viewer-relative (computed per caller): mine = the caller authored this
+	// revision; is_latest = this is the chain's most recent revision (highest
+	// revision_number). The FE shows Accept/Counter when the latest revision is
+	// NOT mine and the chain is live.
+	Mine          bool `protobuf:"varint,13,opt,name=mine,proto3" json:"mine,omitempty"`
+	IsLatest      bool `protobuf:"varint,14,opt,name=is_latest,json=isLatest,proto3" json:"is_latest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OTCNegotiationRevisionResponse) Reset() {
@@ -8795,6 +8871,20 @@ func (x *OTCNegotiationRevisionResponse) GetActionByWireId() string {
 		return x.ActionByWireId
 	}
 	return ""
+}
+
+func (x *OTCNegotiationRevisionResponse) GetMine() bool {
+	if x != nil {
+		return x.Mine
+	}
+	return false
+}
+
+func (x *OTCNegotiationRevisionResponse) GetIsLatest() bool {
+	if x != nil {
+		return x.IsLatest
+	}
+	return false
 }
 
 type ListNegotiationRevisionsRequest struct {
@@ -10056,8 +10146,13 @@ type OTCTimelineEntry struct {
 	ActionByPrincipalId   uint64                 `protobuf:"varint,11,opt,name=action_by_principal_id,json=actionByPrincipalId,proto3" json:"action_by_principal_id,omitempty"`
 	CreatedAt             string                 `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`                    // ISO-8601
 	ActionByWireId        string                 `protobuf:"bytes,13,opt,name=action_by_wire_id,json=actionByWireId,proto3" json:"action_by_wire_id,omitempty"` // remote chains: opaque mover id (client-N/employee-N/bank); empty for local
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Viewer-relative (computed for the timeline's caller — the listing poster):
+	// mine = the caller authored this entry; is_latest = it is the most recent
+	// revision of ITS chain (highest revision_number for that negotiation_id).
+	Mine          bool `protobuf:"varint,14,opt,name=mine,proto3" json:"mine,omitempty"`
+	IsLatest      bool `protobuf:"varint,15,opt,name=is_latest,json=isLatest,proto3" json:"is_latest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OTCTimelineEntry) Reset() {
@@ -10179,6 +10274,20 @@ func (x *OTCTimelineEntry) GetActionByWireId() string {
 		return x.ActionByWireId
 	}
 	return ""
+}
+
+func (x *OTCTimelineEntry) GetMine() bool {
+	if x != nil {
+		return x.Mine
+	}
+	return false
+}
+
+func (x *OTCTimelineEntry) GetIsLatest() bool {
+	if x != nil {
+		return x.IsLatest
+	}
+	return false
 }
 
 type GetOfferTimelineResponse struct {
@@ -17989,7 +18098,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"employeeId\x12\x1b\n" +
 	"\tfull_name\x18\x02 \x01(\tR\bfullName\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\x12.\n" +
-	"\x13realized_profit_rsd\x18\x04 \x01(\tR\x11realizedProfitRsd\"\xf9\x05\n" +
+	"\x13realized_profit_rsd\x18\x04 \x01(\tR\x11realizedProfitRsd\"\xef\a\n" +
 	"\x16OTCNegotiationResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12&\n" +
 	"\x0fparent_offer_id\x18\x02 \x01(\x04R\rparentOfferId\x12*\n" +
@@ -18014,7 +18123,18 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x04kind\x18\x12 \x01(\tR\x04kind\x12%\n" +
 	"\x0erouting_number\x18\x13 \x01(\x03R\rroutingNumber\x12\x1b\n" +
 	"\tbank_code\x18\x14 \x01(\tR\bbankCode\x12\x19\n" +
-	"\bme_owner\x18\x15 \x01(\bR\ameOwner\"\xd2\x03\n" +
+	"\bme_owner\x18\x15 \x01(\bR\ameOwner\x12\x1f\n" +
+	"\vviewer_role\x18\x16 \x01(\tR\n" +
+	"viewerRole\x12(\n" +
+	"\x10last_action_mine\x18\x17 \x01(\bR\x0elastActionMine\x12'\n" +
+	"\x0fawaiting_viewer\x18\x18 \x01(\bR\x0eawaitingViewer\x12\x1d\n" +
+	"\n" +
+	"can_accept\x18\x19 \x01(\bR\tcanAccept\x12\x1f\n" +
+	"\vcan_counter\x18\x1a \x01(\bR\n" +
+	"canCounter\x12\x1d\n" +
+	"\n" +
+	"can_reject\x18\x1b \x01(\bR\tcanReject\x12!\n" +
+	"\fcan_withdraw\x18\x1c \x01(\bR\vcanWithdraw\"\x83\x04\n" +
 	"\x1eOTCNegotiationRevisionResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12%\n" +
 	"\x0enegotiation_id\x18\x02 \x01(\x04R\rnegotiationId\x12'\n" +
@@ -18029,7 +18149,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	" \x01(\x04R\x13actionByPrincipalId\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\v \x01(\tR\tcreatedAt\x12)\n" +
-	"\x11action_by_wire_id\x18\f \x01(\tR\x0eactionByWireId\"\x9c\x01\n" +
+	"\x11action_by_wire_id\x18\f \x01(\tR\x0eactionByWireId\x12\x12\n" +
+	"\x04mine\x18\r \x01(\bR\x04mine\x12\x1b\n" +
+	"\tis_latest\x18\x0e \x01(\bR\bisLatest\"\x9c\x01\n" +
 	"\x1fListNegotiationRevisionsRequest\x12%\n" +
 	"\x0enegotiation_id\x18\x01 \x01(\x04R\rnegotiationId\x12*\n" +
 	"\x11caller_owner_type\x18\x02 \x01(\tR\x0fcallerOwnerType\x12&\n" +
@@ -18135,7 +18257,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x17GetOfferTimelineRequest\x12&\n" +
 	"\x0fparent_offer_id\x18\x01 \x01(\x04R\rparentOfferId\x12*\n" +
 	"\x11caller_owner_type\x18\x02 \x01(\tR\x0fcallerOwnerType\x12&\n" +
-	"\x0fcaller_owner_id\x18\x03 \x01(\x04R\rcallerOwnerId\"\x88\x04\n" +
+	"\x0fcaller_owner_id\x18\x03 \x01(\x04R\rcallerOwnerId\"\xb9\x04\n" +
 	"\x10OTCTimelineEntry\x12%\n" +
 	"\x0enegotiation_id\x18\x01 \x01(\x04R\rnegotiationId\x12*\n" +
 	"\x11bidder_owner_type\x18\x02 \x01(\tR\x0fbidderOwnerType\x12&\n" +
@@ -18151,7 +18273,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x16action_by_principal_id\x18\v \x01(\x04R\x13actionByPrincipalId\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\f \x01(\tR\tcreatedAt\x12)\n" +
-	"\x11action_by_wire_id\x18\r \x01(\tR\x0eactionByWireId\"~\n" +
+	"\x11action_by_wire_id\x18\r \x01(\tR\x0eactionByWireId\x12\x12\n" +
+	"\x04mine\x18\x0e \x01(\bR\x04mine\x12\x1b\n" +
+	"\tis_latest\x18\x0f \x01(\bR\bisLatest\"~\n" +
 	"\x18GetOfferTimelineResponse\x12-\n" +
 	"\x05offer\x18\x01 \x01(\v2\x17.stock.OTCOfferResponseR\x05offer\x123\n" +
 	"\btimeline\x18\x02 \x03(\v2\x17.stock.OTCTimelineEntryR\btimeline\"s\n" +

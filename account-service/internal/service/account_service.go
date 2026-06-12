@@ -98,6 +98,20 @@ func (s *AccountService) CreateAccount(account *model.Account) error {
 	account.Status = "active"
 	account.MaintenanceFee = maintenanceFeeByType(account.AccountType)
 
+	// Denormalise the owner's display name onto the account so reads don't need a
+	// per-account cross-service lookup. Only for real client owners (bank/state
+	// accounts seed their own OwnerName) and only when the caller didn't already
+	// supply one. Best-effort + time-bounded: a missing name never blocks or fails
+	// the create (it just stays empty, as before). This fixes client accounts
+	// being stored with an empty owner_name (they looked ownerless in the UI).
+	if account.OwnerName == "" && hasHumanOwner(account) {
+		nctx, cancel := context.WithTimeout(context.Background(), emitTimeout)
+		if name := s.resolveClientName(nctx, account.OwnerID); name != "" {
+			account.OwnerName = name
+		}
+		cancel()
+	}
+
 	if err := s.repo.Create(account); err != nil {
 		return err
 	}

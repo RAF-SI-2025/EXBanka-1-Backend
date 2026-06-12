@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -96,6 +97,24 @@ func nonNegativeDecimalString(field, value string) error {
 	}
 	if d.IsNegative() {
 		return fmt.Errorf("%s must not be negative", field)
+	}
+	return nil
+}
+
+// notBeforeToday parses an RFC3339 or YYYY-MM-DD date string and rejects a date
+// earlier than today (UTC). Used for option settlement dates — a settlement in
+// the past is never valid (the option could never be exercised). The value is
+// assumed already non-empty.
+func notBeforeToday(field, value string) error {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		if t, err = time.Parse("2006-01-02", value); err != nil {
+			return fmt.Errorf("%s must be an RFC3339 or YYYY-MM-DD date", field)
+		}
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	if t.UTC().Before(today) {
+		return fmt.Errorf("%s cannot be before today", field)
 	}
 	return nil
 }

@@ -790,6 +790,13 @@ func (s *PortfolioService) buildSellFillSaga(ctx context.Context, sagaID string,
 // average_price on a sell is the cost basis so it does not change as shares
 // leave the position.
 func (s *PortfolioService) recordCapitalGain(order *model.Order, txn *model.OrderTransaction, listing *model.Listing) error {
+	// On-behalf-of-fund sells draw from fund_holdings, not the order's
+	// (bank-sentinel) holdings, and funds are capital-gains tax-deferred — the
+	// CapitalGain owner CHECK only admits 'client'/'bank', so attributing a
+	// fund sale to the bank sentinel would be wrong. Skip CG recording for funds.
+	if order.FundID != nil {
+		return nil
+	}
 	holding, err := s.holdingRepo.GetByOwnerAndSecurity(
 		order.OwnerType, order.OwnerID, order.SecurityType, listing.SecurityID,
 	)

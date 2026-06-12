@@ -86,6 +86,12 @@ type fakePeerDispatcher struct {
 	publicStockStatus int
 	publicStockErr    error
 	publicStockCalls  []string // peer bank codes fetched
+
+	// onProxy, when set, fires at the start of every Proxy call (before the canned
+	// return) so a test can observe side-effect ORDERING — e.g. that the
+	// negotiation was already claimed (status flipped) BEFORE the /accept dispatch
+	// (the concurrent double-accept regression).
+	onProxy func(pc proxyCall)
 }
 
 type proxyCall struct {
@@ -126,10 +132,14 @@ func (f *fakePeerDispatcher) PublicStock(_ context.Context, peerBankCode string)
 }
 
 func (f *fakePeerDispatcher) Proxy(_ context.Context, peerBankCode, rid, foreignID, method, subpath string, body []byte) ([]byte, int, error) {
-	f.proxyCalls = append(f.proxyCalls, proxyCall{
+	pc := proxyCall{
 		peerBankCode: peerBankCode, rid: rid, foreignID: foreignID,
 		method: method, subpath: subpath, body: body,
-	})
+	}
+	f.proxyCalls = append(f.proxyCalls, pc)
+	if f.onProxy != nil {
+		f.onProxy(pc)
+	}
 	if r, ok := f.proxyByKey[method+" "+subpath]; ok {
 		return r.resp, r.status, r.err
 	}

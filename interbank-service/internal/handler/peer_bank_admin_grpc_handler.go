@@ -60,6 +60,18 @@ func (h *PeerBankAdminGRPCHandler) CreatePeerBank(ctx context.Context, req *tran
 	if req.GetBankCode() == h.ownBankCode || req.GetRoutingNumber() == h.ownRouting {
 		return nil, status.Error(codes.InvalidArgument, "peer bank_code/routing must differ from this bank's own")
 	}
+	// SI-TX routing invariant: a peer's bank_code IS its routing number (the
+	// 3-digit account prefix). Inbound peer auth resolves a caller to its
+	// bank_code, and the cross-bank OTC paths derive the caller's routing from it
+	// (peerRoutingForCode). If bank_code and routing_number diverged, that peer
+	// could authenticate but its derived routing would never match the routing
+	// stored on a negotiation/contract mirror — every inbound GET/PUT/accept for
+	// it would 404. Enforce they agree at registration so the derivation is
+	// provably exact for every registered peer.
+	if n, perr := strconv.ParseInt(req.GetBankCode(), 10, 64); perr != nil || n != req.GetRoutingNumber() {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"bank_code (%q) must equal the peer's numeric routing_number (%d)", req.GetBankCode(), req.GetRoutingNumber())
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.GetApiToken()), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "bcrypt: %v", err)

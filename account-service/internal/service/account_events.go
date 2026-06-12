@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -95,6 +96,38 @@ func (s *AccountService) resolveClientEmail(ctx context.Context, ownerID uint64)
 		})
 	}
 	return resp.Email
+}
+
+// resolveClientName returns the owner's display name ("First Last") from the
+// local client replica, falling back to a single synchronous GetClient on a miss
+// and backfilling the replica (SP-1 hybrid lazy fallback). Returns "" only if both
+// sources fail — the account is still created (the denormalised name is a
+// read-convenience, not an invariant). Used by CreateAccount so account reads
+// expose the owner's name without a per-read cross-service lookup; previously
+// client accounts were stored with an empty owner_name (only bank/state seed
+// accounts set it), which made them look ownerless in the UI.
+func (s *AccountService) resolveClientName(ctx context.Context, ownerID uint64) string {
+	if s.clientReplica != nil {
+		if rep, err := s.clientReplica.GetByID(ctx, ownerID); err == nil {
+			if n := strings.TrimSpace(rep.FirstName + " " + rep.LastName); n != "" {
+				return n
+			}
+		}
+	}
+	if s.clients == nil {
+		return ""
+	}
+	resp, err := s.clients.GetClient(ctx, &clientpb.GetClientRequest{Id: ownerID})
+	if err != nil {
+		log.Printf("warn: fetch client %d for account owner name: %v", ownerID, err)
+		return ""
+	}
+	if s.clientReplica != nil {
+		_ = s.clientReplica.Upsert(ctx, model.ClientReplica{
+			ID: ownerID, Email: resp.Email, FirstName: resp.FirstName, LastName: resp.LastName, JMBG: resp.Jmbg,
+		})
+	}
+	return strings.TrimSpace(resp.FirstName + " " + resp.LastName)
 }
 
 // hasHumanOwner reports whether the account belongs to a real client (not a

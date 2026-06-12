@@ -196,6 +196,94 @@ func (s *HoldingReservationService) Reserve(
 	return out, nil
 }
 
+// ReserveFund is the on-behalf-of-FUND analogue of Reserve: it locks `qty`
+// shares of a fund's position (the `fund_holdings` row keyed by
+// fundID+securityType+securityID) for a sell `orderID`. The buy fill writes
+// fund quantities into fund_holdings (PortfolioService.upsertHoldingForBuy); a
+// fund sell must draw down the SAME table, not the bank's `holdings`. The
+// reservation row carries FundHoldingID so the later PartialSettle / Release
+// mutate fund_holdings. Idempotent on orderID; FailedPrecondition when the fund
+// holding is missing or available quantity is insufficient.
+func (s *HoldingReservationService) ReserveFund(
+	ctx context.Context,
+	fundID uint64,
+	securityType string,
+	securityID, orderID uint64,
+	qty int64,
+) (*ReserveHoldingResult, error) {
+	if qty <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	var out *ReserveHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var fh model.FundHolding
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("fund_id = ? AND security_type = ? AND security_id = ?", fundID, securityType, securityID).
+			First(&fh).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "fund holding not found")
+			}
+			return err
+		}
+		available := fh.Quantity - fh.ReservedQuantity
+		if available < qty {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available fund quantity: have %d, need %d", available, qty)
+		}
+		oid := orderID
+		fhID := fh.ID
+		res := &model.HoldingReservation{
+			HoldingID:     0, // sentinel — fund reservations live on fund_holdings (FundHoldingID below)
+			OrderID:       &oid,
+			FundHoldingID: &fhID,
+			Quantity:      qty,
+			Status:        model.HoldingReservationStatusActive,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		inserted, existing, err := s.resRepo.WithTx(tx).InsertIfAbsent(res)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			out = &ReserveHoldingResult{
+				ReservationID:     existing.ID,
+				ReservedQuantity:  fh.ReservedQuantity,
+				AvailableQuantity: fh.Quantity - fh.ReservedQuantity,
+			}
+			return nil
+		}
+		// Atomic guarded increment (same rationale as Reserve): re-check
+		// availability inside the UPDATE's WHERE so concurrent reservers can't
+		// over-commit. Raw UPDATE bypasses the FundHolding BeforeUpdate
+		// optimistic-lock hook (a zero-value struct would inject a stale
+		// version predicate); the availability re-check is evaluated atomically
+		// against the latest committed row under the row lock.
+		upd := tx.Exec(
+			"UPDATE fund_holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), fh.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
+		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available fund quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		fh.ReservedQuantity += qty
+		out = &ReserveHoldingResult{
+			ReservationID:     res.ID,
+			ReservedQuantity:  fh.ReservedQuantity,
+			AvailableQuantity: fh.Quantity - fh.ReservedQuantity,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Release marks an active reservation as released and returns the remaining
 // (quantity - settled) held shares back to AvailableQuantity. No-op if the
 // reservation is missing, already released, or already settled — returning
@@ -225,16 +313,26 @@ func (s *HoldingReservationService) Release(ctx context.Context, orderID uint64)
 			remaining = 0
 		}
 
-		var holding model.Holding
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
-			return err
-		}
-		holding.ReservedQuantity -= remaining
-		if holding.ReservedQuantity < 0 {
-			holding.ReservedQuantity = 0
-		}
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Fund reservations live on fund_holdings; bank/user ones on holdings.
+		if res.FundHoldingID != nil {
+			reservedAfter, ferr := releaseFundHoldingReserved(tx, *res.FundHoldingID, remaining)
+			if ferr != nil {
+				return ferr
+			}
+			out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: reservedAfter}
+		} else {
+			var holding model.Holding
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+				return err
+			}
+			holding.ReservedQuantity -= remaining
+			if holding.ReservedQuantity < 0 {
+				holding.ReservedQuantity = 0
+			}
+			if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+				return err
+			}
+			out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: holding.ReservedQuantity}
 		}
 
 		res.Status = model.HoldingReservationStatusReleased
@@ -242,13 +340,30 @@ func (s *HoldingReservationService) Release(ctx context.Context, orderID uint64)
 		if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
 			return err
 		}
-		out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: holding.ReservedQuantity}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// releaseFundHoldingReserved returns `remaining` reserved shares of a
+// fund_holdings row back to available (decrement reserved_quantity; quantity
+// unchanged), under a row lock, and reports the post-release reserved count.
+func releaseFundHoldingReserved(tx *gorm.DB, fundHoldingID uint64, remaining int64) (int64, error) {
+	var fh model.FundHolding
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&fh, fundHoldingID).Error; err != nil {
+		return 0, err
+	}
+	fh.ReservedQuantity -= remaining
+	if fh.ReservedQuantity < 0 {
+		fh.ReservedQuantity = 0
+	}
+	if err := shared.CheckRowsAffected(tx.Save(&fh)); err != nil {
+		return 0, err
+	}
+	return fh.ReservedQuantity, nil
 }
 
 // PartialSettle commits a partial fill: decrements both ReservedQuantity and
@@ -278,11 +393,6 @@ func (s *HoldingReservationService) PartialSettle(
 			return status.Errorf(codes.FailedPrecondition, "reservation status=%s", res.Status)
 		}
 
-		var holding model.Holding
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
-			return err
-		}
-
 		settled, err := s.resRepo.WithTx(tx).SumSettlements(res.ID)
 		if err != nil {
 			return err
@@ -306,29 +416,48 @@ func (s *HoldingReservationService) PartialSettle(
 		if createResult.Error != nil {
 			return createResult.Error
 		}
-		if createResult.RowsAffected == 0 {
-			// Replay of a settlement that already landed. Return current
-			// holding state without mutating.
-			out = &PartialSettleHoldingResult{
-				SettledQuantity:   qty,
-				RemainingReserved: holding.ReservedQuantity,
-				QuantityAfter:     holding.Quantity,
+		replay := createResult.RowsAffected == 0
+
+		// The shares physically leave the locked position on a first-time
+		// settle. A fund sell draws down fund_holdings; a bank/user sell draws
+		// down holdings. On replay we only read current state without mutating.
+		var reservedAfter, quantityAfter int64
+		if res.FundHoldingID != nil {
+			var fh model.FundHolding
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&fh, *res.FundHoldingID).Error; err != nil {
+				return err
 			}
-			return nil
+			if !replay {
+				fh.ReservedQuantity -= qty
+				if fh.ReservedQuantity < 0 {
+					fh.ReservedQuantity = 0
+				}
+				fh.Quantity -= qty
+				if err := shared.CheckRowsAffected(tx.Save(&fh)); err != nil {
+					return err
+				}
+			}
+			reservedAfter, quantityAfter = fh.ReservedQuantity, fh.Quantity
+		} else {
+			var holding model.Holding
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+				return err
+			}
+			if !replay {
+				holding.ReservedQuantity -= qty
+				if holding.ReservedQuantity < 0 {
+					holding.ReservedQuantity = 0
+				}
+				holding.Quantity -= qty
+				if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+					return err
+				}
+			}
+			reservedAfter, quantityAfter = holding.ReservedQuantity, holding.Quantity
 		}
 
-		// First-time settle: the shares physically leave the holding.
-		holding.ReservedQuantity -= qty
-		if holding.ReservedQuantity < 0 {
-			holding.ReservedQuantity = 0
-		}
-		holding.Quantity -= qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
-		}
-
-		// Fully filled? Transition reservation status to settled.
-		if settled+qty == res.Quantity {
+		// Fully filled? Transition reservation status to settled (first-time only).
+		if !replay && settled+qty == res.Quantity {
 			res.Status = model.HoldingReservationStatusSettled
 			res.UpdatedAt = time.Now()
 			if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
@@ -338,8 +467,8 @@ func (s *HoldingReservationService) PartialSettle(
 
 		out = &PartialSettleHoldingResult{
 			SettledQuantity:   qty,
-			RemainingReserved: holding.ReservedQuantity,
-			QuantityAfter:     holding.Quantity,
+			RemainingReserved: reservedAfter,
+			QuantityAfter:     quantityAfter,
 		}
 		return nil
 	})

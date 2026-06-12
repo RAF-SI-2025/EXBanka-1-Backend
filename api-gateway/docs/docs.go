@@ -5580,7 +5580,7 @@ const docTemplate = `{
                 "summary": "Place a securities order (stock/futures/forex/option) for the authenticated user",
                 "parameters": [
                     {
-                        "description": "Order. security_type is optional ('stock'|'futures'|'forex'|'option'); required for forex validation. base_account_id is required for forex buy orders.",
+                        "description": "Order. security_type is optional ('stock'|'futures'|'forex'|'option'); required for forex validation. base_account_id is required for forex buy orders. on_behalf_of_fund_id (employee-only) places the order against an investment fund — account_id is then OPTIONAL and auto-resolves to the fund's RSD account; a fund sell draws from the fund's portfolio (fund_holdings).",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -6555,7 +6555,7 @@ const docTemplate = `{
                 "summary": "Place stock/futures/forex/option order on behalf of a client or fund",
                 "parameters": [
                     {
-                        "description": "Order. Provide client_id OR on_behalf_of_fund_id (not both).",
+                        "description": "Order. Provide client_id OR on_behalf_of_fund_id (not both). For fund orders account_id is OPTIONAL and auto-resolves to the fund's RSD account; a fund sell draws from the fund's portfolio (fund_holdings).",
                         "name": "body",
                         "in": "body",
                         "required": true,

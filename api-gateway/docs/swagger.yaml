@@ -4719,7 +4719,9 @@ paths:
       parameters:
       - description: Order. security_type is optional ('stock'|'futures'|'forex'|'option');
           required for forex validation. base_account_id is required for forex buy
-          orders.
+          orders. on_behalf_of_fund_id (employee-only) places the order against an
+          investment fund — account_id is then OPTIONAL and auto-resolves to the fund's
+          RSD account; a fund sell draws from the fund's portfolio (fund_holdings).
         in: body
         name: body
         required: true
@@ -5361,6 +5363,8 @@ paths:
         the fund-manager binding. stock-service records acting_employee_id for audit.
       parameters:
       - description: Order. Provide client_id OR on_behalf_of_fund_id (not both).
+          For fund orders account_id is OPTIONAL and auto-resolves to the fund's RSD
+          account; a fund sell draws from the fund's portfolio (fund_holdings).
         in: body
         name: body
         required: true

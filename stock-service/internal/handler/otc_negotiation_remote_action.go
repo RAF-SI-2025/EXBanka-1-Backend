@@ -316,12 +316,13 @@ func (h *OTCOptionsHandler) acceptRemoteNegotiation(
 			"cannot accept the terms you last proposed — the counterparty must accept")
 	}
 
-	// Chain-status guard: only an ONGOING chain may be accepted. Once a chain is
-	// terminal — already accepted, cascade-cancelled by a sibling's accept,
-	// rejected, or expired — a second accept must fail. This is the authoritative
-	// double-accept defence now that a partial accept RE-LISTS the unsold remainder
-	// (the (owner,ticker) listing stays open, so the orphan-accept guards below no
-	// longer reject a second accept on a consumed lot). FailedPrecondition → 409.
+	// Chain-status guard: only an ONGOING chain may be accepted. This is a cheap
+	// fast-fail on a (possibly stale) read so an obviously-closed chain returns a
+	// clear 409 without doing peer/DB work. The AUTHORITATIVE double-accept defence
+	// is the atomic claim (CAS ongoing→accepted) performed BELOW, before any
+	// money-moving dispatch — that is what serialises concurrent accepts of the same
+	// chain (a stale read here cannot, and previously let two racing accepts both
+	// settle the premium). FailedPrecondition → 409.
 	if rc.row.Status != "ongoing" {
 		return nil, status.Errorf(codes.FailedPrecondition,
 			"negotiation is closed (status %q): cannot accept", rc.row.Status)
@@ -366,11 +367,44 @@ func (h *OTCOptionsHandler) acceptRemoteNegotiation(
 		}
 	}
 
+	// ATOMIC CLAIM before any money-moving dispatch (concurrency fix, verified live
+	// 2026-06-12). Flip the mirror ongoing→accepted AND record the ACCEPT revision
+	// in ONE compare-and-set so concurrent accepts of the SAME chain serialise:
+	// exactly one wins the CAS and proceeds to dispatch + settle the premium; the
+	// losers no-match and abort HERE, before dispatching. Previously the peer
+	// /accept dispatch (which forms the contract + moves the premium) ran BEFORE
+	// this CAS and a no-match was swallowed, so two racing accepts each dispatched,
+	// each formed a contract, and credited the premium TWICE (and double-reserved
+	// the seller's shares). Mirrors the inbound AcceptNegotiation handler, which
+	// already claims before dispatch. On a dispatch/settlement failure below we
+	// revert the claim (accepted→ongoing) so the chain can be re-accepted.
+	acceptRole, acceptWire := remoteSideAtRouting(rc.row, h.ownRouting)
+	acceptRev := &model.OTCNegotiationRevision{
+		Quantity:                decimal.NewFromInt(rc.offer.Amount),
+		StrikePrice:             rc.offer.PricePerStock,
+		Premium:                 rc.offer.Premium,
+		SettlementDate:          parseSITXDate(rc.offer.SettlementDate),
+		Action:                  model.OTCNegotiationActionAccept,
+		ModifiedByPrincipalType: acceptRole,
+		RemoteActorWireID:       &acceptWire,
+	}
+	claimed, serr := h.remoteNegOps.CompareAndSetRemoteNegStatusWithRevision(
+		rc.row.RoutingNumber, rc.foreignID, "ongoing", "accepted", acceptRev)
+	if serr != nil {
+		return nil, status.Errorf(codes.Internal, "claim negotiation for accept: %v", serr)
+	}
+	if !claimed {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"negotiation is not acceptable (already accepted/cancelled or an accept is in progress)")
+	}
+
 	resp, code, err := h.peerDispatch.Proxy(ctx, rc.counterpartyCode, rc.rid, rc.foreignID, "GET", "/accept", nil)
 	if err != nil {
+		h.revertRemoteAcceptClaim(rc)
 		return nil, status.Errorf(codes.FailedPrecondition, "cross-bank accept dispatch failed: %v", err)
 	}
 	if code < 200 || code >= 300 {
+		h.revertRemoteAcceptClaim(rc)
 		return nil, status.Errorf(codes.FailedPrecondition, "peer rejected accept (%d): %s", code, string(resp))
 	}
 
@@ -392,38 +426,20 @@ func (h *OTCOptionsHandler) acceptRemoteNegotiation(
 			// Settlement-status safety gate (mirror of the inbound AcceptNegotiation
 			// guard). Some peer implementations return HTTP 200 on /accept even when
 			// their settlement ABORTED (rolled_back/failed). Proceeding here would
-			// flip our mirror to accepted, cascade-cancel sibling bids, and CONSUME
-			// the local listing for a contract that never formed — silently losing
-			// the seller's inventory (the "accepted but contract not formed; listing
-			// consumed" symptom). On an explicit terminal failure we abort BEFORE
-			// mutating any local state, so the listing stays open and the seller can
-			// re-bid. Non-terminal statuses (committed/committing/prepared/pending or
-			// an absent status) proceed as before — forward-recovery settles those.
+			// keep our mirror accepted, cascade-cancel sibling bids, and CONSUME the
+			// local listing for a contract that never formed — silently losing the
+			// seller's inventory (the "accepted but contract not formed; listing
+			// consumed" symptom). On an explicit terminal failure we REVERT the claim
+			// and abort, so the listing stays open and the seller can re-bid.
+			// Non-terminal statuses (committed/committing/prepared/pending or an
+			// absent status) proceed as before — forward-recovery settles those.
 			switch strings.ToLower(strings.TrimSpace(peerBody.Status)) {
 			case "rolled_back", "rolledback", "rolled-back", "failed", "aborted":
+				h.revertRemoteAcceptClaim(rc)
 				return nil, status.Errorf(codes.FailedPrecondition,
 					"peer settlement %s: contract was not formed; listing preserved", peerBody.Status)
 			}
 		}
-	}
-
-	// Flip the local mirror to accepted (ongoing → accepted) AND record the ACCEPT
-	// revision atomically (full-history parity). The CAS serialises concurrent
-	// accepts so only one wins; a no-match is tolerated (the row may already be
-	// accepted via a peer-driven webhook) and records no duplicate revision. The
-	// acceptor is the side WE host (this is our outbound accept).
-	acceptRole, acceptWire := remoteSideAtRouting(rc.row, h.ownRouting)
-	acceptRev := &model.OTCNegotiationRevision{
-		Quantity:                decimal.NewFromInt(rc.offer.Amount),
-		StrikePrice:             rc.offer.PricePerStock,
-		Premium:                 rc.offer.Premium,
-		SettlementDate:          parseSITXDate(rc.offer.SettlementDate),
-		Action:                  model.OTCNegotiationActionAccept,
-		ModifiedByPrincipalType: acceptRole,
-		RemoteActorWireID:       &acceptWire,
-	}
-	if _, serr := h.remoteNegOps.CompareAndSetRemoteNegStatusWithRevision(rc.row.RoutingNumber, rc.foreignID, "ongoing", "accepted", acceptRev); serr != nil {
-		return nil, status.Errorf(codes.Internal, "mirror accept status: %v", serr)
 	}
 
 	// Cross-bank cascade-cancel — every sibling REMOTE chain sharing the
@@ -485,6 +501,20 @@ func (h *OTCOptionsHandler) acceptRemoteNegotiation(
 		CancelledSiblings:      cancelled,
 		CrossBankTransactionId: crossBankTxID,
 	}, nil
+}
+
+// revertRemoteAcceptClaim undoes the atomic accept claim (accepted→ongoing) when
+// the cross-bank /accept dispatch fails, the peer rejects it, or the peer reports a
+// terminal settlement failure — so the chain can be re-accepted instead of being
+// stranded "accepted" with no contract. Best-effort: a revert failure is logged
+// (a stuck-accepted row is reconciled by the outbound recovery cron). The CAS is
+// guarded on from="accepted" so it never clobbers a status another path has since
+// advanced.
+func (h *OTCOptionsHandler) revertRemoteAcceptClaim(rc *remoteNegContext) {
+	if _, rerr := h.remoteNegOps.CompareAndSetRemoteNegStatus(
+		rc.row.RoutingNumber, rc.foreignID, "accepted", "ongoing"); rerr != nil {
+		log.Printf("WARN acceptRemoteNegotiation: row %d revert accept claim failed: %v", rc.row.ID, rerr)
+	}
 }
 
 // cascadeCancelRemoteSiblings flips every sibling REMOTE chain under the

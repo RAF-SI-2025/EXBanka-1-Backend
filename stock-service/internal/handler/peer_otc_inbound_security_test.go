@@ -350,6 +350,58 @@ func TestInbound_AcceptNegotiation_LegitOppositePartyAccept_Succeeds(t *testing.
 	}
 }
 
+// TestInbound_NegotiationLookup_RejectsNonCounterparty proves the §3.2 lookup
+// hardening: the inbound handlers resolve the negotiation by its URL native id and
+// AUTHORISE the caller as the counterparty. A bank that is NOT a party (here 444,
+// while the chain is 222↔111) gets NotFound on GET and on ACCEPT — it can neither
+// read nor settle a negotiation it isn't part of, even though the row exists — and
+// no settlement is dispatched. The real counterparty (222) still resolves it.
+func TestInbound_NegotiationLookup_RejectsNonCounterparty(t *testing.T) {
+	h, db, peerTx, _ := newPeerOtcHandler(t) // ownRouting 111
+	offer := contractsitx.OtcOffer{
+		Ticker: "AAPL", Amount: 10,
+		PricePerStock:   decimal.RequireFromString("150"),
+		Currency:        "USD",
+		Premium:         decimal.RequireFromString("20"),
+		PremiumCurrency: "USD",
+		SettlementDate:  "2026-12-31",
+		LastModifiedBy:  contractsitx.ForeignBankId{RoutingNumber: 111, ID: "client-9"},
+	}
+	offerJSON, _ := json.Marshal(offer)
+	repo := repository.NewOTCNegotiationRepository(db)
+	// Chain between peer 222 (buyer) and us (111, seller).
+	row := buildRemoteNegForTest(222, "neg-cp", offer, string(offerJSON),
+		222, "client-7", 111, "client-9")
+	if err := repo.UpsertRemoteNeg(row); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// A third bank (444) — not a party — must NOT be able to read it…
+	if _, err := h.GetNegotiation(context.Background(), &stockpb.GetNegotiationRequest{
+		PeerBankCode:  "444",
+		NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "neg-cp"},
+	}); status.Code(err) != codes.NotFound {
+		t.Errorf("non-counterparty GET: want NotFound, got %v", err)
+	}
+	// …nor settle it.
+	if _, err := h.AcceptNegotiation(context.Background(), &stockpb.AcceptNegotiationRequest{
+		PeerBankCode:  "444",
+		NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "neg-cp"},
+	}); status.Code(err) != codes.NotFound {
+		t.Errorf("non-counterparty ACCEPT: want NotFound, got %v", err)
+	}
+	if peerTx.gotReq != nil {
+		t.Error("a non-counterparty accept must NOT dispatch any settlement")
+	}
+	// Control: the real counterparty (222) still resolves it.
+	if _, err := h.GetNegotiation(context.Background(), &stockpb.GetNegotiationRequest{
+		PeerBankCode:  "222",
+		NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "neg-cp"},
+	}); err != nil {
+		t.Errorf("counterparty GET should resolve: %v", err)
+	}
+}
+
 // --- HOLE 2: inbound orphan-accept (cancelled local parent listing) ---
 
 // TestInbound_AcceptNegotiation_OrphanCancelledParent_Rejected: WE host the

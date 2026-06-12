@@ -622,9 +622,18 @@ func (f *fakeExchangeClient) Calculate(context.Context, *exchangepb.CalculateReq
 
 // fakeHoldingReservation implements HoldingReservationAPI.
 type fakeHoldingReservation struct {
-	reserveCalls []holdingReserveCall
-	releaseCalls []uint64
-	reserveErr   error
+	reserveCalls     []holdingReserveCall
+	reserveFundCalls []fundReserveCall
+	releaseCalls     []uint64
+	reserveErr       error
+}
+
+type fundReserveCall struct {
+	FundID       uint64
+	SecurityType string
+	SecurityID   uint64
+	OrderID      uint64
+	Qty          int64
 }
 
 type holdingReserveCall struct {
@@ -656,6 +665,18 @@ func (f *fakeHoldingReservation) Reserve(_ context.Context, ownerType model.Owne
 		UserID: uidVal, SystemType: string(ownerType),
 		SecurityType: securityType,
 		SecurityID:   securityID, OrderID: orderID, Qty: qty,
+	})
+	return &ReserveHoldingResult{ReservationID: orderID, ReservedQuantity: qty, AvailableQuantity: 0}, nil
+}
+
+func (f *fakeHoldingReservation) ReserveFund(_ context.Context, fundID uint64, securityType string,
+	securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error) {
+	if f.reserveErr != nil {
+		return nil, f.reserveErr
+	}
+	f.reserveFundCalls = append(f.reserveFundCalls, fundReserveCall{
+		FundID: fundID, SecurityType: securityType,
+		SecurityID: securityID, OrderID: orderID, Qty: qty,
 	})
 	return &ReserveHoldingResult{ReservationID: orderID, ReservedQuantity: qty, AvailableQuantity: 0}, nil
 }
@@ -2209,5 +2230,60 @@ func TestCreateOrder_OnBehalfOfFund_FundNotConfigured_Rejected(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error when fund support not wired")
+	}
+}
+
+// A fund SELL must reserve against the fund's position (fund_holdings via
+// ReserveFund), NOT the bank-sentinel holdings the order owner resolves to.
+func TestCreateOrder_OnBehalfOfFund_Sell_ReservesFundHoldings(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fx.accountClient.stub.accountCcy[7000] = "RSD"
+	fund := &model.InvestmentFund{ID: 42, Name: "Alpha", ManagerEmployeeID: 25, RSDAccountID: 7000, Active: true}
+	fx.svc = fx.svc.WithFundSupport(&stubFundLookup{fund: fund})
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 25, SystemType: "employee", ListingID: 1, Direction: "sell",
+		OrderType: "market", Quantity: 5, AccountID: 7000,
+		ActingEmployeeID: 25, OnBehalfOfFundID: 42,
+	})
+	if err != nil {
+		t.Fatalf("create fund sell: %v", err)
+	}
+	if order.FundID == nil || *order.FundID != 42 {
+		t.Fatalf("FundID not stamped: %v", order.FundID)
+	}
+	if len(fx.holdingSvc.reserveFundCalls) != 1 {
+		t.Fatalf("expected exactly one ReserveFund call, got %d", len(fx.holdingSvc.reserveFundCalls))
+	}
+	call := fx.holdingSvc.reserveFundCalls[0]
+	if call.FundID != 42 || call.SecurityType != "stock" || call.SecurityID != 100 || call.Qty != 5 {
+		t.Errorf("ReserveFund args = %+v, want fund=42 stock/100 qty=5", call)
+	}
+	if len(fx.holdingSvc.reserveCalls) != 0 {
+		t.Errorf("a fund sell must NOT touch the owner-based Reserve (bank holdings); got %d calls", len(fx.holdingSvc.reserveCalls))
+	}
+}
+
+// Omitting account_id on a fund order auto-resolves to the fund's RSD account.
+func TestCreateOrder_OnBehalfOfFund_AccountIDAutoResolves(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	// Match the listing currency (USD) so the buy reserve skips FX — this test
+	// only asserts the auto-resolved account_id, not conversion.
+	fx.accountClient.stub.accountCcy[7000] = "USD"
+	fund := &model.InvestmentFund{ID: 42, Name: "Alpha", ManagerEmployeeID: 25, RSDAccountID: 7000, Active: true}
+	fx.svc = fx.svc.WithFundSupport(&stubFundLookup{fund: fund})
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 25, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), // AccountID omitted (0)
+		ActingEmployeeID: 25, OnBehalfOfFundID: 42,
+	})
+	if err != nil {
+		t.Fatalf("create fund order with omitted account_id: %v", err)
+	}
+	if order.AccountID != 7000 {
+		t.Errorf("account_id should auto-resolve to fund RSD account 7000, got %d", order.AccountID)
 	}
 }

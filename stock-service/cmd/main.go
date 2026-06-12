@@ -8,6 +8,14 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	// Embed the IANA timezone database into the binary. stock-service runs on a
+	// minimal alpine image that ships NO system tzdata, so time.LoadLocation
+	// ("Australia/Sydney", …) would otherwise fail at runtime — which made
+	// isWithinTradingHours return false for EVERY exchange and reported all
+	// exchanges permanently CLOSED (breaking the ≥2-always-open invariant and
+	// blocking order matching). This import makes LoadLocation work regardless of
+	// the base image's installed timezone data.
+	_ "time/tzdata"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"

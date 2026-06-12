@@ -13,7 +13,12 @@ RUN cd stock-service && \
     go mod download && go build -tags "$GO_TAGS" -o /stock-service ./cmd
 
 FROM alpine:3.19
-RUN apk --no-cache add ca-certificates
+# tzdata: exchange trading-hours (isWithinTradingHours) call time.LoadLocation
+# with IANA zone names ("Australia/Sydney", …). The binary also embeds the tz
+# database via the `_ "time/tzdata"` import, but installing the system package
+# keeps LoadLocation working even if that import is ever dropped, and lets the
+# container honour a TZ env var.
+RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /stock-service /app/stock-service
 COPY stock-service/data/ /app/data/

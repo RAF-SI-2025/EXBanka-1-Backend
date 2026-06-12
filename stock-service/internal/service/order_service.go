@@ -78,6 +78,11 @@ type ForexPairLookup interface {
 type HoldingReservationAPI interface {
 	Reserve(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string,
 		securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error)
+	// ReserveFund locks shares of a FUND position (fund_holdings) for a sell
+	// order, instead of the bank/user holdings table. Used when the order was
+	// placed on behalf of an investment fund (order.FundID set).
+	ReserveFund(ctx context.Context, fundID uint64, securityType string,
+		securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error)
 	Release(ctx context.Context, orderID uint64) (*ReleaseHoldingResult, error)
 }
 
@@ -266,7 +271,13 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		if int64(req.ActingEmployeeID) != fund.ManagerEmployeeID {
 			return nil, status.Error(codes.PermissionDenied, "fund_not_managed_by_actor")
 		}
-		if req.AccountID != fund.RSDAccountID {
+		// Account auto-resolves to the fund's RSD account: callers may omit
+		// account_id entirely (the only valid destination for a fund order is
+		// the fund's own RSD account). A non-zero account_id that disagrees is
+		// rejected so a caller can't redirect fund money/proceeds elsewhere.
+		if req.AccountID == 0 {
+			req.AccountID = fund.RSDAccountID
+		} else if req.AccountID != fund.RSDAccountID {
 			return nil, status.Error(codes.InvalidArgument, "account_id must equal fund RSD account")
 		}
 		req.UserID = 1_000_000_000
@@ -649,6 +660,17 @@ func (s *OrderService) buildPlacementSaga(sagaID string, p placementParams, out 
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				if s.holdingReservationSvc == nil {
 					return status.Error(codes.Internal, "holding reservation service not configured")
+				}
+				// On-behalf-of-fund sells draw down the fund's position
+				// (fund_holdings), mirroring the buy fill which credits
+				// fund_holdings — NOT the bank-sentinel holdings the order
+				// owner resolves to. Release (compensation / cancel) is keyed
+				// on order.ID and re-targets fund_holdings via the reservation
+				// row's FundHoldingID, so the Backward path stays unchanged.
+				if order.FundID != nil {
+					_, herr := s.holdingReservationSvc.ReserveFund(ctx, *order.FundID,
+						listing.SecurityType, listing.SecurityID, order.ID, p.quantity)
+					return herr
 				}
 				_, herr := s.holdingReservationSvc.Reserve(ctx, orderOwnerType, orderOwnerID,
 					listing.SecurityType, listing.SecurityID, order.ID, p.quantity)

@@ -82,6 +82,22 @@ func parseTimestampArg(name, v string) (parsed time.Time, err error) {
 	return time.Time{}, status.Errorf(codes.InvalidArgument, "%s must be RFC3339 or YYYY-MM-DD", name)
 }
 
+// parseSettlementDateArg parses an option settlement date and rejects one
+// earlier than today (UTC) — a settlement in the past is never valid. Defense
+// in depth behind the gateway's notBeforeToday check, and it also guards the
+// remote-outbound bid path, which reuses the value parsed here.
+func parseSettlementDateArg(name, v string) (time.Time, error) {
+	t, err := parseTimestampArg(name, v)
+	if err != nil {
+		return time.Time{}, err
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	if t.UTC().Before(today) {
+		return time.Time{}, status.Errorf(codes.InvalidArgument, "%s cannot be before today", name)
+	}
+	return t, nil
+}
+
 func negToProto(n *model.OTCNegotiation) *stockpb.OTCNegotiationResponse {
 	if n == nil {
 		return nil
@@ -153,7 +169,7 @@ func (h *OTCOptionsHandler) OpenNegotiation(ctx context.Context, in *stockpb.Ope
 	if err != nil {
 		return nil, err
 	}
-	settle, err := parseTimestampArg("settlement_date", in.GetSettlementDate())
+	settle, err := parseSettlementDateArg("settlement_date", in.GetSettlementDate())
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +230,7 @@ func (h *OTCOptionsHandler) CounterNegotiation(ctx context.Context, in *stockpb.
 	if err != nil {
 		return nil, err
 	}
-	settle, err := parseTimestampArg("settlement_date", in.GetSettlementDate())
+	settle, err := parseSettlementDateArg("settlement_date", in.GetSettlementDate())
 	if err != nil {
 		return nil, err
 	}
@@ -527,6 +543,8 @@ func (h *OTCOptionsHandler) ListMyNegotiations(ctx context.Context, in *stockpb.
 		item.RoutingNumber = h.ownRouting
 		item.BankCode = h.ownBankCode
 		item.MeOwner = false
+		// Viewer-relative: ListMyNegotiations returns the caller's BIDDER chains.
+		stampNegotiationViewerFlags(item, "bidder", localLastActionMine(&rows[i], ot, oid))
 		out = append(out, item)
 	}
 
@@ -566,6 +584,8 @@ func (h *OTCOptionsHandler) ListMyNegotiations(ctx context.Context, in *stockpb.
 					continue
 				}
 			}
+			// Viewer-relative: these are the caller's cross-bank BIDDER chains.
+			stampNegotiationViewerFlags(item, "bidder", remoteLastActionMine(&peerRows[i], h.ownRouting))
 			out = append(out, item)
 		}
 	}
@@ -674,12 +694,26 @@ func (h *OTCOptionsHandler) ListNegotiationRevisions(ctx context.Context, in *st
 				if lerr != nil {
 					return nil, status.Errorf(codes.Internal, "list remote revisions: %v", lerr)
 				}
-				return &stockpb.ListNegotiationRevisionsResponse{Revisions: revsToProto(remoteRevs)}, nil
+				remoteRevsProto := revsToProto(remoteRevs)
+				// Viewer-relative: on a remote chain each revision carries the role
+				// ("buyer"/"seller"); OUR (local) side's role is the caller's side.
+				localRole, _ := remoteSideAtRouting(rc.row, h.ownRouting)
+				stampRevisionViewerFlags(remoteRevsProto, remoteRevs, func(r model.OTCNegotiationRevision) bool {
+					return r.ModifiedByPrincipalType == localRole
+				})
+				return &stockpb.ListNegotiationRevisionsResponse{Revisions: remoteRevsProto}, nil
 			}
 		}
 		return nil, err
 	}
-	return &stockpb.ListNegotiationRevisionsResponse{Revisions: revsToProto(revs)}, nil
+	revsProto := revsToProto(revs)
+	// Viewer-relative: on a local chain a revision is the caller's when its author
+	// principal resolves to the caller's owner.
+	stampRevisionViewerFlags(revsProto, revs, func(r model.OTCNegotiationRevision) bool {
+		at, aid := ownerFromPrincipal(r.ModifiedByPrincipalType, r.ModifiedByPrincipalID)
+		return ownerEquals(at, aid, ot, oid)
+	})
+	return &stockpb.ListNegotiationRevisionsResponse{Revisions: revsProto}, nil
 }
 
 // revsToProto maps revision rows onto the wire shape. action_by_wire_id is set for
@@ -765,6 +799,13 @@ func (h *OTCOptionsHandler) ListNegotiationsByListing(ctx context.Context, in *s
 		string(ot), model.OwnerIDOrZero(oid),
 		"local", sellerIDForOwner(parentOffer.InitiatorOwnerType, parentOffer.InitiatorOwnerID),
 	)
+	// Viewer role for the action hints: the caller is the listing's POSTER when
+	// me_owner; a permission-gated employee browsing a CLIENT's listing is neither
+	// party (read-only) → "" (no action buttons).
+	viewerRole := ""
+	if meOwner {
+		viewerRole = "poster"
+	}
 	out := make([]*stockpb.OTCNegotiationResponse, 0, len(rows))
 	for i := range rows {
 		item := negToProto(&rows[i])
@@ -772,6 +813,7 @@ func (h *OTCOptionsHandler) ListNegotiationsByListing(ctx context.Context, in *s
 		item.RoutingNumber = h.ownRouting
 		item.BankCode = h.ownBankCode
 		item.MeOwner = meOwner
+		stampNegotiationViewerFlags(item, viewerRole, localLastActionMine(&rows[i], ot, oid))
 		out = append(out, item)
 	}
 
@@ -794,6 +836,7 @@ func (h *OTCOptionsHandler) ListNegotiationsByListing(ctx context.Context, in *s
 		// me_owner: the listing's poster (we host the seller) owns the parent
 		// offer — uniform with the local branch.
 		item.MeOwner = meOwner
+		stampNegotiationViewerFlags(item, viewerRole, remoteLastActionMine(&peerRows[i], h.ownRouting))
 		out = append(out, item)
 	}
 
@@ -1043,6 +1086,15 @@ func (h *OTCOptionsHandler) GetOfferTimeline(ctx context.Context, in *stockpb.Ge
 		string(ot), model.OwnerIDOrZero(oid),
 		offerProto.Kind, sellerIDForOwner(offer.InitiatorOwnerType, offer.InitiatorOwnerID),
 	)
+	// Viewer-relative mine/is_latest. The local-listing timeline's caller is the
+	// POSTER (our remote role on any peer-bidder entry is "seller") — but only when
+	// me_owner; a permission-gated employee browsing a client's listing is a
+	// read-only viewer with nothing "mine".
+	viewerRemoteRole := ""
+	if offerProto.GetMeOwner() {
+		viewerRemoteRole = "seller"
+	}
+	stampTimelineViewerFlags(timeline, ot, oid, viewerRemoteRole)
 	return &stockpb.GetOfferTimelineResponse{
 		Offer:    offerProto,
 		Timeline: timeline,
@@ -1119,6 +1171,9 @@ func (h *OTCOptionsHandler) remoteOfferTimeline(
 	sort.SliceStable(timeline, func(a, b int) bool {
 		return timeline[a].GetCreatedAt() < timeline[b].GetCreatedAt()
 	})
+	// Viewer-relative: on a remote listing the caller is the BIDDER (our remote
+	// role is "buyer"); only the caller's own chains are surfaced here.
+	stampTimelineViewerFlags(timeline, callerOwnerType, callerOwnerID, "buyer")
 	return &stockpb.GetOfferTimelineResponse{Offer: offer, Timeline: timeline}, true, nil
 }
 

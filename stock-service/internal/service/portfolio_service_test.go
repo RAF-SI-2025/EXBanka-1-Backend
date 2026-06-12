@@ -999,6 +999,53 @@ func TestPortfolio_ProcessSellFill_NoHolding(t *testing.T) {
 	}
 }
 
+// A fund sell records NO capital gain: funds are CG tax-deferred, the order's
+// (bank-sentinel) owner is not the real seller, and the CapitalGain owner CHECK
+// only admits 'client'/'bank'. recordCapitalGain must short-circuit on FundID.
+func TestPortfolio_recordCapitalGain_SkippedForFundSell(t *testing.T) {
+	svc, mocks := buildPortfolioService()
+	listing := stockListing(1, 100, 60.00)
+	listing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(listing)
+
+	txn := &model.OrderTransaction{
+		ID: 10, OrderID: 10, Quantity: 5,
+		PricePerUnit: decimal.NewFromFloat(60.00),
+		TotalPrice:   decimal.NewFromFloat(300.00),
+	}
+	fundID := uint64(42)
+	fundOrder := &model.Order{
+		ID: 10, OwnerType: model.OwnerBank, OwnerID: nil, ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell", OrderType: "market",
+		Quantity: 5, AccountID: 7000, FundID: &fundID,
+	}
+	if err := svc.recordCapitalGain(fundOrder, txn, listing); err != nil {
+		t.Fatalf("fund sell recordCapitalGain should be a no-op nil, got %v", err)
+	}
+	if len(mocks.capitalGainRepo.gains) != 0 {
+		t.Fatalf("fund sell must record NO capital gain, got %d", len(mocks.capitalGainRepo.gains))
+	}
+
+	// Control: the same shape WITHOUT FundID (client seller, seeded holding)
+	// DOES record — proving the skip is the FundID branch, not an unrelated miss.
+	mocks.holdingRepo.addHolding(&model.Holding{
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), SecurityType: "stock", SecurityID: 100,
+		ListingID: 1, Ticker: "AAPL", Name: "Apple Inc.", Quantity: 20,
+		AveragePrice: decimal.NewFromFloat(50.00), AccountID: 1,
+	})
+	clientOrder := &model.Order{
+		ID: 11, OwnerType: model.OwnerClient, OwnerID: ptrU64(42), ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell", OrderType: "market",
+		Quantity: 5, AccountID: 1,
+	}
+	if err := svc.recordCapitalGain(clientOrder, txn, listing); err != nil {
+		t.Fatalf("control recordCapitalGain: %v", err)
+	}
+	if len(mocks.capitalGainRepo.gains) != 1 {
+		t.Fatalf("control: a non-fund sell must record 1 capital gain, got %d", len(mocks.capitalGainRepo.gains))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Tests: ListHoldings
 // ---------------------------------------------------------------------------
