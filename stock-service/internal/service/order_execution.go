@@ -30,6 +30,15 @@ type OrderFilledPublisher interface {
 	PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error
 }
 
+// ExchangeOpenChecker reports whether a listing's exchange is currently open for
+// trading, using the SAME predicate the API stamps onto is_open (testing mode OR
+// within trading hours). The engine gates fills on this so an order never fills
+// while the exchange reports is_open=false — keeping fills and the reported
+// open/closed state consistent. Satisfied by *ExchangeService.
+type ExchangeOpenChecker interface {
+	IsExchangeOpen(exchangeID uint64) (bool, error)
+}
+
 type OrderExecutionEngine struct {
 	baseCtx     context.Context
 	orderRepo   OrderRepo
@@ -38,8 +47,12 @@ type OrderExecutionEngine struct {
 	settingRepo SettingRepo
 	producer    OrderFilledPublisher
 	fillHandler FillHandler // processes fills (holdings + account)
-	mu          sync.Mutex
-	activeJobs  map[uint64]context.CancelFunc // orderID -> cancel
+	// exchangeChecker gates fills on the listing's exchange being open (the same
+	// predicate as is_open). Nil-safe: when unset (e.g. in unit tests) the gate is
+	// skipped and fills proceed as before. Wired via SetExchangeChecker.
+	exchangeChecker ExchangeOpenChecker
+	mu              sync.Mutex
+	activeJobs      map[uint64]context.CancelFunc // orderID -> cancel
 	// wakeCh is a broadcast channel every order goroutine selects on while it
 	// waits between portions. WakeAll closes-and-replaces it so all sleeping
 	// goroutines wake immediately and re-evaluate (used when testing mode is
@@ -72,6 +85,14 @@ func NewOrderExecutionEngine(
 		activeJobs:  make(map[uint64]context.CancelFunc),
 		wakeCh:      make(chan struct{}),
 	}
+}
+
+// SetExchangeChecker wires the live exchange open/closed checker so the engine
+// only fills orders while the listing's exchange is open (testing mode OR within
+// trading hours). Kept as a setter rather than a constructor arg so existing
+// callers/tests that build the engine without it remain valid (nil ⇒ gate off).
+func (e *OrderExecutionEngine) SetExchangeChecker(c ExchangeOpenChecker) {
+	e.exchangeChecker = c
 }
 
 // currentWake returns the live broadcast channel under the lock.
@@ -212,6 +233,28 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 		if err != nil {
 			log.Printf("WARN: order engine: listing %d not found: %v", order.ListingID, err)
 			return
+		}
+
+		// Exchange-open gate. Only fill while the listing's exchange is open — the
+		// SAME predicate the API stamps onto is_open (testing mode OR within trading
+		// hours). Without this an order could fill while the FE shows is_open=false
+		// (e.g. a limit order crossing after-hours), so fills and the reported
+		// open/closed state would disagree. Testing mode forces every exchange open,
+		// so testing fills are unaffected. On a closed exchange we wait (interruptible
+		// — WakeAll on a testing-mode flip re-evaluates immediately) and re-loop
+		// rather than committing a fill. A checker error is non-fatal: fall through
+		// and let the fill proceed (fail-open) rather than wedging the order.
+		if e.exchangeChecker != nil {
+			if open, oerr := e.exchangeChecker.IsExchangeOpen(listing.ExchangeID); oerr == nil && !open {
+				wake := e.currentWake()
+				select {
+				case <-time.After(30 * time.Second):
+				case <-wake:
+				case <-ctx.Done():
+					return
+				}
+				continue
+			}
 		}
 
 		// Testing mode (admin "testing" toggle) means: fill immediately — the

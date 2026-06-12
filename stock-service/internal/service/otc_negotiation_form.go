@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -195,5 +196,69 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
 	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
 
+	// Partial-accept re-listing: the accepted negotiation consumed the WHOLE
+	// listing (it is immutable), but the formed contract only took neg.Quantity.
+	// Re-advertise the unsold remainder (parent.Quantity - neg.Quantity) as a
+	// FRESH open listing so it keeps trading as a NEW negotiation surface — a bid
+	// on it starts a new chain, not a continuation of the consumed listing.
+	// Best-effort, after the contract formed.
+	s.relistAcceptRemainder(ctx, parent, neg.Quantity)
+
 	return contract, nil
+}
+
+// relistAcceptRemainder re-advertises the seller's unsold quantity after a
+// PARTIAL accept. The accepted negotiation consumed the original (immutable)
+// listing for its WHOLE quantity, but the formed contract only took `accepted`
+// units — the seller still holds (parent.Quantity - accepted) free shares. Those
+// are re-listed as a brand-new OPEN offer (fresh id, fresh negotiation chains)
+// so the remainder keeps trading instead of vanishing. Best-effort: a failure
+// logs and leaves the remainder unlisted (the seller can re-post manually).
+// No-op when the listing was fully taken (remainder <= 0) or the parent is a
+// remote mirror (only the listing's host bank re-lists its own inventory).
+func (s *OTCOfferService) relistAcceptRemainder(ctx context.Context, parent *model.OTCOffer, accepted decimal.Decimal) {
+	_ = ctx
+	if parent == nil || !parent.Local {
+		return
+	}
+	remainder := parent.Quantity.Sub(accepted)
+	if !remainder.IsPositive() {
+		return
+	}
+	fresh := &model.OTCOffer{
+		InitiatorOwnerType:          parent.InitiatorOwnerType,
+		InitiatorOwnerID:            parent.InitiatorOwnerID,
+		CounterpartyOwnerType:       parent.CounterpartyOwnerType,
+		CounterpartyOwnerID:         parent.CounterpartyOwnerID,
+		Direction:                   parent.Direction,
+		StockID:                     parent.StockID,
+		Ticker:                      parent.Ticker,
+		Quantity:                    remainder,
+		Status:                      model.OTCOfferStatusPending,
+		LastModifiedByPrincipalType: parent.LastModifiedByPrincipalType,
+		LastModifiedByPrincipalID:   parent.LastModifiedByPrincipalID,
+		InitiatorAccountID:          parent.InitiatorAccountID,
+		ActingEmployeeID:            parent.ActingEmployeeID,
+		Public:                      parent.Public,
+		Private:                     parent.Private,
+		PrivateToBankCode:           parent.PrivateToBankCode,
+	}
+	if err := s.offers.Create(fresh); err != nil {
+		log.Printf("WARN: OTC partial-accept relist (ticker=%s remainder=%s) failed: %v", parent.Ticker, remainder, err)
+		return
+	}
+	if err := s.revisions.Append(&model.OTCOfferRevision{
+		OfferID:                 fresh.ID,
+		RevisionNumber:          1,
+		Quantity:                fresh.Quantity,
+		StrikePrice:             decimal.Zero,
+		Premium:                 decimal.Zero,
+		SettlementDate:          time.Time{},
+		ModifiedByPrincipalType: fresh.LastModifiedByPrincipalType,
+		ModifiedByPrincipalID:   fresh.LastModifiedByPrincipalID,
+		Action:                  model.OTCActionCreate,
+	}); err != nil {
+		log.Printf("WARN: OTC partial-accept relist revision (offer=%d) failed: %v", fresh.ID, err)
+	}
+	log.Printf("OTC partial-accept: re-listed remainder %s %s as fresh offer %d (parent %d consumed)", remainder, parent.Ticker, fresh.ID, parent.ID)
 }

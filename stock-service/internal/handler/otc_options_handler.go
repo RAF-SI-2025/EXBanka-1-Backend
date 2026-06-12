@@ -872,9 +872,15 @@ func peerContractToUnifiedProto(p *model.OptionContract) *stockpb.OptionContract
 		Quantity:       strconv.FormatInt(remoteContractQuantityInt(p), 10),
 		StrikePrice:    p.StrikePrice.String(),
 		StrikeCurrency: p.StrikeCurrency,
-		SettlementDate: remoteContractSettlementString(p),
-		Status:         p.Status,
-		CreatedAt:      p.CreatedAt.UTC().Format(time.RFC3339),
+		// Premium captured from the originating negotiation at record time
+		// (RecordOptionContract). A cross-bank contract carries a real negotiated
+		// premium just like a local one — surface it so the FE shows the premium
+		// paid on remote contracts (previously omitted → "premium missing").
+		PremiumPaid:     p.PremiumPaid.String(),
+		PremiumCurrency: p.PremiumCurrency,
+		SettlementDate:  remoteContractSettlementString(p),
+		Status:          p.Status,
+		CreatedAt:       p.CreatedAt.UTC().Format(time.RFC3339),
 		// Cross-bank parties carry no local user_id/system_type. Surface the
 		// SI-TX participant id as the display name and the routing-derived code
 		// as bank_code (the wire shape has no separate routing field on PartyRef).

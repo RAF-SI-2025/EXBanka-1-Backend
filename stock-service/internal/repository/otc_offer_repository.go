@@ -155,6 +155,33 @@ func (r *OTCOfferRepository) ConsumeOpenByOwnerTickerDirection(ownerType model.O
 	return q.UpdateColumn("status", model.OTCOfferStatusConsumed).Error
 }
 
+// GetOpenSellListingForUpdate SELECT-FOR-UPDATEs this bank's single OPEN LOCAL
+// sell-initiated listing for (ownerType, ownerID, ticker) — the same (owner,
+// ticker, direction) key + open-status set as ConsumeOpenByOwnerTickerDirection,
+// so it resolves the at-most-one open row guaranteed by the partial unique index.
+// The cross-bank accept path uses it to read the listing's quantity BEFORE
+// consuming it, so it can re-list the unsold remainder atomically in the same TX.
+func (r *OTCOfferRepository) GetOpenSellListingForUpdate(tx *gorm.DB, ownerType model.OwnerType, ownerID *uint64, ticker string) (*model.OTCOffer, error) {
+	openStatuses := []string{
+		model.OTCOfferStatusOpen,
+		model.OTCOfferStatusPending,
+		model.OTCOfferStatusCountered,
+	}
+	q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("status IN ? AND local = ? AND ticker = ? AND direction = ? AND initiator_owner_type = ?",
+			openStatuses, true, ticker, model.OTCDirectionSellInitiated, ownerType)
+	if ownerID != nil {
+		q = q.Where("initiator_owner_id = ?", *ownerID)
+	} else {
+		q = q.Where("initiator_owner_id IS NULL")
+	}
+	var o model.OTCOffer
+	if err := q.First(&o).Error; err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
 func (r *OTCOfferRepository) GetByID(id uint64) (*model.OTCOffer, error) {
 	return r.getByID(r.db, id)
 }

@@ -61,22 +61,34 @@ func (s *OTCOfferService) buildAcceptSaga(ctx context.Context, sagaID string, co
 	premiumBuyerCcy := premiumSellerCcy
 	buyerCcy := buyerAcct.CurrencyCode
 	if buyerCcy != premiumCcy {
-		if s.exchange == nil {
-			return nil, nil, svcerr.New(codes.Internal, "cross-currency OTC accept requires exchange client")
+		if contract.BuyerPremiumAmount.IsPositive() {
+			// Crash-recovery: REUSE the buyer-side amount locked at first accept.
+			// Re-converting here at the recovery-time rate would settle a drifted
+			// amount against the hold the original attempt reserved.
+			premiumBuyerCcy = contract.BuyerPremiumAmount
+		} else {
+			if s.exchange == nil {
+				return nil, nil, svcerr.New(codes.Internal, "cross-currency OTC accept requires exchange client")
+			}
+			conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
+				FromCurrency: premiumCcy, ToCurrency: buyerCcy,
+				Amount: premiumSellerCcy.String(),
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("FX premium convert: %w", err)
+			}
+			converted, err := decimal.NewFromString(conv.ConvertedAmount)
+			if err != nil {
+				return nil, nil, fmt.Errorf("FX premium convert: parse %q: %w", conv.ConvertedAmount, err)
+			}
+			premiumBuyerCcy = converted
 		}
-		conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
-			FromCurrency: premiumCcy, ToCurrency: buyerCcy,
-			Amount: premiumSellerCcy.String(),
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("FX premium convert: %w", err)
-		}
-		converted, err := decimal.NewFromString(conv.ConvertedAmount)
-		if err != nil {
-			return nil, nil, fmt.Errorf("FX premium convert: parse %q: %w", conv.ConvertedAmount, err)
-		}
-		premiumBuyerCcy = converted
 	}
+	// Lock the buyer-side premium on the contract so a later recovery reuses it
+	// (see above). Step 1 (reserve_and_contract) persists the contract, so setting
+	// it on the struct here is durable on the live first run.
+	contract.BuyerPremiumAmount = premiumBuyerCcy
+	contract.BuyerPremiumCurrency = buyerCcy
 
 	qty := contract.Quantity.IntPart()
 

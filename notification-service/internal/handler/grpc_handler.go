@@ -28,10 +28,10 @@ type inboxRepoFacade interface {
 
 // notifRepoFacade is the narrow interface of *repository.GeneralNotificationRepository used by GRPCHandler.
 type notifRepoFacade interface {
-	ListByUser(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error)
-	UnreadCount(userID uint64) (int64, error)
-	MarkRead(id, userID uint64) error
-	MarkAllRead(userID uint64) (int64, error)
+	ListByUser(userID uint64, systemType string, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error)
+	UnreadCount(userID uint64, systemType string) (int64, error)
+	MarkRead(id, userID uint64, systemType string) error
+	MarkAllRead(userID uint64, systemType string) (int64, error)
 }
 
 // adminAuditRepoFacade is the narrow interface of *repository.AdminAuditLogRepository used by GRPCHandler.
@@ -121,7 +121,7 @@ func (h *GRPCHandler) ListNotifications(ctx context.Context, req *notifpb.ListNo
 		readFilter = &v
 	}
 
-	items, total, err := h.notifRepo.ListByUser(req.UserId, readFilter, page, pageSize)
+	items, total, err := h.notifRepo.ListByUser(req.UserId, req.GetSystemType(), readFilter, page, pageSize)
 	if err != nil {
 		return nil, fmt.Errorf("ListNotifications(user=%d): %v: %w", req.UserId, err, service.ErrNotificationLookupFailed)
 	}
@@ -143,7 +143,7 @@ func (h *GRPCHandler) ListNotifications(ctx context.Context, req *notifpb.ListNo
 }
 
 func (h *GRPCHandler) GetUnreadCount(ctx context.Context, req *notifpb.GetUnreadCountRequest) (*notifpb.GetUnreadCountResponse, error) {
-	count, err := h.notifRepo.UnreadCount(req.UserId)
+	count, err := h.notifRepo.UnreadCount(req.UserId, req.GetSystemType())
 	if err != nil {
 		return nil, fmt.Errorf("GetUnreadCount(user=%d): %v: %w", req.UserId, err, service.ErrNotificationLookupFailed)
 	}
@@ -151,14 +151,14 @@ func (h *GRPCHandler) GetUnreadCount(ctx context.Context, req *notifpb.GetUnread
 }
 
 func (h *GRPCHandler) MarkNotificationRead(ctx context.Context, req *notifpb.MarkNotificationReadRequest) (*notifpb.MarkNotificationReadResponse, error) {
-	if err := h.notifRepo.MarkRead(req.Id, req.UserId); err != nil {
+	if err := h.notifRepo.MarkRead(req.Id, req.UserId, req.GetSystemType()); err != nil {
 		return nil, fmt.Errorf("MarkNotificationRead(id=%d, user=%d): %v: %w", req.Id, req.UserId, err, service.ErrNotificationNotFound)
 	}
 	return &notifpb.MarkNotificationReadResponse{Success: true}, nil
 }
 
 func (h *GRPCHandler) MarkAllNotificationsRead(ctx context.Context, req *notifpb.MarkAllNotificationsReadRequest) (*notifpb.MarkAllNotificationsReadResponse, error) {
-	count, err := h.notifRepo.MarkAllRead(req.UserId)
+	count, err := h.notifRepo.MarkAllRead(req.UserId, req.GetSystemType())
 	if err != nil {
 		return nil, fmt.Errorf("MarkAllNotificationsRead(user=%d): %v: %w", req.UserId, err, service.ErrNotificationUpdateFailed)
 	}

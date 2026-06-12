@@ -200,7 +200,7 @@ var exchangeDefaults = map[string]struct {
 	"ASX":      {"Australia", "AUD", "Australia/Sydney", "07:00", "16:00"}, // opens early (21:00 UTC, AEST) to cover the ~21:00-00:00 UTC gap between the US close and the Asia open — keeps 1-2 exchanges open at every UTC moment
 	"JSE":      {"South Africa", "ZAR", "Africa/Johannesburg", "09:00", "17:00"},
 	"BMV":      {"Mexico", "MXN", "America/Mexico_City", "08:30", "15:00"},
-	"BVMF":     {"Brazil", "BRL", "America/Sao_Paulo", "10:00", "17:55"},
+	"BVMF":     {"Brazil", "BRL", "America/Sao_Paulo", "10:00", "21:00"}, // extended close (21:00 BRT = 00:00 UTC) so a SECOND exchange (besides ASX) covers the 21:00-00:00 UTC window — guarantees >=2 open at every UTC moment
 	"KRX":      {"South Korea", "KRW", "Asia/Seoul", "09:00", "15:30"},
 	"BME":      {"Spain", "EUR", "Europe/Madrid", "09:00", "17:30"},
 	"SIX":      {"Switzerland", "CHF", "Europe/Zurich", "09:00", "17:30"},

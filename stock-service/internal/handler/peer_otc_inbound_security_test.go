@@ -41,7 +41,7 @@ func (f *fakeParentChecker) LocalSellOfferOpenForSeller(_ model.OwnerType, _ *ui
 	return true // default: open, so unrelated inbound-accept tests are unaffected
 }
 
-func (f *fakeParentChecker) ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) error {
+func (f *fakeParentChecker) ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string, _ int64) error {
 	id := uint64(0)
 	if ownerID != nil {
 		id = *ownerID

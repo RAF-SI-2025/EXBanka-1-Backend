@@ -65,6 +65,11 @@ message ListNotificationsRequest {
   int32 page = 2;
   int32 page_size = 3;
   string read_filter = 4; // "", "read", "unread"
+  // system_type isolates recipients: "client" (or empty/legacy) reads ONLY the
+  // caller's own (user_id) client notifications; "employee" reads the shared
+  // bank inbox. Prevents a client's notifications (incl. personal data/codes)
+  // from reaching an employee/admin whose numeric id collides with the client's.
+  string system_type = 5;
 }
 
 message NotificationEntry {
@@ -85,6 +90,7 @@ message ListNotificationsResponse {
 
 message GetUnreadCountRequest {
   uint64 user_id = 1;
+  string system_type = 2;
 }
 
 message GetUnreadCountResponse {
@@ -94,6 +100,7 @@ message GetUnreadCountResponse {
 message MarkNotificationReadRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  string system_type = 3;
 }
 
 message MarkNotificationReadResponse {
@@ -102,6 +109,7 @@ message MarkNotificationReadResponse {
 
 message MarkAllNotificationsReadRequest {
   uint64 user_id = 1;
+  string system_type = 2;
 }
 
 message MarkAllNotificationsReadResponse {

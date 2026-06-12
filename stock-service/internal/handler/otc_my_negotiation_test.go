@@ -604,3 +604,43 @@ func mustLoadNegs(t *testing.T, db *gorm.DB) []model.OTCNegotiation {
 	require.NoError(t, db.Find(&rows).Error)
 	return rows
 }
+
+// TestBuildMyNegotiationIndex_ExcludesTerminalRemoteChains is the regression for
+// the re-list independence bug: after a buyer's negotiation is ACCEPTED on a
+// (seller, ticker) listing, a later listing for the SAME (seller, ticker) — which
+// shares the composite parent key — must NOT show "you already bid". Only ONGOING
+// remote chains are indexed; terminal (accepted/cancelled/…) chains are excluded.
+func TestBuildMyNegotiationIndex_ExcludesTerminalRemoteChains(t *testing.T) {
+	const ownRouting int64 = 222
+	const sellerRouting int64 = 111
+	buyer := "client-7"
+	acceptedNative := "ps:111:client-9:AAPL"
+	ongoingNative := "ps:111:client-9:MSFT"
+	mk := func(status, native string, id uint64) model.OTCNegotiation {
+		pr := sellerRouting
+		pn := native
+		b := buyer
+		return model.OTCNegotiation{
+			ID: id, Local: false, Status: status,
+			RemoteBuyerID:        &b,
+			RemoteParentRouting:  &pr,
+			RemoteParentNativeID: &pn,
+		}
+	}
+	lister := &fakeMyNegLister{
+		remoteRows: []model.OTCNegotiation{
+			mk("accepted", acceptedNative, 1),
+			mk("ongoing", ongoingNative, 2),
+		},
+	}
+	idx, err := buildMyNegotiationIndex(lister, "client", 7, ownRouting)
+	if err != nil {
+		t.Fatalf("build index: %v", err)
+	}
+	if _, ok := idx.remote[remoteParentKey(sellerRouting, acceptedNative)]; ok {
+		t.Errorf("accepted (terminal) chain must NOT be indexed — it would show 'already bid' on a re-listed same-(seller,ticker) offer")
+	}
+	if _, ok := idx.remote[remoteParentKey(sellerRouting, ongoingNative)]; !ok {
+		t.Errorf("ongoing chain SHOULD be indexed (an active bid still marks its listing)")
+	}
+}

@@ -306,12 +306,16 @@ func seedRemoteNegSellerLocal(t *testing.T, db *gorm.DB, foreignID, buyerID, sel
 	}
 	offerJSON, _ := json.Marshal(offer)
 	// peerRouting=222 (buyer's bank == counterparty == RoutingNumber for a
-	// seller-hosted chain), buyer remote (222), seller local (111).
+	// seller-hosted chain), buyer remote (222), seller local (111). Carry the
+	// (seller, ticker) composite parent key real termless /public-stock bids carry,
+	// so two bids on the SAME listing are siblings (cascade-cancellable on accept).
+	parentRouting := int64(111)
+	parentNative := "ps:111:" + sellerID + ":AAPL"
 	row := buildRemoteNeg(
 		222, foreignID, offer, string(offerJSON),
 		222, buyerID, // buyer on the peer
 		111, sellerID, // seller hosted by us
-		nil, nil, "ongoing",
+		&parentRouting, &parentNative, "ongoing",
 	)
 	if err := repository.NewOTCNegotiationRepository(db).UpsertRemoteNeg(row); err != nil {
 		t.Fatalf("seed seller-local remote neg %q: %v", foreignID, err)

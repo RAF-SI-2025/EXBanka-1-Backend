@@ -52,28 +52,28 @@ type mockNotifRepo struct {
 	markAllReadFn func(userID uint64) (int64, error)
 }
 
-func (m *mockNotifRepo) ListByUser(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error) {
+func (m *mockNotifRepo) ListByUser(userID uint64, _ string, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error) {
 	if m.listFn != nil {
 		return m.listFn(userID, readFilter, page, pageSize)
 	}
 	return nil, 0, nil
 }
 
-func (m *mockNotifRepo) UnreadCount(userID uint64) (int64, error) {
+func (m *mockNotifRepo) UnreadCount(userID uint64, _ string) (int64, error) {
 	if m.unreadFn != nil {
 		return m.unreadFn(userID)
 	}
 	return 0, nil
 }
 
-func (m *mockNotifRepo) MarkRead(id, userID uint64) error {
+func (m *mockNotifRepo) MarkRead(id, userID uint64, _ string) error {
 	if m.markReadFn != nil {
 		return m.markReadFn(id, userID)
 	}
 	return nil
 }
 
-func (m *mockNotifRepo) MarkAllRead(userID uint64) (int64, error) {
+func (m *mockNotifRepo) MarkAllRead(userID uint64, _ string) (int64, error) {
 	if m.markAllReadFn != nil {
 		return m.markAllReadFn(userID)
 	}

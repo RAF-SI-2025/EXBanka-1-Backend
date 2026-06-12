@@ -51,7 +51,17 @@ type OptionContract struct {
 	PremiumPaid     decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"premium_paid"`
 	PremiumCurrency string          `gorm:"size:8;not null" json:"premium_currency"`
 	StrikeCurrency  string          `gorm:"size:8;not null" json:"strike_currency"`
-	SettlementDate  time.Time       `gorm:"type:date;not null;index:ix_oc_settle" json:"settlement_date"`
+	// Buyer-side FX locks. On a cross-currency accept/exercise the buyer's
+	// premium/strike is FX-converted to the buyer's account currency; the
+	// converted amount is locked here at first run so a crash-recovery of the
+	// accept/exercise saga REUSES it instead of re-converting at a drifted rate
+	// (which would settle a different amount than the original hold reserved).
+	// Zero/empty until the relevant saga sets them.
+	BuyerPremiumAmount   decimal.Decimal `gorm:"type:numeric(20,8);not null;default:0" json:"buyer_premium_amount"`
+	BuyerPremiumCurrency string          `gorm:"size:8;not null;default:''" json:"buyer_premium_currency"`
+	BuyerStrikeAmount    decimal.Decimal `gorm:"type:numeric(20,8);not null;default:0" json:"buyer_strike_amount"`
+	BuyerStrikeCurrency  string          `gorm:"size:8;not null;default:''" json:"buyer_strike_currency"`
+	SettlementDate       time.Time       `gorm:"type:date;not null;index:ix_oc_settle" json:"settlement_date"`
 	// Accounts bound at accept time: buyer's pays the premium/strike, seller's
 	// receives them. Read straight off the contract on exercise.
 	BuyerAccountID  uint64     `gorm:"not null;default:0" json:"buyer_account_id"`

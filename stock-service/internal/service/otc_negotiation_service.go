@@ -192,10 +192,11 @@ func (s *OTCNegotiationService) WithNotifier(n OTCNotifier) *OTCNegotiationServi
 	return &cp
 }
 
-// publishNotif is a best-effort notification publisher. Skips bank
-// recipients (no per-bank inbox) and nil-id rows defensively. Always
-// returns nil-equivalent — a failed publish must NEVER fail the
-// business action (CLAUDE.md Kafka rule).
+// publishNotif is a best-effort notification publisher. A CLIENT recipient gets
+// a per-user "client"-scoped notification; a BANK recipient gets one on the
+// shared "employee" inbox (every bank employee sees it). Always returns
+// nil-equivalent — a failed publish must NEVER fail the business action
+// (CLAUDE.md Kafka rule).
 func (s *OTCNegotiationService) publishNotif(
 	ctx context.Context,
 	recipientType model.OwnerType,
@@ -208,17 +209,32 @@ func (s *OTCNegotiationService) publishNotif(
 	if s.notifier == nil {
 		return
 	}
-	if recipientType != model.OwnerClient || recipientID == nil {
-		return
-	}
-	if err := s.notifier.PublishGeneralNotification(ctx, contractkafka.GeneralNotificationMessage{
-		UserID:  *recipientID,
+	msg := contractkafka.GeneralNotificationMessage{
 		Type:    notifType,
 		Data:    data,
 		RefType: refType,
 		RefID:   refID,
-	}); err != nil {
-		log.Printf("WARN: otc notif %s for user %d failed: %v", notifType, *recipientID, err)
+	}
+	switch recipientType {
+	case model.OwnerClient:
+		if recipientID == nil {
+			return
+		}
+		msg.UserID = *recipientID
+		msg.SystemType = "client"
+	case model.OwnerBank:
+		// Bank-owned OTC resource → the shared employee/bank inbox. Read scoping
+		// ignores user_id for employees, so a nil owner id is fine; carry it when
+		// present for a forward-compatible per-employee model.
+		if recipientID != nil {
+			msg.UserID = *recipientID
+		}
+		msg.SystemType = "employee"
+	default:
+		return
+	}
+	if err := s.notifier.PublishGeneralNotification(ctx, msg); err != nil {
+		log.Printf("WARN: otc notif %s (%s) failed: %v", notifType, recipientType, err)
 	}
 }
 
@@ -975,8 +991,57 @@ func (s *OTCNegotiationService) LocalParentIsOpen(offerID uint64) bool {
 // on the wire, the listing is resolved by its (owner, ticker, direction) unique
 // key — the partial unique index guarantees at most one open row. Idempotent: a
 // missing/already-consumed listing is a no-op (no error).
-func (s *OTCNegotiationService) ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) error {
-	return s.offerRepo.ConsumeOpenByOwnerTickerDirection(ownerType, ownerID, ticker, model.OTCDirectionSellInitiated)
+// acceptedQty is the quantity the forming contract took from the listing. When
+// it is less than the listing's quantity (a PARTIAL accept) the unsold remainder
+// is re-listed as a FRESH open listing in the SAME transaction — mirroring the
+// local accept path's relistAcceptRemainder — so the seller's remaining inventory
+// keeps trading as a new negotiation surface instead of vanishing with the
+// consumed listing. (A re-listed offer shares the (seller,ticker) composite key,
+// but the my-negotiation index only stamps ONGOING chains, so an old accepted bid
+// never resurfaces on it; and a second accept of a cascade-cancelled sibling is
+// rejected by the chain-status guard in acceptRemoteNegotiation.) Pass 0 to
+// consume without re-listing.
+func (s *OTCNegotiationService) ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string, acceptedQty int64) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		parent, err := s.offerRepo.GetOpenSellListingForUpdate(tx, ownerType, ownerID, ticker)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil // idempotent: nothing open to consume (already consumed/cancelled)
+			}
+			return err
+		}
+		prevQty := parent.Quantity
+		parent.Status = model.OTCOfferStatusConsumed
+		if err := s.offerRepo.SaveTx(tx, parent); err != nil {
+			return err
+		}
+		if acceptedQty <= 0 {
+			return nil
+		}
+		remainder := prevQty.Sub(decimal.NewFromInt(acceptedQty))
+		if !remainder.IsPositive() {
+			return nil
+		}
+		fresh := &model.OTCOffer{
+			InitiatorOwnerType:          parent.InitiatorOwnerType,
+			InitiatorOwnerID:            parent.InitiatorOwnerID,
+			CounterpartyOwnerType:       parent.CounterpartyOwnerType,
+			CounterpartyOwnerID:         parent.CounterpartyOwnerID,
+			Direction:                   parent.Direction,
+			StockID:                     parent.StockID,
+			Ticker:                      parent.Ticker,
+			Quantity:                    remainder,
+			Status:                      model.OTCOfferStatusPending,
+			LastModifiedByPrincipalType: parent.LastModifiedByPrincipalType,
+			LastModifiedByPrincipalID:   parent.LastModifiedByPrincipalID,
+			InitiatorAccountID:          parent.InitiatorAccountID,
+			ActingEmployeeID:            parent.ActingEmployeeID,
+			Public:                      parent.Public,
+			Private:                     parent.Private,
+			PrivateToBankCode:           parent.PrivateToBankCode,
+		}
+		return s.offerRepo.SaveTx(tx, fresh)
+	})
 }
 
 // LocalSellOfferOpenForSeller reports whether this bank has an OPEN local option

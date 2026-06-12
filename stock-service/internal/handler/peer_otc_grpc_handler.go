@@ -80,7 +80,7 @@ type LocalParentChecker interface {
 	// ConsumeLocalSellOfferForSeller flips that listing to consumed once an inbound
 	// accept forms a contract against it — one listing backs exactly one accepted
 	// contract (symmetric with the outbound acceptRemoteNegotiation consume).
-	ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string) error
+	ConsumeLocalSellOfferForSeller(ownerType model.OwnerType, ownerID *uint64, ticker string, acceptedQty int64) error
 }
 
 // SellerAccountResolver returns the seller's NOMINATED account NUMBER for a
@@ -246,50 +246,61 @@ func (h *PeerOTCGRPCHandler) WithNotifier(n PeerNotifier) *PeerOTCGRPCHandler {
 	return h
 }
 
-// localClientUserID resolves "client-N" → N when the row's matching
-// routing number is this bank's. Returns (0, false) when:
-//   - the row is for the other bank's user (no local notification)
-//   - the participant id isn't a plain "client-N" string (employee,
-//     bank, malformed)
-//
-// Used by the inbound peer handlers to determine whether to publish
-// a notification, and to whom.
-func (h *PeerOTCGRPCHandler) localClientUserID(routing int64, participantID string) (uint64, bool) {
+// localRecipient resolves a SI-TX participant id on THIS bank's routing to a
+// notification recipient: "client-N" → (N, "client"); "employee-N" → (N,
+// "employee"); "bank" → (0, "employee") — the shared bank inbox. Returns
+// ok=false when the party is on a peer bank (no local notification) or the id is
+// unrecognised/malformed. Used by the inbound peer handlers to decide whether to
+// notify and on which inbox (client-scoped vs the shared employee/bank inbox).
+func (h *PeerOTCGRPCHandler) localRecipient(routing int64, participantID string) (userID uint64, systemType string, ok bool) {
 	if routing != h.ownRouting {
-		return 0, false
+		return 0, "", false
 	}
-	const prefix = "client-"
-	if !strings.HasPrefix(participantID, prefix) {
-		return 0, false
+	if rest, found := strings.CutPrefix(participantID, "client-"); found {
+		id, err := strconv.ParseUint(rest, 10, 64)
+		if err != nil || id == 0 {
+			return 0, "", false
+		}
+		return id, "client", true
 	}
-	id, err := strconv.ParseUint(participantID[len(prefix):], 10, 64)
-	if err != nil || id == 0 {
-		return 0, false
+	if rest, found := strings.CutPrefix(participantID, "employee-"); found {
+		id, err := strconv.ParseUint(rest, 10, 64)
+		if err != nil || id == 0 {
+			return 0, "", false
+		}
+		return id, "employee", true
 	}
-	return id, true
+	if participantID == "bank" {
+		return 0, "employee", true
+	}
+	return 0, "", false
 }
 
-// publishPeerNotif is best-effort. Logs a warning on failure. Skips
-// when the notifier isn't wired or the recipient resolution failed.
+// publishPeerNotif is best-effort. Logs a warning on failure. Skips when the
+// notifier isn't wired or the recipient didn't resolve (systemType == ""). A
+// "client" notification is per-user (userID); an "employee" one lands on the
+// shared bank inbox (userID may be 0).
 func (h *PeerOTCGRPCHandler) publishPeerNotif(
 	ctx context.Context,
 	userID uint64,
+	systemType string,
 	notifType string,
 	data map[string]string,
 	refType string,
 	refID uint64,
 ) {
-	if h.notifier == nil || userID == 0 {
+	if h.notifier == nil || systemType == "" {
 		return
 	}
 	if err := h.notifier.PublishGeneralNotification(ctx, contractkafka.GeneralNotificationMessage{
-		UserID:  userID,
-		Type:    notifType,
-		Data:    data,
-		RefType: refType,
-		RefID:   refID,
+		UserID:     userID,
+		SystemType: systemType,
+		Type:       notifType,
+		Data:       data,
+		RefType:    refType,
+		RefID:      refID,
 	}); err != nil {
-		log.Printf("WARN: peer otc notif %s for user %d failed: %v", notifType, userID, err)
+		log.Printf("WARN: peer otc notif %s (user %d/%s) failed: %v", notifType, userID, systemType, err)
 	}
 }
 
@@ -562,8 +573,8 @@ func (h *PeerOTCGRPCHandler) CreateNegotiation(ctx context.Context, req *stockpb
 	}
 	// Inbound bid from a peer → notify our local seller (if the seller
 	// side is local). Best-effort, after-commit.
-	if uid, ok := h.localClientUserID(req.GetSellerId().GetRoutingNumber(), req.GetSellerId().GetId()); ok {
-		h.publishPeerNotif(ctx, uid, "OTC_OFFER_RECEIVED",
+	if uid, st, ok := h.localRecipient(req.GetSellerId().GetRoutingNumber(), req.GetSellerId().GetId()); ok {
+		h.publishPeerNotif(ctx, uid, st, "OTC_OFFER_RECEIVED",
 			notifDataFromOffer(offer),
 			"otc_negotiation", neg.ID,
 		)
@@ -654,22 +665,24 @@ func (h *PeerOTCGRPCHandler) UpdateNegotiation(ctx context.Context, req *stockpb
 			actorID := offer.LastModifiedBy.ID
 			buyerRouting, buyerID := remoteBuyer(row)
 			sellerRouting, sellerID := remoteSeller(row)
-			// Identify the local party that is NOT the actor.
+			// Identify the local party that is NOT the actor, and notify them on
+			// their inbox (client-scoped, or the shared employee/bank inbox).
 			var localUID uint64
+			var localST string
 			if buyerRouting == h.ownRouting &&
 				!(buyerRouting == actorRouting && buyerID == actorID) {
-				if uid, ok := h.localClientUserID(buyerRouting, buyerID); ok {
-					localUID = uid
+				if uid, st, ok := h.localRecipient(buyerRouting, buyerID); ok {
+					localUID, localST = uid, st
 				}
 			}
-			if localUID == 0 && sellerRouting == h.ownRouting &&
+			if localST == "" && sellerRouting == h.ownRouting &&
 				!(sellerRouting == actorRouting && sellerID == actorID) {
-				if uid, ok := h.localClientUserID(sellerRouting, sellerID); ok {
-					localUID = uid
+				if uid, st, ok := h.localRecipient(sellerRouting, sellerID); ok {
+					localUID, localST = uid, st
 				}
 			}
-			if localUID != 0 {
-				h.publishPeerNotif(ctx, localUID, "OTC_OFFER_COUNTERED",
+			if localST != "" {
+				h.publishPeerNotif(ctx, localUID, localST, "OTC_OFFER_COUNTERED",
 					notifDataFromOffer(offer),
 					"otc_negotiation", row.ID,
 				)
@@ -762,10 +775,10 @@ func (h *PeerOTCGRPCHandler) DeleteNegotiation(ctx context.Context, req *stockpb
 		// other bank's user, so the local party is the recipient.
 		buyerRouting, buyerID := remoteBuyer(row)
 		sellerRouting, sellerID := remoteSeller(row)
-		if uid, ok := h.localClientUserID(buyerRouting, buyerID); ok {
-			h.publishPeerNotif(ctx, uid, notifType, data, "otc_negotiation", row.ID)
-		} else if uid, ok := h.localClientUserID(sellerRouting, sellerID); ok {
-			h.publishPeerNotif(ctx, uid, notifType, data, "otc_negotiation", row.ID)
+		if uid, st, ok := h.localRecipient(buyerRouting, buyerID); ok {
+			h.publishPeerNotif(ctx, uid, st, notifType, data, "otc_negotiation", row.ID)
+		} else if uid, st, ok := h.localRecipient(sellerRouting, sellerID); ok {
+			h.publishPeerNotif(ctx, uid, st, notifType, data, "otc_negotiation", row.ID)
 		}
 	}
 	return &stockpb.DeleteNegotiationResponse{}, nil
@@ -1014,7 +1027,7 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 	// listing). Symmetric with the OUTBOUND acceptRemoteNegotiation consume.
 	if h.parentChecker != nil && sellerRouting == h.ownRouting && offer.Ticker != "" {
 		if ot, oid, perr := parseSellerOwner(sellerID); perr == nil {
-			if cerr := h.parentChecker.ConsumeLocalSellOfferForSeller(ot, oid, offer.Ticker); cerr != nil {
+			if cerr := h.parentChecker.ConsumeLocalSellOfferForSeller(ot, oid, offer.Ticker, offer.Amount); cerr != nil {
 				log.Printf("WARN: peer-otc accept: consume local listing failed for %s/%s: %v",
 					req.GetPeerBankCode(), req.GetNegotiationId().GetId(), cerr)
 			}
@@ -1033,11 +1046,11 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		"strike_price": offer.PricePerStock.String(),
 		"premium_paid": offer.Premium.String(),
 	}
-	if uid, ok := h.localClientUserID(sellerRouting, sellerID); ok {
-		h.publishPeerNotif(ctx, uid, "OTC_CONTRACT_CREATED", ccData, "otc_negotiation", row.ID)
+	if uid, st, ok := h.localRecipient(sellerRouting, sellerID); ok {
+		h.publishPeerNotif(ctx, uid, st, "OTC_CONTRACT_CREATED", ccData, "otc_negotiation", row.ID)
 	}
-	if uid, ok := h.localClientUserID(buyerRouting, buyerID); ok {
-		h.publishPeerNotif(ctx, uid, "OTC_CONTRACT_CREATED", ccData, "otc_negotiation", row.ID)
+	if uid, st, ok := h.localRecipient(buyerRouting, buyerID); ok {
+		h.publishPeerNotif(ctx, uid, st, "OTC_CONTRACT_CREATED", ccData, "otc_negotiation", row.ID)
 	}
 
 	return &stockpb.AcceptNegotiationResponse{
@@ -1510,8 +1523,32 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 	// first active <currency> account. Best-effort: an unresolved nomination leaves
 	// it NULL → the executor falls back to participant resolution. Buyer-side
 	// (CREDIT) rows never carry the seller's nomination.
-	if req.GetDirection() == contractsitx.DirectionDebit && h.sellerAccountResolver != nil {
-		if neg, nerr := h.negRepo.GetRemoteNegByNative(opt.NegotiationID.ID); nerr == nil && neg != nil {
+	// Resolve the originating negotiation once: it carries (a) the agreed premium
+	// + premium currency, and (b) on a seller-side (DEBIT) row the seller's
+	// nominated account. The SI-TX OptionDescription carries ONLY the strike (the
+	// premium is a separate MONAS posting), so without this the cross-bank contract
+	// mirror persists PremiumPaid=0 and the FE shows no premium on a cross-bank
+	// contract. The neg's RemoteOfferJSON is the serialised OtcOffer with the agreed
+	// Premium/PremiumCurrency. The neg is resolvable by opt.NegotiationID.ID on BOTH
+	// banks (the buyer-bank mirror's native_id == the seller-bank foreign id == the
+	// OptionDescription's neg id). Best-effort throughout: an unresolved neg /
+	// unparseable snapshot leaves the remote defaults and never fails the record.
+	if neg, nerr := h.negRepo.GetRemoteNegByNative(opt.NegotiationID.ID); nerr == nil && neg != nil {
+		if neg.RemoteOfferJSON != nil && *neg.RemoteOfferJSON != "" {
+			var snap contractsitx.OtcOffer
+			if jerr := json.Unmarshal([]byte(*neg.RemoteOfferJSON), &snap); jerr == nil {
+				if !snap.Premium.IsZero() {
+					row.PremiumPaid = snap.Premium
+				}
+				if snap.PremiumCurrency != "" {
+					row.PremiumCurrency = snap.PremiumCurrency
+				}
+			}
+		}
+		if row.PremiumPaid.IsZero() && !neg.Premium.IsZero() {
+			row.PremiumPaid = neg.Premium
+		}
+		if req.GetDirection() == contractsitx.DirectionDebit && h.sellerAccountResolver != nil {
 			if num := h.sellerAccountResolver.ResolveSellerAccountNumber(ctx, neg, opt.PricePerUnit.Currency); num != "" {
 				row.RemoteSellerAccountNumber = &num
 			}
@@ -1549,19 +1586,37 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 		// shares were held). The existing consume/release-by-contract-id paths
 		// then operate unchanged.
 		attached := false
-		if cbTx := req.GetCrossbankTxId(); cbTx != "" {
+		cbTx := req.GetCrossbankTxId()
+		if cbTx != "" {
 			err := h.holdingReserver.AttachCrossBankReservationToContract(ctx, cbTx, row.ID)
 			if err == nil {
 				attached = true
 			} else if status.Code(err) != codes.NotFound {
 				return nil, status.Errorf(codes.Internal,
 					"peer-option contract %d: attach vote-time share hold (tx %s): %v", row.ID, cbTx, err)
+			} else {
+				// NotFound: no vote-time hold is keyed to THIS crossbank_tx_id. For a
+				// conformant peer that reserved the shares at NEW_TX this must never
+				// happen — it signals a vote↔COMMIT crossbank_tx_id MISMATCH. Log it
+				// loudly (it was previously silent) so the divergence is diagnosable
+				// instead of surfacing later as a phantom INSUFFICIENT. Falls through
+				// to the legacy reserve-at-commit (a genuinely older peer that never
+				// reserved at vote has no hold and is handled there).
+				log.Printf("ERROR: peer-option contract %d: no vote-time share hold for crossbank_tx_id %q at COMMIT (attach missed) — using reserve-at-commit; verify NEW_TX and COMMIT carry the SAME crossbank_tx_id", row.ID, cbTx)
 			}
-			// NotFound → no vote-time hold (older NEW_TX before this change, or a
-			// transaction-service that didn't reserve) → fall through to the
-			// legacy reserve-at-commit below for backward compatibility.
 		}
 		if !attached {
+			// Before reserving fresh, defensively RELEASE any orphaned vote-time hold
+			// for this crossbank_tx_id so a key mismatch / transient attach miss can
+			// NEVER leave TWO active holds on the same shares — the double-reserve that
+			// over-reserves the seller and causes a phantom INSUFFICIENT on a later
+			// order/exercise. Best-effort: a missing hold is a no-op (release is
+			// idempotent + status-guarded).
+			if cbTx != "" {
+				if _, rerr := h.holdingReserver.ReleaseForCrossBankNewTx(ctx, cbTx); rerr != nil {
+					log.Printf("WARN: peer-option contract %d: release orphaned vote-time hold (tx %s) before fallback reserve: %v", row.ID, cbTx, rerr)
+				}
+			}
 			if _, err := h.holdingReserver.ReserveForPeerOptionContract(
 				ctx, ownerType, ownerID, "stock", row.Ticker, row.ID, rowQuantity,
 			); err != nil {

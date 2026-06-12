@@ -1118,3 +1118,45 @@ func TestInitiateOptionExercise_SpecPseudoAccountForm(t *testing.T) {
 		}
 	}
 }
+
+// TestPeerOTC_RecordOptionContract_AttachMiss_ReleasesBeforeFallback verifies the
+// double-reserve guard: when attach misses (NotFound) the COMMIT releases any
+// orphaned vote-time hold for the SAME crossbank_tx_id BEFORE the fallback
+// reserve, so a key mismatch / transient miss can never leave two active holds on
+// the same shares (the over-reserve that surfaces as a phantom INSUFFICIENT).
+func TestPeerOTC_RecordOptionContract_AttachMiss_ReleasesBeforeFallback(t *testing.T) {
+	h, _, _, _ := newPeerOtcHandler(t)
+	reserver := &fakeReserver{
+		attachErr: status.Error(codes.NotFound, "no vote-time hold"), // force fallback
+	}
+	h.SetHoldingReserver(reserver)
+
+	optDesc := contractsitx.OptionDescription{
+		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: 222, ID: "neg-am"},
+		Stock:          contractsitx.StockDescription{Ticker: "AAPL"},
+		PricePerUnit:   contractsitx.MonetaryValue{Amount: contractsitx.DecimalNumber{Decimal: decimal.NewFromInt(100)}, Currency: "USD"},
+		SettlementDate: "2026-12-31",
+		Amount:         5,
+	}
+	optJSON, _ := json.Marshal(optDesc)
+	_, err := h.RecordOptionContract(context.Background(), &stockpb.RecordOptionContractRequest{
+		CrossbankTxId:         "tx-attach-miss",
+		PostingIndex:          2,
+		BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-99"},
+		SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-7"},
+		Direction:             contractsitx.DirectionDebit,
+		OptionDescriptionJson: string(optJSON),
+	})
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if reserver.releaseTxCalls != 1 {
+		t.Errorf("release-before-fallback calls = %d, want 1", reserver.releaseTxCalls)
+	}
+	if reserver.lastReleaseTxID != "tx-attach-miss" {
+		t.Errorf("released crossbank_tx_id = %q, want tx-attach-miss", reserver.lastReleaseTxID)
+	}
+	if reserver.reserveCalls != 1 {
+		t.Errorf("fallback reserve calls = %d, want 1", reserver.reserveCalls)
+	}
+}

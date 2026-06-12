@@ -698,6 +698,10 @@ func main() {
 	// Celina 4 Task 18: route on-behalf-of-fund buy fills into fund_holdings.
 	portfolioSvc = portfolioSvc.WithFundHoldings(fundHoldingRepo)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
+	// Gate fills on the listing's exchange being open (same predicate as is_open:
+	// testing mode OR within trading hours) so orders never fill while the FE
+	// reports the exchange closed.
+	execEngine.SetExchangeChecker(exchangeSvc)
 
 	// --- Seed securities ---
 

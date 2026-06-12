@@ -170,22 +170,39 @@ func (s *OTCOfferService) buildExerciseSaga(ctx context.Context, sagaID string, 
 	strikeBuyerCcy := strikeSellerCcy
 	buyerCcy := buyerAcct.CurrencyCode
 	if buyerCcy != strikeCcy {
-		if s.exchange == nil {
-			return nil, nil, svcerr.New(codes.Internal, "cross-currency OTC exercise requires exchange client")
+		if c.BuyerStrikeAmount.IsPositive() {
+			// Crash-recovery: REUSE the buyer-side strike locked at first exercise.
+			// Re-converting at the recovery-time rate would settle a drifted amount
+			// against the hold the original attempt reserved.
+			strikeBuyerCcy = c.BuyerStrikeAmount
+		} else {
+			if s.exchange == nil {
+				return nil, nil, svcerr.New(codes.Internal, "cross-currency OTC exercise requires exchange client")
+			}
+			conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
+				FromCurrency: strikeCcy,
+				ToCurrency:   buyerCcy,
+				Amount:       strikeSellerCcy.String(),
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("FX strike convert: %w", err)
+			}
+			converted, err := decimal.NewFromString(conv.ConvertedAmount)
+			if err != nil {
+				return nil, nil, fmt.Errorf("FX strike convert: parse %q: %w", conv.ConvertedAmount, err)
+			}
+			strikeBuyerCcy = converted
+			// Lock the converted strike on the contract NOW — before any strike
+			// movement — so a recovery (which re-enters this build) reuses it instead
+			// of re-converting at a drifted rate and mis-settling against the original
+			// reservation. Best-effort: a Save failure only means a recovery might
+			// re-convert (the pre-fix behaviour), so don't abort the exercise.
+			c.BuyerStrikeAmount = strikeBuyerCcy
+			c.BuyerStrikeCurrency = buyerCcy
+			if serr := s.contracts.Save(c); serr != nil {
+				log.Printf("WARN: OTC exercise: lock buyer-side strike on contract %d failed (recovery may re-convert): %v", c.ID, serr)
+			}
 		}
-		conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
-			FromCurrency: strikeCcy,
-			ToCurrency:   buyerCcy,
-			Amount:       strikeSellerCcy.String(),
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("FX strike convert: %w", err)
-		}
-		converted, err := decimal.NewFromString(conv.ConvertedAmount)
-		if err != nil {
-			return nil, nil, fmt.Errorf("FX strike convert: parse %q: %w", conv.ConvertedAmount, err)
-		}
-		strikeBuyerCcy = converted
 	}
 
 	// Deterministic idempotency keys for capital-gain rows so their Backward

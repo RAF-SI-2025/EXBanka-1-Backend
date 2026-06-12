@@ -323,9 +323,27 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 	if rec.CommittedAt != nil {
 		return &transactionpb.SiTxAckResponse{}, nil
 	}
+	// COMMIT-after-ROLLBACK guard (symmetric with HandleRollbackTx's CommittedAt
+	// check): once this NEW_TX has been ROLLED BACK (our reservations released) a
+	// late/duplicate COMMIT must NOT re-run settlement. The settle calls below are
+	// NotFound-idempotent so money is safe either way, but committing a rolled-back
+	// tx is a protocol violation; treat it as an idempotent no-op.
+	if rec.RolledBackAt != nil {
+		return &transactionpb.SiTxAckResponse{}, nil
+	}
 	// All reservation keys are derived from the ORIGINAL NEW_TX key (L), which
 	// is rec.LocallyGeneratedKey — never from the COMMIT message's own key.
 	key := peerCode + ":" + rec.LocallyGeneratedKey
+	// Materialise the option-asset legs FIRST — before any money moves (audit #3).
+	// materialiseOptions is idempotent on (crossbank_tx_id, posting_index) and has
+	// no dependency on the money settle, so doing the user-visible contract first
+	// means a failure/crash between the steps leaves "contract exists, money
+	// settling" (recovered by the COMMIT retry) rather than the worse
+	// "money-moved, contract-missing". The legs were captured at NEW_TX time and
+	// persisted in OptionsJSON (the original postings are gone at commit time).
+	if err := h.materialiseOptions(ctx, rec.OptionsJSON, key); err != nil {
+		return nil, status.Errorf(codes.Internal, "record options: %v", err)
+	}
 	// CommitIncoming is idempotent on the reservation key. Account-service
 	// commits whatever was reserved under that key, writing the initiator's
 	// Message as the ledger entry description. NotFound is benign here — it
@@ -362,13 +380,7 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 			}
 		}
 	}
-	// Materialise any option-asset legs into peer_option_contracts via
-	// stock-service. The list was captured at NEW_TX time and persisted
-	// in OptionsJSON so we don't depend on the original postings list,
-	// which is no longer available at commit time.
-	if err := h.materialiseOptions(ctx, rec.OptionsJSON, key); err != nil {
-		return nil, status.Errorf(codes.Internal, "record options: %v", err)
-	}
+	// (option-asset legs were materialised first, above — before any money moved.)
 	// Stamp committed_at so a retransmitted COMMIT short-circuits next time.
 	// All side effects above are idempotent, so a crash before this stamp just
 	// replays them on the next COMMIT delivery.
@@ -808,27 +820,31 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		// `committing` (via MarkAttempt, which preserves status) so the cron
 		// retries the full idempotent sequence and drives it forward.
 		localOK := true
-		// 1. Finalise local CREDIT-leg reservations. NotFound is benign.
-		if _, cerr := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{
-			ReservationKey: localKey,
-			IdempotencyKey: "sitx-localcommit-" + localKey,
-		}); cerr != nil && status.Code(cerr) != codes.NotFound {
-			_ = h.outRepo.MarkAttempt(idem, "local commit: "+cerr.Error())
+		// 1. Materialise sender-side option contract rows FIRST — before any money
+		// moves (audit #3). Idempotent on (crossbank_tx_id, posting_index) with no
+		// dependency on the money settle, so a failure here moves no money (clean
+		// retry) and a failure AFTER it leaves "contract exists, money settling"
+		// rather than "money-moved, contract-missing". (seller DEBIT on accept; buyer
+		// CREDIT transition + share credit on exercise.) crossbankTxID is the local
+		// key "<ownRouting>:<idem>", consistent with the wire UUID.
+		if merr := h.materialiseOptions(ctx, optionItemsJSON(localResult.OptionItems), localKey); merr != nil {
+			_ = h.outRepo.MarkAttempt(idem, "local option-record: "+merr.Error())
 			localOK = false
 		}
-		// 2. Settle local DEBIT-side outgoing holds (e.g. buyer premium money).
+		// 2. Finalise local CREDIT-leg reservations. NotFound is benign.
 		if localOK {
-			if serr := h.executor.SettleLocal(ctx, postings, ownPeerCode, idem); serr != nil {
-				_ = h.outRepo.MarkAttempt(idem, "local settle: "+serr.Error())
+			if _, cerr := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{
+				ReservationKey: localKey,
+				IdempotencyKey: "sitx-localcommit-" + localKey,
+			}); cerr != nil && status.Code(cerr) != codes.NotFound {
+				_ = h.outRepo.MarkAttempt(idem, "local commit: "+cerr.Error())
 				localOK = false
 			}
 		}
-		// 3. Materialise sender-side option contract rows (seller DEBIT on accept;
-		// buyer CREDIT transition + share credit on exercise). crossbankTxID is the
-		// local key "<ownRouting>:<idem>", consistent with the wire UUID.
+		// 3. Settle local DEBIT-side outgoing holds (e.g. buyer premium money).
 		if localOK {
-			if merr := h.materialiseOptions(ctx, optionItemsJSON(localResult.OptionItems), localKey); merr != nil {
-				_ = h.outRepo.MarkAttempt(idem, "local option-record: "+merr.Error())
+			if serr := h.executor.SettleLocal(ctx, postings, ownPeerCode, idem); serr != nil {
+				_ = h.outRepo.MarkAttempt(idem, "local settle: "+serr.Error())
 				localOK = false
 			}
 		}

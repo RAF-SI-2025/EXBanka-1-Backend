@@ -274,11 +274,16 @@ func (x *AckMobileResponse) GetSuccess() bool {
 }
 
 type ListNotificationsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Page          int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	ReadFilter    string                 `protobuf:"bytes,4,opt,name=read_filter,json=readFilter,proto3" json:"read_filter,omitempty"` // "", "read", "unread"
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	UserId     uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Page       int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize   int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	ReadFilter string                 `protobuf:"bytes,4,opt,name=read_filter,json=readFilter,proto3" json:"read_filter,omitempty"` // "", "read", "unread"
+	// system_type isolates recipients: "client" (or empty/legacy) reads ONLY the
+	// caller's own (user_id) client notifications; "employee" reads the shared
+	// bank inbox. Prevents a client's notifications (incl. personal data/codes)
+	// from reaching an employee/admin whose numeric id collides with the client's.
+	SystemType    string `protobuf:"bytes,5,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -337,6 +342,13 @@ func (x *ListNotificationsRequest) GetPageSize() int32 {
 func (x *ListNotificationsRequest) GetReadFilter() string {
 	if x != nil {
 		return x.ReadFilter
+	}
+	return ""
+}
+
+func (x *ListNotificationsRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
 	}
 	return ""
 }
@@ -496,6 +508,7 @@ func (x *ListNotificationsResponse) GetTotal() int64 {
 type GetUnreadCountRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	SystemType    string                 `protobuf:"bytes,2,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -535,6 +548,13 @@ func (x *GetUnreadCountRequest) GetUserId() uint64 {
 		return x.UserId
 	}
 	return 0
+}
+
+func (x *GetUnreadCountRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type GetUnreadCountResponse struct {
@@ -585,6 +605,7 @@ type MarkNotificationReadRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	SystemType    string                 `protobuf:"bytes,3,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -631,6 +652,13 @@ func (x *MarkNotificationReadRequest) GetUserId() uint64 {
 		return x.UserId
 	}
 	return 0
+}
+
+func (x *MarkNotificationReadRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type MarkNotificationReadResponse struct {
@@ -680,6 +708,7 @@ func (x *MarkNotificationReadResponse) GetSuccess() bool {
 type MarkAllNotificationsReadRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	SystemType    string                 `protobuf:"bytes,2,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -719,6 +748,13 @@ func (x *MarkAllNotificationsReadRequest) GetUserId() uint64 {
 		return x.UserId
 	}
 	return 0
+}
+
+func (x *MarkAllNotificationsReadRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type MarkAllNotificationsReadResponse struct {
@@ -1716,13 +1752,15 @@ const file_notification_notification_proto_rawDesc = "" +
 	"\x10AckMobileRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\"-\n" +
 	"\x11AckMobileResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x85\x01\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\xa6\x01\n" +
 	"\x18ListNotificationsRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1f\n" +
 	"\vread_filter\x18\x04 \x01(\tR\n" +
-	"readFilter\"\xd1\x01\n" +
+	"readFilter\x12\x1f\n" +
+	"\vsystem_type\x18\x05 \x01(\tR\n" +
+	"systemType\"\xd1\x01\n" +
 	"\x11NotificationEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x14\n" +
@@ -1735,18 +1773,24 @@ const file_notification_notification_proto_rawDesc = "" +
 	"created_at\x18\b \x01(\tR\tcreatedAt\"x\n" +
 	"\x19ListNotificationsResponse\x12E\n" +
 	"\rnotifications\x18\x01 \x03(\v2\x1f.notification.NotificationEntryR\rnotifications\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"0\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"Q\n" +
 	"\x15GetUnreadCountRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x04R\x06userId\".\n" +
+	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1f\n" +
+	"\vsystem_type\x18\x02 \x01(\tR\n" +
+	"systemType\".\n" +
 	"\x16GetUnreadCountResponse\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x03R\x05count\"F\n" +
+	"\x05count\x18\x01 \x01(\x03R\x05count\"g\n" +
 	"\x1bMarkNotificationReadRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\"8\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1f\n" +
+	"\vsystem_type\x18\x03 \x01(\tR\n" +
+	"systemType\"8\n" +
 	"\x1cMarkNotificationReadResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\":\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"[\n" +
 	"\x1fMarkAllNotificationsReadRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x04R\x06userId\"8\n" +
+	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1f\n" +
+	"\vsystem_type\x18\x02 \x01(\tR\n" +
+	"systemType\"8\n" +
 	" MarkAllNotificationsReadResponse\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x03R\x05count\"b\n" +
 	"\x10TemplateVariable\x12\x12\n" +

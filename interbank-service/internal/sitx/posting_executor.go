@@ -412,6 +412,17 @@ func (e *PostingExecutor) reserveIncomingCredit(ctx context.Context, accountID, 
 	return key, "", true
 }
 
+// isPositiveAmount reports whether s parses to a strictly-positive decimal. Used
+// to reject a missing / zero / negative / malformed FX conversion result before
+// it reserves a garbage amount and silently under-/over-settles a leg.
+func isPositiveAmount(s string) bool {
+	if s == "" {
+		return false
+	}
+	d, err := decimal.NewFromString(s)
+	return err == nil && d.IsPositive()
+}
+
 // fxReserveCredit reserves `amount legCurrency` into target, converting via
 // exchange-service when target's currency differs (so a cross-currency premium
 // /strike lands in the recipient's own account). The reservation key carries the
@@ -427,7 +438,10 @@ func (e *PostingExecutor) fxReserveCredit(ctx context.Context, target *accountpb
 		conv, cerr := e.exchange.Convert(ctx, &exchangepb.ConvertRequest{
 			FromCurrency: legCurrency, ToCurrency: reserveCurrency, Amount: amount,
 		})
-		if cerr != nil || conv == nil || conv.GetConvertedAmount() == "" {
+		if cerr != nil || conv == nil || !isPositiveAmount(conv.GetConvertedAmount()) {
+			// Reject a missing / non-positive / malformed conversion: a buggy or
+			// hostile exchange returning "", "0", or a negative would otherwise
+			// reserve a garbage amount and silently under-credit the recipient.
 			return "", contractsitx.NoVoteReasonNoSuchAsset, false
 		}
 		reserveAmount = conv.GetConvertedAmount()
@@ -443,6 +457,93 @@ func (e *PostingExecutor) fxReserveCredit(ctx context.Context, target *accountpb
 		return "", contractsitx.NoVoteReasonUnacceptableAsset, false
 	}
 	return key, "", true
+}
+
+// reserveOutgoingDebit resolves the account for a DEBIT (outgoing money) posting,
+// applies buyer-side FX when the payer holds no account in the leg currency (or a
+// nominated account in a different currency), and places a per-posting hold.
+// Byte-for-byte the pre-FX behaviour when no converter is wired (the only new
+// outcomes are FX successes; existing NO-vote reasons are unchanged). Mirrors
+// reserveIncomingCredit. The hold is keyed by the per-posting tag so each DEBIT
+// leg settles/releases independently at COMMIT/ROLLBACK.
+func (e *PostingExecutor) reserveOutgoingDebit(ctx context.Context, accountID, currency, amount, peerBankCode, locallyGeneratedKey string, i int) (item DebitedItem, noVoteReason string, ok bool) {
+	tag := fmt.Sprintf("%s:%s:%d", peerBankCode, locallyGeneratedKey, i)
+	accountNumber, resolveErr := e.resolveAccountForPosting(ctx, accountID, currency)
+	if resolveErr != nil {
+		// The payer holds no account in the leg currency. Pre-FX: NO_SUCH_ACCOUNT.
+		// With a converter wired, debit the FX-equivalent from the payer's first
+		// active account instead of failing.
+		if e.exchange == nil {
+			return DebitedItem{}, contractsitx.NoVoteReasonNoSuchAccount, false
+		}
+		target, terr := e.resolveCreditFallback(ctx, accountID)
+		if terr != nil || target == nil {
+			return DebitedItem{}, contractsitx.NoVoteReasonNoSuchAccount, false
+		}
+		return e.fxReserveDebit(ctx, target, currency, amount, tag)
+	}
+	acct, err := e.client.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: accountNumber})
+	if err != nil || acct == nil {
+		return DebitedItem{}, contractsitx.NoVoteReasonNoSuchAccount, false
+	}
+	if acct.Status != "active" {
+		return DebitedItem{}, contractsitx.NoVoteReasonUnacceptableAsset, false
+	}
+	if acct.CurrencyCode != currency {
+		// A concrete (nominated) account in a different currency. Pre-FX:
+		// NO_SUCH_ASSET. With a converter, FX the debit into the nominated account.
+		if e.exchange == nil {
+			return DebitedItem{}, contractsitx.NoVoteReasonNoSuchAsset, false
+		}
+		return e.fxReserveDebit(ctx, acct, currency, amount, tag)
+	}
+	if _, err := e.client.ReserveOutgoing(ctx, &accountpb.ReserveOutgoingRequest{
+		AccountNumber:  accountNumber,
+		Amount:         amount,
+		Currency:       currency,
+		ReservationKey: tag,
+		IdempotencyKey: "sitx-reserve-out-" + tag,
+	}); err != nil {
+		// account-service rejects holds above available balance; surface that as
+		// INSUFFICIENT_ASSET per SI-TX semantics.
+		return DebitedItem{}, contractsitx.NoVoteReasonInsufficientAsset, false
+	}
+	return DebitedItem{AccountNumber: accountNumber, Amount: amount, IdempotencyTag: tag}, "", true
+}
+
+// fxReserveDebit places an outgoing hold of `amount legCurrency` on target,
+// converting via exchange-service when target's currency differs (so a
+// cross-currency premium/strike is paid out of the payer's own account). The
+// hold uses the supplied per-posting tag, so COMMIT/ROLLBACK settle/release it
+// unchanged. Callers reach here only with a converter wired.
+func (e *PostingExecutor) fxReserveDebit(ctx context.Context, target *accountpb.AccountResponse, legCurrency, amount, tag string) (DebitedItem, string, bool) {
+	if target.GetStatus() != "active" {
+		return DebitedItem{}, contractsitx.NoVoteReasonUnacceptableAsset, false
+	}
+	debitAmount := amount
+	debitCurrency := target.GetCurrencyCode()
+	if debitCurrency != legCurrency {
+		conv, cerr := e.exchange.Convert(ctx, &exchangepb.ConvertRequest{
+			FromCurrency: legCurrency, ToCurrency: debitCurrency, Amount: amount,
+		})
+		if cerr != nil || conv == nil || !isPositiveAmount(conv.GetConvertedAmount()) {
+			// Reject a missing / non-positive / malformed conversion (symmetric with
+			// the credit side): otherwise a "0"/garbage rate would under-charge the
+			// payer for the premium/strike.
+			return DebitedItem{}, contractsitx.NoVoteReasonNoSuchAsset, false
+		}
+		debitAmount = conv.GetConvertedAmount()
+	}
+	if _, err := e.client.ReserveOutgoing(ctx, &accountpb.ReserveOutgoingRequest{
+		AccountNumber:  target.GetAccountNumber(),
+		Amount:         debitAmount,
+		Currency:       debitCurrency,
+		ReservationKey: tag,
+		IdempotencyKey: "sitx-reserve-out-" + tag,
+	}); err != nil {
+		return DebitedItem{}, contractsitx.NoVoteReasonInsufficientAsset, false
+	}
+	return DebitedItem{AccountNumber: target.GetAccountNumber(), Amount: debitAmount, IdempotencyTag: tag}, "", true
 }
 
 // resolveCreditFallback returns the recipient's first active account in ANY currency,
@@ -575,6 +676,29 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.I
 		}
 	}
 
+	// Multi-credit collision guard (audit #4): every MONAS money-CREDIT leg on our
+	// routing reserves under the SHARED key "<peer>:<idem>" (reserveIncomingCredit)
+	// and is committed/released by that one key. Two money credits to THIS bank in
+	// a single TX would therefore collide — account-service treats the 2nd reserve
+	// as an idempotent duplicate of the 1st and silently skips it, so that recipient
+	// is never credited (money lost at COMMIT). No current flow has >1 money credit
+	// per bank, so reject the shape up front rather than silently dropping a credit.
+	// (Full per-posting-keyed multi-credit support is a documented follow-up — see
+	// docs/superpowers/plans/2026-06-12-saga-weak-spots-fixes.md #4.)
+	monasCredits, firstCreditIdx := 0, -1
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber == e.ownRouting && p.Direction == contractsitx.DirectionCredit && p.AssetType == contractsitx.AssetTypeMonas {
+			monasCredits++
+			if firstCreditIdx < 0 {
+				firstCreditIdx = i
+			}
+		}
+	}
+	if monasCredits > 1 {
+		return noVote(contractsitx.NoVoteReasonUnacceptableAsset, firstCreditIdx)
+	}
+
 	for i := range postings {
 		p := postings[i]
 
@@ -694,52 +818,21 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.I
 			continue
 		}
 
-		// Non-CREDIT MONAS legs (DEBIT / unknown): resolve + gate the account up
-		// front, exactly as before, then branch. Resolve participant-ID-style
-		// accountId ("client-7") to a concrete bank account number for the
-		// requested currency when this is a PERSON leg; 18-digit account numbers
-		// (ACCOUNT legs) pass through unchanged.
-		accountNumber, resolveErr := e.resolveAccountForPosting(ctx, p.AccountID, currency)
-		if resolveErr != nil {
-			return noVote(contractsitx.NoVoteReasonNoSuchAccount, i)
-		}
-		acct, err := e.client.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: accountNumber})
-		if err != nil || acct == nil {
-			return noVote(contractsitx.NoVoteReasonNoSuchAccount, i)
-		}
-		if acct.Status != "active" {
+		// Non-CREDIT MONAS legs: only DEBIT is valid. The buyer-side premium debit
+		// is symmetric with the seller-side credit (reserveIncomingCredit): when the
+		// payer holds no account in the leg currency (or a nominated account in a
+		// different currency) and a converter is wired, the FX-equivalent is debited
+		// from the payer's own account instead of voting NO_SUCH_ACCOUNT/NO_SUCH_ASSET.
+		// The hold is keyed by the per-posting tag, so SettleLocal/ReverseLocal
+		// finalise the FX'd account/amount transparently at COMMIT/ROLLBACK.
+		if p.Direction != contractsitx.DirectionDebit {
 			return noVote(contractsitx.NoVoteReasonUnacceptableAsset, i)
 		}
-		if acct.CurrencyCode != currency {
-			return noVote(contractsitx.NoVoteReasonNoSuchAsset, i)
+		item, reason, ok := e.reserveOutgoingDebit(ctx, p.AccountID, currency, amountStr, peerBankCode, locallyGeneratedKey, i)
+		if !ok {
+			return noVote(reason, i)
 		}
-
-		switch p.Direction {
-		case contractsitx.DirectionDebit:
-			// Reserve-then-settle: place a HOLD now (AvailableBalance -= amount),
-			// not an immediate debit. The reservation key is the per-posting tag
-			// so each DEBIT leg gets its own hold; settle/release at COMMIT/ROLLBACK.
-			tag := fmt.Sprintf("%s:%s:%d", peerBankCode, locallyGeneratedKey, i)
-			if _, err := e.client.ReserveOutgoing(ctx, &accountpb.ReserveOutgoingRequest{
-				AccountNumber:  accountNumber,
-				Amount:         amountStr,
-				Currency:       currency,
-				ReservationKey: tag,
-				IdempotencyKey: "sitx-reserve-out-" + tag,
-			}); err != nil {
-				// account-service rejects holds above available balance;
-				// surface that as INSUFFICIENT_ASSET per SI-TX semantics.
-				return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
-			}
-			debits = append(debits, DebitedItem{
-				AccountNumber:  accountNumber,
-				Amount:         amountStr,
-				IdempotencyTag: tag,
-			})
-
-		default:
-			return noVote(contractsitx.NoVoteReasonUnacceptableAsset, i)
-		}
+		debits = append(debits, item)
 	}
 	return ReserveResult{
 		Vote:            Vote{Type: contractsitx.VoteYes},

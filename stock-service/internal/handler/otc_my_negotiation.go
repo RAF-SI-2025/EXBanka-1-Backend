@@ -176,10 +176,15 @@ func buildMyNegotiationIndex(
 		return idx, nil
 	}
 
-	// LOCAL bidder chains. page_size=0 → repository default; we want ALL of the
-	// caller's chains, so request a generous page. A single bidder cannot have
-	// many open listings, but pull a large page to be safe.
-	localRows, _, err := lister.ListByBidder(ownerType, ownerID, nil, 1, 100000)
+	// LOCAL bidder chains. Only ONGOING chains mark a listing as "already bid":
+	// once a chain is terminal (accepted/rejected/cancelled/expired) the listing it
+	// was on is gone, and a fresh listing for the SAME (seller, ticker) — e.g. the
+	// seller re-listing the unsold remainder after a partial accept — shares the
+	// composite offer id, so a terminal chain would otherwise make the new offer
+	// show "you already bid". The accepted contract still appears in the caller's
+	// contracts list; it must not shadow a new offer. page_size large to pull all.
+	localRows, _, err := lister.ListByBidder(ownerType, ownerID,
+		[]string{model.OTCNegotiationStatusOpen, model.OTCNegotiationStatusCountered}, 1, 100000)
 	if err != nil {
 		return idx, err
 	}
@@ -221,6 +226,12 @@ func buildMyNegotiationIndex(
 	remoteGroups := map[string][]*model.OTCNegotiation{}
 	for i := range remoteRows {
 		r := &remoteRows[i]
+		// Only ONGOING remote chains mark a listing as "already bid" (same reason as
+		// the local filter above): the remote vocabulary's live status is "ongoing";
+		// a terminal chain must not shadow a re-listed same-(seller,ticker) offer.
+		if r.Status != "ongoing" {
+			continue
+		}
 		if r.RemoteParentRouting == nil || r.RemoteParentNativeID == nil || *r.RemoteParentNativeID == "" {
 			continue // chain without a resolvable parent key — can't match an offer
 		}

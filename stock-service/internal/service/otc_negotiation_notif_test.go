@@ -166,7 +166,7 @@ func TestCancelNegotiation_PublishesOTCOfferCancelledToPoster(t *testing.T) {
 	}
 }
 
-func TestPublishNotif_SkipsBankRecipient(t *testing.T) {
+func TestPublishNotif_BankRecipientGoesToEmployeeInbox(t *testing.T) {
 	env, notif := newNegTestEnvWithNotifier(t)
 	// Bank-owned listing — poster has nil OwnerID.
 	listing := seedListing(t, env, 1, model.OTCDirectionSellInitiated, model.OTCOfferStatusOpen)
@@ -178,7 +178,13 @@ func TestPublishNotif_SkipsBankRecipient(t *testing.T) {
 	if _, err := env.svc.OpenNegotiation(context.Background(), sampleOpenInput(listing.ID, 7)); err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if len(notif.all()) != 0 {
-		t.Errorf("bank-owned poster should not be notified, got %+v", notif.all())
+	// A bank-owned poster IS now notified, on the shared employee/bank inbox
+	// (system_type="employee"), so the bank's employees see the new bid.
+	got := notif.byType("OTC_OFFER_RECEIVED")
+	if got == nil {
+		t.Fatalf("bank-owned poster should be notified, got %+v", notif.all())
+	}
+	if got.SystemType != "employee" {
+		t.Errorf("bank notification system_type = %q, want employee", got.SystemType)
 	}
 }

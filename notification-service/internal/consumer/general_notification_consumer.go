@@ -65,12 +65,13 @@ func (c *GeneralNotificationConsumer) handleMessage(_ context.Context, data []by
 	}
 
 	notif := &model.GeneralNotification{
-		UserID:  event.UserID,
-		Type:    event.Type,
-		Title:   title,
-		Message: body,
-		RefType: event.RefType,
-		RefID:   event.RefID,
+		UserID:     event.UserID,
+		SystemType: event.SystemType, // "" (legacy/client) or "employee"; read scoping treats empty as client
+		Type:       event.Type,
+		Title:      title,
+		Message:    body,
+		RefType:    event.RefType,
+		RefID:      event.RefID,
 	}
 	if err := c.notifRepo.Create(notif); err != nil {
 		return err // transient DB failure — retry then dead-letter
