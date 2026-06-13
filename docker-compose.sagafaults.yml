@@ -1,0 +1,27 @@
+# Saga fault-injection override — builds the api-gateway and stock-service images
+# with the `sagafaults` build tag so the X-Saga-* fault-injection headers are
+# honored, and sets SAGA_FAULTS_OK=1 so the fault-enabled stock-service is
+# allowed to start (its main() refuses to boot otherwise). This image is ONLY
+# for running the SAGA.pdf SG-* conformance suite — never deploy it.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.sagafaults.yml up -d --build
+services:
+  stock-service:
+    build:
+      args:
+        GO_TAGS: sagafaults
+    environment:
+      SAGA_FAULTS_OK: "1"
+
+  api-gateway:
+    build:
+      args:
+        GO_TAGS: sagafaults
+    environment:
+      # The SG conformance suite logs in many times across its scenarios; the
+      # default login limit (20 / 5 min) would 429 mid-suite. Effectively disable
+      # rate limiting for the fault-test image only.
+      RATE_LIMIT_LOGIN_PER_5MIN: "1000000"
+      RATE_LIMIT_GLOBAL_PER_MIN: "10000000"
+      RATE_LIMIT_RESET_PER_5MIN: "1000000"

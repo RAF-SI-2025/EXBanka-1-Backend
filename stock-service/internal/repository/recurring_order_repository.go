@@ -29,7 +29,7 @@ func (r *RecurringOrderRepository) GetByID(id uint64) (*model.RecurringOrder, er
 }
 
 func (r *RecurringOrderRepository) Save(row *model.RecurringOrder) error {
-	res := r.db.Save(row)
+	res := r.db.Select("*").Save(row)
 	return CheckRowsAffected(res)
 }
 

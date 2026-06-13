@@ -209,7 +209,7 @@ func (r *HoldingRepository) LockByIDTx(tx *gorm.DB, id uint64) (*model.Holding, 
 
 // SaveTx variant for use inside an existing transaction.
 func (r *HoldingRepository) SaveTx(tx *gorm.DB, holding *model.Holding) error {
-	result := tx.Save(holding)
+	result := tx.Select("*").Save(holding)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -220,7 +220,7 @@ func (r *HoldingRepository) SaveTx(tx *gorm.DB, holding *model.Holding) error {
 }
 
 func (r *HoldingRepository) Update(holding *model.Holding) error {
-	result := r.db.Save(holding)
+	result := r.db.Select("*").Save(holding)
 	if result.Error != nil {
 		return result.Error
 	}

@@ -80,6 +80,41 @@ func TestNotificationTemplate_Set_GRPCValidationError(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestNotificationTemplate_Get_Success(t *testing.T) {
+	cl := &stubNotificationClient{getTplFn: func(in *notificationpb.GetTemplateRequest) (*notificationpb.TemplateInfo, error) {
+		require.Equal(t, "ACCOUNT_CREATED", in.Type)
+		require.Equal(t, "email", in.Channel)
+		return &notificationpb.TemplateInfo{
+			Type: in.Type, Channel: in.Channel, IsCustomized: true,
+			Variables: []*notificationpb.TemplateVariable{{Name: "account_number"}},
+		}, nil
+	}}
+	r := ntRouter(handler.NewNotificationHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/notification-templates/email/ACCOUNT_CREATED", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"account_number"`)
+	require.Contains(t, rec.Body.String(), `"is_customized":true`)
+}
+
+func TestNotificationTemplate_Get_BadChannel(t *testing.T) {
+	r := ntRouter(handler.NewNotificationHandler(&stubNotificationClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/notification-templates/sms/ACCOUNT_CREATED", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "channel must be one of")
+}
+
+func TestNotificationTemplate_Get_NotFound(t *testing.T) {
+	cl := &stubNotificationClient{getTplFn: func(*notificationpb.GetTemplateRequest) (*notificationpb.TemplateInfo, error) {
+		return nil, status.Error(codes.NotFound, "no such template type")
+	}}
+	r := ntRouter(handler.NewNotificationHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/notification-templates/email/NOPE", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 func TestNotificationTemplate_Reset(t *testing.T) {
 	cl := &stubNotificationClient{resetTplFn: func(in *notificationpb.ResetTemplateRequest) (*notificationpb.TemplateInfo, error) {
 		return &notificationpb.TemplateInfo{Type: in.Type, IsCustomized: false}, nil

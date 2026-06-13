@@ -34,7 +34,7 @@ func (r *PriceAlertRepository) GetByID(id uint64) (*model.PriceAlert, error) {
 
 // Save uses the BeforeUpdate hook for optimistic locking.
 func (r *PriceAlertRepository) Save(a *model.PriceAlert) error {
-	res := r.db.Save(a)
+	res := r.db.Select("*").Save(a)
 	return CheckRowsAffected(res)
 }
 

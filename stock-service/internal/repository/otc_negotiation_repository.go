@@ -77,8 +77,10 @@ func (r *OTCNegotiationRepository) LockByID(tx *gorm.DB, id uint64) (*model.OTCN
 
 // Save persists a modified negotiation. Optimistic-locked via the
 // BeforeUpdate hook. Returns ErrOptimisticLock if RowsAffected == 0.
+// Select("*") is required so GORM issues a full UPDATE (not an UPSERT fallback)
+// when the version WHERE clause matches no row — same fix as OptionContract.Save.
 func (r *OTCNegotiationRepository) Save(n *model.OTCNegotiation) error {
-	res := r.db.Save(n)
+	res := r.db.Select("*").Save(n)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -89,7 +91,7 @@ func (r *OTCNegotiationRepository) Save(n *model.OTCNegotiation) error {
 }
 
 func (r *OTCNegotiationRepository) SaveTx(tx *gorm.DB, n *model.OTCNegotiation) error {
-	res := tx.Save(n)
+	res := tx.Select("*").Save(n)
 	if res.Error != nil {
 		return res.Error
 	}
