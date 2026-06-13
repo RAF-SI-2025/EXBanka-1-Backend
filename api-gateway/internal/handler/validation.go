@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -68,6 +70,51 @@ func positive(field string, value float64) error {
 func nonNegative(field string, value float64) error {
 	if value < 0 {
 		return fmt.Errorf("%s must not be negative", field)
+	}
+	return nil
+}
+
+// positiveDecimalString parses a decimal-string money/quantity field and checks
+// it is strictly greater than zero. Used for OTC negotiation amounts (strike,
+// premium, quantity) which arrive as strings. An unparseable value is rejected.
+func positiveDecimalString(field, value string) error {
+	d, err := decimal.NewFromString(value)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid number", field)
+	}
+	if !d.IsPositive() {
+		return fmt.Errorf("%s must be positive", field)
+	}
+	return nil
+}
+
+// nonNegativeDecimalString parses a decimal-string money field and checks it is
+// >= 0. Used where zero is a legitimate value (e.g. a zero premium).
+func nonNegativeDecimalString(field, value string) error {
+	d, err := decimal.NewFromString(value)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid number", field)
+	}
+	if d.IsNegative() {
+		return fmt.Errorf("%s must not be negative", field)
+	}
+	return nil
+}
+
+// notBeforeToday parses an RFC3339 or YYYY-MM-DD date string and rejects a date
+// earlier than today (UTC). Used for option settlement dates — a settlement in
+// the past is never valid (the option could never be exercised). The value is
+// assumed already non-empty.
+func notBeforeToday(field, value string) error {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		if t, err = time.Parse("2006-01-02", value); err != nil {
+			return fmt.Errorf("%s must be an RFC3339 or YYYY-MM-DD date", field)
+		}
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	if t.UTC().Before(today) {
+		return fmt.Errorf("%s cannot be before today", field)
 	}
 	return nil
 }
@@ -153,24 +200,54 @@ func ResolveAndCheckAccount(c *gin.Context, accountClient accountpb.AccountServi
 		handleGRPCError(c, err)
 		return fmt.Errorf("get account %d: %w", accountID, err)
 	}
+	return checkAccountOwnership(c, acct, id, onBehalfClientID)
+}
+
+// ResolveAndCheckAccountByNumber is ResolveAndCheckAccount keyed by account
+// NUMBER instead of id, for money-path resources the caller supplies as an
+// account number (the cross-bank OTC exercise strike account, SP-3 Task 5). It
+// fetches the account by number once and applies the same ownership predicate
+// (no redundant by-id re-fetch). On any mismatch it writes a 403 (or surfaces
+// the gRPC error) and returns non-nil; the caller MUST return immediately.
+func ResolveAndCheckAccountByNumber(c *gin.Context, accountClient accountpb.AccountServiceClient, id *middleware.ResolvedIdentity, accountNumber string, onBehalfClientID uint64) error {
+	if accountNumber == "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, "account_number is required")
+		return fmt.Errorf("account_number is empty")
+	}
+	acct, err := accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{AccountNumber: accountNumber})
+	if err != nil {
+		handleGRPCError(c, err)
+		return fmt.Errorf("get account %q: %w", accountNumber, err)
+	}
+	return checkAccountOwnership(c, acct, id, onBehalfClientID)
+}
+
+// checkAccountOwnership applies the Resource Ownership Verification predicate to
+// an already-fetched account:
+//   - client principal       → account.owner_id == principal_id, not a bank account
+//   - employee, no on-behalf → account is a bank account (account_kind == "bank")
+//   - employee + on-behalf   → account.owner_id == onBehalfClientID
+//
+// On any mismatch it writes a 403 response and returns a non-nil error.
+func checkAccountOwnership(c *gin.Context, acct *accountpb.AccountResponse, id *middleware.ResolvedIdentity, onBehalfClientID uint64) error {
 	isBank := acct.AccountKind == "bank" || acct.OwnerId == bankSentinelOwnerID
 
 	switch id.PrincipalType {
 	case "client":
 		if isBank || acct.OwnerId != id.PrincipalID {
 			apiError(c, http.StatusForbidden, ErrForbidden, "account does not belong to you")
-			return fmt.Errorf("client %d does not own account %d", id.PrincipalID, accountID)
+			return fmt.Errorf("client %d does not own account %d", id.PrincipalID, acct.GetId())
 		}
 	case "employee":
 		if onBehalfClientID != 0 {
 			if isBank || acct.OwnerId != onBehalfClientID {
 				apiError(c, http.StatusForbidden, ErrForbidden, "account does not belong to that client")
-				return fmt.Errorf("account %d not owned by on-behalf client %d", accountID, onBehalfClientID)
+				return fmt.Errorf("account %d not owned by on-behalf client %d", acct.GetId(), onBehalfClientID)
 			}
 		} else {
 			if !isBank {
 				apiError(c, http.StatusForbidden, ErrForbidden, "employees may only use bank accounts unless acting on behalf of a client")
-				return fmt.Errorf("account %d is not a bank account", accountID)
+				return fmt.Errorf("account %d is not a bank account", acct.GetId())
 			}
 		}
 	default:
@@ -287,4 +364,56 @@ func emptyIfNil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+// enforcePortfolioAccess returns an error and writes a 403 response if the
+// resolved identity may not view the portfolio identified by (ownerType,
+// ownerID). Permission set is passed in to keep validation.go free of cyclic
+// deps with the middleware package.
+//
+// Rules (per spec B3):
+//   - client principal: only their own client-<myPrincipalId> allowed
+//   - employee + no special perms: only "bank" allowed
+//   - employee with portfolio.view_client: any "client" portfolio
+//   - employee with portfolio.view_fund: any "investment_fund" portfolio
+func enforcePortfolioAccess(c *gin.Context, id *middleware.ResolvedIdentity,
+	targetOwnerType string, targetOwnerID *uint64, callerPermissions []string) error {
+
+	hasPerm := func(p string) bool {
+		for _, x := range callerPermissions {
+			if x == p {
+				return true
+			}
+		}
+		return false
+	}
+
+	switch id.PrincipalType {
+	case "client":
+		if targetOwnerType == "client" && targetOwnerID != nil && *targetOwnerID == id.PrincipalID {
+			return nil
+		}
+		apiError(c, 403, ErrForbidden, "you may only view your own portfolio")
+		return fmt.Errorf("client %d may not view %s/%v", id.PrincipalID, targetOwnerType, targetOwnerID)
+	case "employee":
+		switch targetOwnerType {
+		case "bank":
+			return nil
+		case "client":
+			// Accept both the catalog dot-form and the underscore form used in
+			// legacy test fixtures, so neither breaks as we migrate.
+			if hasPerm("portfolio.view.client") || hasPerm("portfolio.view_client") {
+				return nil
+			}
+		case "investment_fund":
+			if hasPerm("portfolio.view.fund") || hasPerm("portfolio.view_fund") {
+				return nil
+			}
+		}
+		apiError(c, 403, ErrForbidden, "missing permission to view this portfolio")
+		return fmt.Errorf("employee %d missing perm for %s", id.PrincipalID, targetOwnerType)
+	default:
+		apiError(c, 401, ErrUnauthorized, "unknown principal")
+		return fmt.Errorf("unknown principal type %q", id.PrincipalType)
+	}
 }

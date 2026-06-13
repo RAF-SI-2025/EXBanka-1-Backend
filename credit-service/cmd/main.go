@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"log/slog"
 	"time"
 
 	"google.golang.org/grpc"
@@ -12,13 +12,17 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	adminpb "github.com/exbanka/contract/adminpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	pb "github.com/exbanka/contract/creditpb"
+	"github.com/exbanka/contract/cronreg"
+	"github.com/exbanka/contract/logger"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/credit-service/internal/config"
+	"github.com/exbanka/credit-service/internal/consumer"
 	"github.com/exbanka/credit-service/internal/handler"
 	kafkaprod "github.com/exbanka/credit-service/internal/kafka"
 	"github.com/exbanka/credit-service/internal/model"
@@ -27,6 +31,7 @@ import (
 )
 
 func main() {
+	logger.Init("credit-service")
 	cfg := config.Load()
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
@@ -35,9 +40,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}, &model.IdempotencyRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}, &model.IdempotencyRecord{}, &model.SagaLog{}, &cronreg.CronPauseState{}, &model.EmployeeLimitReplica{}, &model.ClientReplica{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("credit-service", cronreg.NewGormPauseStore(db))
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -56,6 +62,11 @@ func main() {
 		"credit.changelog",
 		"notification.send-email",
 		"notification.general",
+		"credit.saga-dead-letter",
+		"admin.cron-action",
+		"user.employee-limits-updated",
+		"client.created",
+		"client.updated",
 	)
 
 	// Connect to account-service
@@ -107,6 +118,8 @@ func main() {
 	installmentRepo := repository.NewInstallmentRepository(db)
 	tierRepo := repository.NewInterestRateTierRepository(db)
 	marginRepo := repository.NewBankMarginRepository(db)
+	limitReplicaRepo := repository.NewEmployeeLimitReplicaRepository(db)
+	clientReplicaRepo := repository.NewClientReplicaRepository(db)
 
 	rateConfigSvc := service.NewRateConfigService(tierRepo, marginRepo, db)
 	if err := rateConfigSvc.SeedDefaults(); err != nil {
@@ -114,16 +127,33 @@ func main() {
 	}
 
 	changelogRepo := repository.NewChangelogRepository(db)
-	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db, changelogRepo)
+	sagaRepo := repository.NewSagaLogRepository(db)
+	disbursementSaga := service.NewLoanDisbursementSaga(bankAccountClient, accountClient, loanRepo, sagaRepo)
+	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db, limitReplicaRepo, changelogRepo)
 	loanRequestSvc.SetBankAccountClient(bankAccountClient)
+	loanRequestSvc.SetDisbursementSaga(disbursementSaga)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	changelogSvc := service.NewChangelogService(changelogRepo)
-	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount, db)
+	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, clientReplicaRepo, producer, bankRSDAccount, db, cronRegistry)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	limitReplicaConsumer := consumer.NewEmployeeLimitReplicaConsumer(cfg.KafkaBrokers, limitReplicaRepo)
+	limitReplicaConsumer.Start(ctx)
+	defer limitReplicaConsumer.Close()
+
+	clientReplicaConsumer := consumer.NewClientReplicaConsumer(cfg.KafkaBrokers, clientReplicaRepo)
+	clientReplicaConsumer.Start(ctx)
+	defer clientReplicaConsumer.Close()
+
 	go cronSvc.Start(ctx)
+
+	// Start the loan disbursement saga compensation recovery worker.
+	// It polls credit_saga_logs for stuck "compensating" rows and retries them.
+	compensationRecovery := service.NewCompensationRecovery(sagaRepo, disbursementSaga, producer, cronRegistry)
+	compensationRecovery.Start(ctx)
 
 	grpcHandler := handler.NewCreditGRPCHandler(loanRequestSvc, loanSvc, installmentSvc, rateConfigSvc, loanRepo, installmentRepo, producer, changelogSvc)
 
@@ -147,13 +177,14 @@ func main() {
 		},
 		Register: func(s *grpc.Server) {
 			pb.RegisterCreditServiceServer(s, grpcHandler)
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "credit-service")
 			metrics.InitializeGRPCMetrics(s)
 		},
 		Signals: shared.DefaultShutdownSignals,
 		OnReady: func() {
 			markReady()
-			fmt.Printf("credit service listening on %s\n", cfg.GRPCAddr)
+			slog.Info("credit service listening", "addr", cfg.GRPCAddr)
 		},
 	}); err != nil {
 		log.Fatalf("grpc: %v", err)

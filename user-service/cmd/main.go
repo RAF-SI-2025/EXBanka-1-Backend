@@ -2,23 +2,23 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"log/slog"
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	clientpb "github.com/exbanka/contract/clientpb"
+	adminpb "github.com/exbanka/contract/adminpb"
+	"github.com/exbanka/contract/cronreg"
+	"github.com/exbanka/contract/logger"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/cache"
 	"github.com/exbanka/user-service/internal/config"
-	grpc_client "github.com/exbanka/user-service/internal/grpc_client"
 	"github.com/exbanka/user-service/internal/handler"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
@@ -27,10 +27,15 @@ import (
 )
 
 func main() {
+	logger.Init("user-service")
 	cfg := config.Load()
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
 		NowFunc: func() time.Time { return time.Now().UTC() },
+		// Translate driver-specific errors (e.g. a unique-constraint violation)
+		// into gorm.ErrDuplicatedKey so the service layer can map duplicate
+		// email/JMBG to ErrEmployeeAlreadyExists (HTTP 409) portably.
+		TranslateError: true,
 	})
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
@@ -45,9 +50,11 @@ func main() {
 		&model.LimitBlueprint{},
 		&model.Changelog{},
 		&model.OutboxEvent{},
+		&cronreg.CronPauseState{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("user-service", cronreg.NewGormPauseStore(db))
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -70,6 +77,7 @@ func main() {
 		"user.role-permissions-changed",
 		"user.supervisor-demoted",
 		"notification.send-email",
+		"admin.cron-action",
 	)
 
 	var redisCache *cache.RedisCache
@@ -90,6 +98,11 @@ func main() {
 	roleSvc := service.NewRoleService(roleRepo, permRepo).
 		WithPublisher(producer).
 		WithDB(db)
+	if redisCache != nil {
+		// Guard against a typed-nil *RedisCache landing in the interface field
+		// (which would defeat the nil check and panic on eviction).
+		roleSvc = roleSvc.WithCache(redisCache)
+	}
 
 	// Seed roles and permissions on startup. The slim seed only inserts
 	// the default role↔permission mappings on a truly fresh DB; subsequent
@@ -110,13 +123,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	limitCron := service.NewLimitCronService(employeeLimitRepo)
+	limitCron := service.NewLimitCronService(employeeLimitRepo, cronRegistry)
 	limitCron.Start(ctx)
 
 	// Outbox relay (Celina 4) — drains transactionally-written cross-service
 	// events (e.g. user.supervisor-demoted) to Kafka in the background.
 	outboxRepo := repository.NewOutboxRepository(db)
-	outboxRelay := service.NewOutboxRelay(outboxRepo, producer, 2*time.Second)
+	outboxRelay := service.NewOutboxRelay(outboxRepo, producer, 2*time.Second, cronRegistry)
 	outboxRelay.Start(ctx)
 	empService = empService.WithOutbox(outboxRepo)
 
@@ -131,31 +144,13 @@ func main() {
 		log.Printf("warn: actuary default-limit backfill failed: %v", err)
 	}
 
-	actuaryCron := service.NewActuaryCronService(actuaryRepo)
+	actuaryCron := service.NewActuaryCronService(actuaryRepo, cronRegistry)
 	actuaryCron.Start(ctx)
 
 	// Blueprint service
 	blueprintRepo := repository.NewLimitBlueprintRepository(db)
 
-	// Connect to client-service for client blueprint apply
-	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
-	)
-	if err != nil {
-		log.Printf("warn: failed to connect to client service: %v (client blueprints will not work)", err)
-	}
-	if clientConn != nil {
-		defer clientConn.Close()
-	}
-	var clientLimitClient service.ClientLimitClient
-	if clientConn != nil {
-		clientLimitClient = grpc_client.NewClientLimitAdapter(
-			clientpb.NewClientLimitServiceClient(clientConn),
-		)
-	}
-
-	blueprintSvc := service.NewBlueprintService(blueprintRepo, employeeLimitRepo, actuaryRepo, clientLimitClient, producer, changelogRepo)
+	blueprintSvc := service.NewBlueprintService(blueprintRepo, employeeLimitRepo, actuaryRepo, producer, changelogRepo)
 	blueprintHandler := handler.NewBlueprintGRPCHandler(blueprintSvc)
 
 	// Seed blueprints from existing templates
@@ -194,13 +189,14 @@ func main() {
 			pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
 			pb.RegisterActuaryServiceServer(s, actuaryHandler)
 			pb.RegisterBlueprintServiceServer(s, blueprintHandler)
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "user-service")
 			metrics.InitializeGRPCMetrics(s)
 		},
 		Signals: shared.DefaultShutdownSignals,
 		OnReady: func() {
 			markReady()
-			fmt.Printf("user service listening on %s\n", cfg.GRPCAddr)
+			slog.Info("user service listening", "addr", cfg.GRPCAddr)
 		},
 	}); err != nil {
 		log.Fatalf("grpc: %v", err)

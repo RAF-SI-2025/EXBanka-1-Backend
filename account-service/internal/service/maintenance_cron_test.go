@@ -9,8 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/exbanka/account-service/internal/model"
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 )
+
+// nilRegistry returns a no-op Registry for unit tests that don't need
+// pause/trigger control (nil PauseStore is explicitly supported).
+func nilRegistry() *cronreg.Registry {
+	return cronreg.NewRegistry("test", nil)
+}
 
 // recordingMaintenanceProducer captures published events so the helper's
 // emit behavior can be asserted without a real Kafka broker.

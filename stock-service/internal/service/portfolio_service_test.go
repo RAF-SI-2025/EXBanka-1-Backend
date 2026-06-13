@@ -27,9 +27,10 @@ import (
 type mockHoldingRepo struct {
 	holdings       map[uint64]*model.Holding
 	nextID         uint64
-	failNextUpsert error // if non-nil, next Upsert call will fail and clear this field
-	failNextUpdate error // if non-nil, next Update call will fail and clear this field
-	failNextDelete error // if non-nil, next Delete call will fail and clear this field
+	failNextUpsert error           // if non-nil, next Upsert call will fail and clear this field
+	failNextUpdate error           // if non-nil, next Update call will fail and clear this field
+	failNextDelete error           // if non-nil, next Delete call will fail and clear this field
+	upsertMarkers  map[string]bool // UpsertIdempotent applied keys
 	// txDB is a minimal sqlite-backed *gorm.DB returned by DB(). The
 	// in-memory mock data lives in `holdings` above — txDB exists ONLY
 	// so callers can drive db.Transaction (Phase 3B BuyOffer race-fix).
@@ -53,6 +54,23 @@ func holdingOwnerEqual(a, b *model.Holding) bool {
 		return false
 	}
 	return ownerIDEqual(a.OwnerID, b.OwnerID)
+}
+
+// UpsertIdempotent mirrors the holding_credit_markers guard: a replay with the
+// same key is a no-op. Per-instance marker set (lazy-initialised) so tests
+// don't pollute each other.
+func (m *mockHoldingRepo) UpsertIdempotent(ctx context.Context, holding *model.Holding, idemKey string) error {
+	if m.upsertMarkers == nil {
+		m.upsertMarkers = map[string]bool{}
+	}
+	if m.upsertMarkers[idemKey] {
+		return nil
+	}
+	if err := m.Upsert(ctx, holding); err != nil {
+		return err
+	}
+	m.upsertMarkers[idemKey] = true
+	return nil
 }
 
 func (m *mockHoldingRepo) Upsert(_ context.Context, holding *model.Holding) error {
@@ -148,16 +166,6 @@ func (m *mockHoldingRepo) ListByOwner(ownerType model.OwnerType, ownerID *uint64
 			if filter.SecurityType != "" && h.SecurityType != filter.SecurityType {
 				continue
 			}
-			result = append(result, *h)
-		}
-	}
-	return result, int64(len(result)), nil
-}
-
-func (m *mockHoldingRepo) ListPublicOffers(filter repository.OTCFilter) ([]model.Holding, int64, error) {
-	var result []model.Holding
-	for _, h := range m.holdings {
-		if h.PublicQuantity > 0 && h.SecurityType == "stock" {
 			result = append(result, *h)
 		}
 	}
@@ -272,6 +280,17 @@ func (m *mockCapitalGainRepo) MarkCollected(ownerType model.OwnerType, ownerID *
 	return nil
 }
 
+func (m *mockCapitalGainRepo) DeleteByIdempotencyKey(key string) error {
+	remaining := m.gains[:0]
+	for _, g := range m.gains {
+		if g.IdempotencyKey == nil || *g.IdempotencyKey != key {
+			remaining = append(remaining, g)
+		}
+	}
+	m.gains = remaining
+	return nil
+}
+
 // mockStockRepo returns pre-configured stocks.
 type mockStockRepo struct {
 	stocks map[uint64]*model.Stock
@@ -371,11 +390,6 @@ func (m *mockAccountClient) addAccount(id uint64, accountNumber string) {
 	}
 }
 
-// failUpdateForAccount configures UpdateBalance to fail when called for a specific account number.
-func (m *mockAccountClient) failUpdateForAccount(accountNumber string, err error) {
-	m.failUpdateForAccounts[accountNumber] = err
-}
-
 func (m *mockAccountClient) GetAccount(_ context.Context, req *accountpb.GetAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 	if m.getAccountErr != nil {
 		return nil, m.getAccountErr
@@ -465,6 +479,9 @@ func (m *mockAccountClient) ReleaseIncoming(context.Context, *accountpb.ReleaseI
 }
 func (m *mockAccountClient) ListChangelog(context.Context, *accountpb.ListChangelogRequest, ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
+}
+func (m *mockAccountClient) ListAllChangelogs(context.Context, *accountpb.ListAllChangelogsRequest, ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -917,53 +934,6 @@ func TestPortfolio_ProcessSellFill_EntirePosition_Deleted(t *testing.T) {
 	}
 }
 
-func TestPortfolio_ProcessSellFill_PublicQuantityAdjusted(t *testing.T) {
-	svc, mocks := buildPortfolioService()
-
-	listing := stockListing(1, 100, 60.00)
-	listing.Exchange.Currency = "USD"
-	mocks.listingRepo.addListing(listing)
-
-	h := &model.Holding{
-		OwnerType:      model.OwnerClient,
-		OwnerID:        ptrU64(42),
-		SecurityType:   "stock",
-		SecurityID:     100,
-		ListingID:      1,
-		Ticker:         "AAPL",
-		Quantity:       20,
-		AveragePrice:   decimal.NewFromFloat(50.00),
-		PublicQuantity: 15,
-		AccountID:      1,
-	}
-	mocks.holdingRepo.addHolding(h)
-
-	order := &model.Order{
-		ID: 13, OwnerType: model.OwnerClient, OwnerID: ptrU64(42), ListingID: 1,
-		SecurityType: "stock", Ticker: "AAPL", Direction: "sell",
-		Quantity: 10, Commission: decimal.Zero, AccountID: 1,
-	}
-	txn := &model.OrderTransaction{
-		ID: 13, OrderID: 13, Quantity: 10,
-		PricePerUnit: decimal.NewFromFloat(60.00),
-		TotalPrice:   decimal.NewFromFloat(600.00),
-	}
-
-	err := svc.ProcessSellFill(order, txn)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Quantity: 20 - 10 = 10. PublicQuantity was 15 but should be capped at 10.
-	holding, _ := mocks.holdingRepo.GetByID(h.ID)
-	if holding.Quantity != 10 {
-		t.Errorf("expected quantity 10, got %d", holding.Quantity)
-	}
-	if holding.PublicQuantity != 10 {
-		t.Errorf("expected public quantity capped at 10, got %d", holding.PublicQuantity)
-	}
-}
-
 func TestPortfolio_ProcessSellFill_InsufficientQuantity(t *testing.T) {
 	svc, mocks := buildPortfolioService()
 
@@ -1029,152 +999,50 @@ func TestPortfolio_ProcessSellFill_NoHolding(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tests: MakePublic
-// ---------------------------------------------------------------------------
-
-func TestPortfolio_MakePublic_Success(t *testing.T) {
+// A fund sell records NO capital gain: funds are CG tax-deferred, the order's
+// (bank-sentinel) owner is not the real seller, and the CapitalGain owner CHECK
+// only admits 'client'/'bank'. recordCapitalGain must short-circuit on FundID.
+func TestPortfolio_recordCapitalGain_SkippedForFundSell(t *testing.T) {
 	svc, mocks := buildPortfolioService()
+	listing := stockListing(1, 100, 60.00)
+	listing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(listing)
 
-	h := &model.Holding{
-		OwnerType: model.OwnerClient, OwnerID: ptrU64(42),
-		SecurityType: "stock",
-		SecurityID:   100,
-		Quantity:     20,
-		AveragePrice: decimal.NewFromFloat(50.00),
-		AccountID:    1,
+	txn := &model.OrderTransaction{
+		ID: 10, OrderID: 10, Quantity: 5,
+		PricePerUnit: decimal.NewFromFloat(60.00),
+		TotalPrice:   decimal.NewFromFloat(300.00),
 	}
-	mocks.holdingRepo.addHolding(h)
+	fundID := uint64(42)
+	fundOrder := &model.Order{
+		ID: 10, OwnerType: model.OwnerBank, OwnerID: nil, ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell", OrderType: "market",
+		Quantity: 5, AccountID: 7000, FundID: &fundID,
+	}
+	if err := svc.recordCapitalGain(fundOrder, txn, listing); err != nil {
+		t.Fatalf("fund sell recordCapitalGain should be a no-op nil, got %v", err)
+	}
+	if len(mocks.capitalGainRepo.gains) != 0 {
+		t.Fatalf("fund sell must record NO capital gain, got %d", len(mocks.capitalGainRepo.gains))
+	}
 
-	result, err := svc.MakePublic(h.ID, model.OwnerClient, ptrU64(42), 15)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Control: the same shape WITHOUT FundID (client seller, seeded holding)
+	// DOES record — proving the skip is the FundID branch, not an unrelated miss.
+	mocks.holdingRepo.addHolding(&model.Holding{
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), SecurityType: "stock", SecurityID: 100,
+		ListingID: 1, Ticker: "AAPL", Name: "Apple Inc.", Quantity: 20,
+		AveragePrice: decimal.NewFromFloat(50.00), AccountID: 1,
+	})
+	clientOrder := &model.Order{
+		ID: 11, OwnerType: model.OwnerClient, OwnerID: ptrU64(42), ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell", OrderType: "market",
+		Quantity: 5, AccountID: 1,
 	}
-	if result.PublicQuantity != 15 {
-		t.Errorf("expected public quantity 15, got %d", result.PublicQuantity)
+	if err := svc.recordCapitalGain(clientOrder, txn, listing); err != nil {
+		t.Fatalf("control recordCapitalGain: %v", err)
 	}
-}
-
-func TestPortfolio_MakePublic_ExceedsOwned(t *testing.T) {
-	svc, mocks := buildPortfolioService()
-
-	h := &model.Holding{
-		OwnerType: model.OwnerClient, OwnerID: ptrU64(42),
-		SecurityType: "stock",
-		SecurityID:   100,
-		Quantity:     10,
-		AveragePrice: decimal.NewFromFloat(50.00),
-		AccountID:    1,
-	}
-	mocks.holdingRepo.addHolding(h)
-
-	_, err := svc.MakePublic(h.ID, model.OwnerClient, ptrU64(42), 15) // more than owned
-	if err == nil {
-		t.Fatal("expected error for quantity exceeding owned")
-	}
-	if !strings.Contains(err.Error(), "invalid public quantity") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPortfolio_MakePublic_NegativeQuantity(t *testing.T) {
-	svc, mocks := buildPortfolioService()
-
-	h := &model.Holding{
-		OwnerType: model.OwnerClient, OwnerID: ptrU64(42),
-		SecurityType: "stock",
-		SecurityID:   100,
-		Quantity:     10,
-		AveragePrice: decimal.NewFromFloat(50.00),
-		AccountID:    1,
-	}
-	mocks.holdingRepo.addHolding(h)
-
-	_, err := svc.MakePublic(h.ID, model.OwnerClient, ptrU64(42), -1)
-	if err == nil {
-		t.Fatal("expected error for negative quantity")
-	}
-	if !strings.Contains(err.Error(), "invalid public quantity") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPortfolio_MakePublic_WrongUser(t *testing.T) {
-	svc, mocks := buildPortfolioService()
-
-	h := &model.Holding{
-		OwnerType: model.OwnerClient, OwnerID: ptrU64(42),
-		SecurityType: "stock",
-		SecurityID:   100,
-		Quantity:     10,
-		AveragePrice: decimal.NewFromFloat(50.00),
-		AccountID:    1,
-	}
-	mocks.holdingRepo.addHolding(h)
-
-	_, err := svc.MakePublic(h.ID, model.OwnerClient, ptrU64(999), 5)
-	if err == nil {
-		t.Fatal("expected error for wrong user")
-	}
-	if !strings.Contains(err.Error(), "holding does not belong to user") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPortfolio_MakePublic_NotStock(t *testing.T) {
-	svc, mocks := buildPortfolioService()
-
-	h := &model.Holding{
-		OwnerType: model.OwnerClient, OwnerID: ptrU64(42),
-		SecurityType: "futures", // not stock
-		SecurityID:   100,
-		Quantity:     10,
-		AveragePrice: decimal.NewFromFloat(50.00),
-		AccountID:    1,
-	}
-	mocks.holdingRepo.addHolding(h)
-
-	_, err := svc.MakePublic(h.ID, model.OwnerClient, ptrU64(42), 5)
-	if err == nil {
-		t.Fatal("expected error for non-stock holding")
-	}
-	if !strings.Contains(err.Error(), "only stocks can be made public for OTC trading") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPortfolio_MakePublic_NotFound(t *testing.T) {
-	svc, _ := buildPortfolioService()
-
-	_, err := svc.MakePublic(999, model.OwnerClient, ptrU64(42), 5)
-	if err == nil {
-		t.Fatal("expected error for non-existent holding")
-	}
-	if !strings.Contains(err.Error(), "holding not found") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPortfolio_MakePublic_SetToZero(t *testing.T) {
-	svc, mocks := buildPortfolioService()
-
-	h := &model.Holding{
-		OwnerType: model.OwnerClient, OwnerID: ptrU64(42),
-		SecurityType:   "stock",
-		SecurityID:     100,
-		Quantity:       10,
-		PublicQuantity: 5,
-		AveragePrice:   decimal.NewFromFloat(50.00),
-		AccountID:      1,
-	}
-	mocks.holdingRepo.addHolding(h)
-
-	result, err := svc.MakePublic(h.ID, model.OwnerClient, ptrU64(42), 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.PublicQuantity != 0 {
-		t.Errorf("expected public quantity 0, got %d", result.PublicQuantity)
+	if len(mocks.capitalGainRepo.gains) != 1 {
+		t.Fatalf("control: a non-fund sell must record 1 capital gain, got %d", len(mocks.capitalGainRepo.gains))
 	}
 }
 
@@ -2288,9 +2156,6 @@ func (m *mockHoldingReservationSvc) PartialSettle(_ context.Context, orderID, tx
 				} else {
 					h.ReservedQuantity = 0
 				}
-				if h.PublicQuantity > h.Quantity {
-					h.PublicQuantity = h.Quantity
-				}
 				return &PartialSettleHoldingResult{
 					SettledQuantity:   qty,
 					RemainingReserved: h.ReservedQuantity,
@@ -3023,4 +2888,14 @@ func TestProcessSellFill_ForexShortCircuits(t *testing.T) {
 	if len(mocks.exchangeClient.convertCalls) != 0 {
 		t.Errorf("forex short-circuit must not call Convert")
 	}
+}
+
+func (*mockAccountClient) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClient) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClient) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
 }

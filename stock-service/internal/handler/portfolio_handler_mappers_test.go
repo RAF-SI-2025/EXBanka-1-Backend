@@ -38,6 +38,28 @@ func TestToExerciseResultPB(t *testing.T) {
 	}
 }
 
+// mapGroupToProto must surface the underlying holding id on security positions
+// so clients can feed make-public/exercise (both require a holding_id) straight
+// from the unified portfolio. Fund positions carry no holding and stay at 0.
+func TestMapGroupToProto_HoldingID(t *testing.T) {
+	g := service.PortfolioGroup{
+		Positions: []service.PortfolioPosition{
+			{AssetType: "stock", Symbol: "AAPL", HoldingID: 153, Quantity: 50},
+			{AssetType: "investment_fund", FundID: 7, Quantity: 1}, // no holding
+		},
+	}
+	out := mapGroupToProto(g)
+	if len(out.Positions) != 2 {
+		t.Fatalf("want 2 positions, got %d", len(out.Positions))
+	}
+	if out.Positions[0].HoldingId != 153 {
+		t.Errorf("stock position HoldingId: want 153, got %d", out.Positions[0].HoldingId)
+	}
+	if out.Positions[1].HoldingId != 0 {
+		t.Errorf("fund position HoldingId: want 0, got %d", out.Positions[1].HoldingId)
+	}
+}
+
 // mapPortfolioError is now a passthrough; the wire status is determined by
 // the sentinel embedded in the wrapped error.
 func TestMapPortfolioError_SentinelPassthrough(t *testing.T) {

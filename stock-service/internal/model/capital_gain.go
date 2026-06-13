@@ -33,8 +33,14 @@ type CapitalGain struct {
 	// NULL means "not yet taxed" — CollectTax only sums rows where this is NULL
 	// so incremental admin collections within the same month tax only the new,
 	// uncollected profit.
-	TaxCollectionID *uint64   `gorm:"index:idx_cg_tax_collection" json:"tax_collection_id,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	TaxCollectionID *uint64 `gorm:"index:idx_cg_tax_collection" json:"tax_collection_id,omitempty"`
+	// IdempotencyKey is the saga-scoped deterministic key assigned at insert
+	// time (e.g., "<sagaID>:seller-premium-cg"). The unique index lets saga
+	// Backward closures delete exactly the row they inserted — without it a
+	// rollback has no reliable handle and the phantom CG row stays in the DB.
+	// NULL for legacy rows created before this column was added.
+	IdempotencyKey *string   `gorm:"uniqueIndex;size:128" json:"idempotency_key,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 func (g *CapitalGain) BeforeSave(tx *gorm.DB) error {

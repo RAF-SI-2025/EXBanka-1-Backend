@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestClientCreatedMessage_CarriesJMBGAndVersion(t *testing.T) {
+	in := ClientCreatedMessage{
+		ClientID: 7, Email: "a@b.com", FirstName: "Ana", LastName: "Anic",
+		JMBG: "1234567890123", Version: 5,
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out ClientCreatedMessage
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.JMBG != "1234567890123" || out.Version != 5 {
+		t.Fatalf("lost fields: %+v", out)
+	}
+}
+
 func TestGeneralNotificationMessage_DataRoundTrip(t *testing.T) {
 	msg := GeneralNotificationMessage{
 		UserID:  42,
@@ -33,5 +51,45 @@ func TestGeneralNotificationMessage_DataRoundTrip(t *testing.T) {
 	}
 	if lgot.Title != "T" || lgot.Message != "M" || len(lgot.Data) != 0 {
 		t.Errorf("legacy round-trip mismatch: %+v", lgot)
+	}
+}
+
+func TestClientLimitsUpdatedMessage_CarriesValuesAndVersion(t *testing.T) {
+	in := ClientLimitsUpdatedMessage{
+		ClientID: 3, SetByEmployee: 7, Action: "set",
+		DailyLimit: "50000.0000", MonthlyLimit: "500000.0000",
+		TransferLimit: "20000.0000", Version: 2,
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out ClientLimitsUpdatedMessage
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.DailyLimit != "50000.0000" || out.MonthlyLimit != "500000.0000" ||
+		out.TransferLimit != "20000.0000" || out.Version != 2 {
+		t.Fatalf("lost fields: %+v", out)
+	}
+}
+
+func TestEmployeeLimitsUpdatedMessage_CarriesValuesAndVersion(t *testing.T) {
+	in := EmployeeLimitsUpdatedMessage{
+		EmployeeID: 9, Action: "set",
+		MaxLoanApprovalAmount: "50000.0000", MaxSingleTransaction: "10000.0000",
+		MaxDailyTransaction: "20000.0000", MaxClientDailyLimit: "5000.0000",
+		MaxClientMonthlyLimit: "100000.0000", Version: 4,
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out EmployeeLimitsUpdatedMessage
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.MaxLoanApprovalAmount != "50000.0000" || out.Version != 4 || out.MaxClientMonthlyLimit != "100000.0000" {
+		t.Fatalf("lost fields: %+v", out)
 	}
 }

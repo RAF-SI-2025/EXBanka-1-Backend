@@ -21,6 +21,15 @@ type fakeSagaRepo struct {
 	// forceFailUpdate, if non-nil, is returned from UpdateStatus to simulate
 	// an optimistic-lock failure or downstream error.
 	forceFailUpdate error
+	// hasComp drives HasCompensations — set true to make RecoverExerciseSaga
+	// pick the rollback (Compensate) direction in recovery unit tests.
+	hasComp bool
+}
+
+// HasCompensations satisfies sagaCompensationChecker so RecoverExerciseSaga can
+// choose its direction. Returns the configured hasComp flag.
+func (r *fakeSagaRepo) HasCompensations(sagaID string) (bool, error) {
+	return r.hasComp, nil
 }
 
 func newFakeSagaRepo() *fakeSagaRepo { return &fakeSagaRepo{} }
@@ -52,7 +61,19 @@ func (r *fakeSagaRepo) UpdateStatus(id uint64, version int64, newStatus, errMsg 
 }
 
 // IsForwardCompleted satisfies the SagaLogRepo interface for shared.Saga's
-// restart-resume. Returns false so each test run re-executes every step.
+// restart-resume. Reports true when a completed forward row already exists for
+// (sagaID, stepName). During a single forward pass this still returns false for
+// each step (the check happens before the step's row is marked completed), so
+// normal one-shot saga tests behave as before; a SECOND Execute on the same
+// sagaID (crash-recovery resume) correctly skips the already-completed steps.
 func (r *fakeSagaRepo) IsForwardCompleted(sagaID, stepName string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, row := range r.rows {
+		if row.SagaID == sagaID && row.StepName == stepName &&
+			!row.IsCompensation && row.Status == string(model.SagaStatusCompleted) {
+			return true, nil
+		}
+	}
 	return false, nil
 }

@@ -3,33 +3,30 @@ package handler
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
-	clientpb "github.com/exbanka/contract/clientpb"
-	userpb "github.com/exbanka/contract/userpb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
-// PeerUserHandler serves GET /api/v3/user/{rid}/{id} — peer banks call
-// this to fetch identity info for a counterparty user when displaying
-// OTC negotiations or transfer history. Returns 404 if rid is not our
-// own routing number.
+// PeerUserHandler serves GET /api/v3/cross-bank-protocol/user/{rid}/{id} — peer
+// banks call this to resolve a counterparty user's display name (SI-TX §9).
+//
+// As of the 2026-06-07 cutover this just forwards to interbank-service's
+// PeerUserService.ResolvePeerUser, which owns the resolution (parses
+// client-N/employee-N, calls client/user-service, composes the name, and gates
+// on own-routing). The gateway stays a thin REST↔gRPC translator.
 type PeerUserHandler struct {
-	clientClient clientpb.ClientServiceClient
-	userClient   userpb.UserServiceClient
-	ownRouting   int64
+	client transactionpb.PeerUserServiceClient
 }
 
-func NewPeerUserHandler(c clientpb.ClientServiceClient, u userpb.UserServiceClient, ownRouting int64) *PeerUserHandler {
-	return &PeerUserHandler{clientClient: c, userClient: u, ownRouting: ownRouting}
+func NewPeerUserHandler(c transactionpb.PeerUserServiceClient) *PeerUserHandler {
+	return &PeerUserHandler{client: c}
 }
 
 // GetUser godoc
 // @Summary      Peer-to-peer: resolve a foreign user to display name
-// @Description  Inbound from a peer bank. Looks up a local (client-N / employee-N) and returns first+last name for OTC negotiation display. Routing number in path MUST match this bank's routing — calls for foreign users return 404.
+// @Description  Inbound from a peer bank. Forwards to interbank-service which looks up the local (client-N / employee-N) user and returns first+last name. Routing number in path MUST match this bank's routing — others return 404.
 // @Tags         PeerOTC
 // @Produce      json
 // @Param        rid path int true "routing number (must equal this bank's routing)"
@@ -37,7 +34,7 @@ func NewPeerUserHandler(c clientpb.ClientServiceClient, u userpb.UserServiceClie
 // @Success      200 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Router       /api/v3/user/{rid}/{id} [get]
+// @Router       /api/v3/cross-bank-protocol/user/{rid}/{id} [get]
 func (h *PeerUserHandler) GetUser(c *gin.Context) {
 	rid, err := strconv.ParseInt(c.Param("rid"), 10, 64)
 	if err != nil {
@@ -49,47 +46,21 @@ func (h *PeerUserHandler) GetUser(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "missing id")
 		return
 	}
-	if rid != h.ownRouting {
+
+	resp, err := h.client.ResolvePeerUser(c.Request.Context(), &transactionpb.ResolvePeerUserRequest{
+		RoutingNumber: rid,
+		Id:            id,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if !resp.GetFound() {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
-
-	// Try client lookup first. Convention: id format "client-<n>" maps to
-	// client-service; "employee-<n>" maps to user-service.
-	if strings.HasPrefix(id, "client-") {
-		if clientID, parseErr := strconv.ParseUint(strings.TrimPrefix(id, "client-"), 10, 64); parseErr == nil {
-			resp, lookupErr := h.clientClient.GetClient(c.Request.Context(), &clientpb.GetClientRequest{Id: clientID})
-			if lookupErr == nil && resp != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"id":        gin.H{"routingNumber": h.ownRouting, "id": id},
-					"firstName": resp.GetFirstName(),
-					"lastName":  resp.GetLastName(),
-				})
-				return
-			}
-			if grpcStatus, ok := status.FromError(lookupErr); ok && grpcStatus.Code() != codes.NotFound {
-				handleGRPCError(c, lookupErr)
-				return
-			}
-		}
-	}
-	// Try employee lookup.
-	if strings.HasPrefix(id, "employee-") {
-		if empID, parseErr := strconv.ParseInt(strings.TrimPrefix(id, "employee-"), 10, 64); parseErr == nil {
-			resp, lookupErr := h.userClient.GetEmployee(c.Request.Context(), &userpb.GetEmployeeRequest{Id: empID})
-			if lookupErr == nil && resp != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"id":        gin.H{"routingNumber": h.ownRouting, "id": id},
-					"firstName": resp.GetFirstName(),
-					"lastName":  resp.GetLastName(),
-				})
-				return
-			}
-			if grpcStatus, ok := status.FromError(lookupErr); ok && grpcStatus.Code() != codes.NotFound {
-				handleGRPCError(c, lookupErr)
-				return
-			}
-		}
-	}
-	c.AbortWithStatus(http.StatusNotFound)
+	c.JSON(http.StatusOK, gin.H{
+		"bankDisplayName": resp.GetBankDisplayName(),
+		"displayName":     resp.GetDisplayName(),
+	})
 }

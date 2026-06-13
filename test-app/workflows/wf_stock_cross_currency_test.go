@@ -27,6 +27,7 @@ import (
 // common case (faculty simulator seeds USD stocks).
 func TestWF_StockBuy_CrossCurrency_ConvertedDebit(t *testing.T) {
 	adminC := loginAsAdmin(t)
+	enableTestingMode(t, adminC) // ensure the market buy fills within the window
 	clientID, acctNum, clientC, _ := setupActivatedClient(t, adminC)
 	accountID := getFirstClientAccountID(t, adminC, clientID)
 
@@ -55,7 +56,24 @@ func TestWF_StockBuy_CrossCurrency_ConvertedDebit(t *testing.T) {
 	// so the same timing window as same-currency fills applies.
 	waitForOrderFill(t, clientC, orderID, 180*time.Second)
 
-	after := getAccountBalancesByNumber(t, adminC, acctNum)
+	// The settle (debit) happens in account-service, a separate service/DB from
+	// the order's is_done flag (stock-service). Poll until the debit is visible
+	// and the reservation has settled rather than reading once — the cross-
+	// service commit can lag the is_done flag by a moment.
+	var after accountBalances
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		after = getAccountBalancesByNumber(t, adminC, acctNum)
+		settled := fDiff(after.Reserved, before.Reserved) <= 0.01
+		debited := before.Balance-after.Balance > 0.01
+		if settled && debited {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 	t.Logf("after: balance=%.4f available=%.4f reserved=%.4f",
 		after.Balance, after.Available, after.Reserved)
 

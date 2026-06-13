@@ -35,12 +35,4 @@ var (
 	// ErrNotificationUpdateFailed — DB error while marking notifications
 	// as read.
 	ErrNotificationUpdateFailed = svcerr.New(codes.Internal, "failed to update notifications")
-
-	// ErrInvalidEmailRequest — required SendEmail field missing or
-	// malformed (e.g., empty recipient).
-	ErrInvalidEmailRequest = svcerr.New(codes.InvalidArgument, "invalid email request")
-
-	// ErrDeliveryStatusUnimplemented — GetDeliveryStatus is not yet
-	// backed by storage.
-	ErrDeliveryStatusUnimplemented = svcerr.New(codes.Unimplemented, "delivery status tracking not yet implemented")
 )

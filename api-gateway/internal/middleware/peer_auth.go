@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -85,6 +86,24 @@ func apiKeyAuth(c *gin.Context, resolver PeerBankResolver) bool {
 	if tok == "" {
 		return false
 	}
+	// Disambiguate by the sender's self-asserted X-Bank-Code when present:
+	// resolve THAT peer and verify the api_token matches it. This is essential
+	// when several peers share one api_token (a cohort-wide "shared" key) — then
+	// token-alone resolution (below) returns an arbitrary first match, so the
+	// authenticated routing can be the wrong peer's, and downstream identity
+	// checks (e.g. CreateNegotiation's buyer_id.routing == authenticated peer)
+	// fail non-deterministically. The token is still verified, so a peer can only
+	// authenticate as a code whose registered token it actually presents.
+	if code := c.GetHeader("X-Bank-Code"); code != "" {
+		if rec, ok, err := resolver.ResolveByBankCode(c.Request.Context(), code); err == nil && ok &&
+			rec != nil && rec.Active && constantTimeEqual(rec.APITokenPlaintext, tok) {
+			c.Set("peer_bank_code", rec.BankCode)
+			c.Set("peer_routing_number", rec.RoutingNumber)
+			return true
+		}
+		// X-Bank-Code present but did not resolve+match — fall through to the
+		// token-only path so peers that send a stale/blank code still authenticate.
+	}
 	rec, ok, err := resolver.ResolveByAPIToken(c.Request.Context(), tok)
 	if err != nil || !ok || rec == nil || !rec.Active {
 		return false
@@ -92,6 +111,11 @@ func apiKeyAuth(c *gin.Context, resolver PeerBankResolver) bool {
 	c.Set("peer_bank_code", rec.BankCode)
 	c.Set("peer_routing_number", rec.RoutingNumber)
 	return true
+}
+
+// constantTimeEqual compares two secrets without leaking length/prefix timing.
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func hmacAuth(c *gin.Context, body []byte, hexSig string, resolver PeerBankResolver, nonces PeerNonceClaimer, window time.Duration) bool {

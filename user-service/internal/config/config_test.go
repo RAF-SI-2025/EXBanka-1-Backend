@@ -10,7 +10,7 @@ func TestLoad_Defaults(t *testing.T) {
 	keys := []string{
 		"USER_DB_HOST", "USER_DB_PORT", "USER_DB_USER", "USER_DB_PASSWORD",
 		"USER_DB_NAME", "USER_GRPC_ADDR", "KAFKA_BROKERS", "REDIS_ADDR",
-		"METRICS_PORT", "CLIENT_GRPC_ADDR",
+		"METRICS_PORT",
 	}
 	prev := make(map[string]string, len(keys))
 	for _, k := range keys {
@@ -35,9 +35,6 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.RedisAddr != "localhost:6379" {
 		t.Errorf("RedisAddr default: got %q", cfg.RedisAddr)
-	}
-	if cfg.ClientGRPCAddr != "localhost:50054" {
-		t.Errorf("ClientGRPCAddr default: got %q", cfg.ClientGRPCAddr)
 	}
 }
 

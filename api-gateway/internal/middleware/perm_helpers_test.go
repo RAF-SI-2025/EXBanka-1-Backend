@@ -261,7 +261,7 @@ func TestAuthMiddleware_MissingHeader(t *testing.T) {
 	client := &mockAuthClient{}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AuthMiddleware(client))
+	r.Use(AuthMiddleware(vfy(client)))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/x", nil)
@@ -273,7 +273,7 @@ func TestAuthMiddleware_BadHeaderFormat(t *testing.T) {
 	client := &mockAuthClient{}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AuthMiddleware(client))
+	r.Use(AuthMiddleware(vfy(client)))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/x", nil)
@@ -286,7 +286,7 @@ func TestAnyAuthMiddleware_MissingHeader(t *testing.T) {
 	client := &mockAuthClient{}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AnyAuthMiddleware(client))
+	r.Use(AnyAuthMiddleware(vfy(client)))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/x", nil)
@@ -298,7 +298,7 @@ func TestAnyAuthMiddleware_BadHeaderFormat(t *testing.T) {
 	client := &mockAuthClient{}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AnyAuthMiddleware(client))
+	r.Use(AnyAuthMiddleware(vfy(client)))
 	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/x", nil)

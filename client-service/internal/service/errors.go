@@ -26,18 +26,14 @@ var (
 	// ErrInvalidEmail — email fails validation (missing @ / domain).
 	ErrInvalidEmail = svcerr.New(codes.InvalidArgument, "invalid email")
 
-	// ErrInvalidCredentials — client login presented wrong credentials.
-	// Note: this is a separate sentinel from auth-service's
-	// ErrInvalidCredentials — different package, same semantics.
-	ErrInvalidCredentials = svcerr.New(codes.Unauthenticated, "invalid credentials")
-
-	// ErrAccountNotActivated — the client's authentication account has not
-	// been activated yet (no password set).
-	ErrAccountNotActivated = svcerr.New(codes.FailedPrecondition, "account not activated")
-
 	// ErrLimitsExceedEmployee — the requested client limit exceeds the
 	// employee's MaxClientDailyLimit / MaxClientMonthlyLimit.
 	ErrLimitsExceedEmployee = svcerr.New(codes.FailedPrecondition, "limits exceed employee maximum")
+
+	// ErrLimitPersistFailed — persisting the client limits to the database
+	// failed (infra error). Coded Internal so the gateway returns 500 with a
+	// clean message instead of echoing the raw GORM/driver error.
+	ErrLimitPersistFailed = svcerr.New(codes.Internal, "failed to persist client limits")
 
 	// ErrEmployeeLookupFailed — the user-service gRPC call to fetch the
 	// employee's max-client limits failed.

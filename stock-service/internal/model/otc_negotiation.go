@@ -47,13 +47,29 @@ const (
 type OTCNegotiation struct {
 	ID uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
 
+	// RoutingNumber is the bank that owns this row; stamped to OwnRouting on
+	// local create by BeforeCreate. (routing_number, native_id) is the
+	// bank-scoped natural key. It is ALSO the first column of ux_otcneg_chain
+	// so the "one chain per bidder per parent" invariant is routing-scoped —
+	// remote rows (routing = peer) never collide with local ones.
+	RoutingNumber int64   `gorm:"not null;default:0;uniqueIndex:ux_otcneg_native,priority:1;uniqueIndex:ux_otcneg_chain,priority:1" json:"routing_number"`
+	NativeID      *string `gorm:"size:128;uniqueIndex:ux_otcneg_native,priority:2" json:"native_id,omitempty"`
+
+	// Local is THE authoritative local-vs-remote discriminator: true ⇔ this bank
+	// hosts the row (RoutingNumber == OwnRouting()), false ⇔ a remote mirror of a
+	// peer's row. Stamped once in BeforeCreate (after routing is finalized) and
+	// never mutated. When true, the remote-only columns (NativeID, Remote*,
+	// LastActionAt-side peer fields) are NULL; when false, the local-only columns
+	// (e.g. BidderAccountID) are unused. Queries discriminate on this column.
+	Local bool `gorm:"not null;default:false;index" json:"local"`
+
 	// ParentOfferID points at the OTCOffer listing this chain negotiates
 	// against. Foreign-key not modeled with GORM tags (manual integrity)
 	// — same convention used by OTCOfferRevision.
-	ParentOfferID uint64 `gorm:"not null;index:idx_otcneg_parent;uniqueIndex:ux_otcneg_chain,priority:1" json:"parent_offer_id"`
+	ParentOfferID uint64 `gorm:"not null;index:idx_otcneg_parent;uniqueIndex:ux_otcneg_chain,priority:2" json:"parent_offer_id"`
 
-	BidderOwnerType OwnerType `gorm:"size:8;not null;uniqueIndex:ux_otcneg_chain,priority:2;check:bidder_owner_type IN ('client','bank')" json:"bidder_owner_type"`
-	BidderOwnerID   *uint64   `gorm:"uniqueIndex:ux_otcneg_chain,priority:3" json:"bidder_owner_id,omitempty"`
+	BidderOwnerType OwnerType `gorm:"size:8;not null;uniqueIndex:ux_otcneg_chain,priority:3;check:bidder_owner_type IN ('client','bank')" json:"bidder_owner_type"`
+	BidderOwnerID   *uint64   `gorm:"uniqueIndex:ux_otcneg_chain,priority:4" json:"bidder_owner_id,omitempty"`
 	BidderBankCode  *string   `gorm:"size:32" json:"bidder_bank_code,omitempty"`
 
 	// BidderAccountID is the bidder's account bound at chain creation:
@@ -79,7 +95,48 @@ type OTCNegotiation struct {
 	LastActionByOwnerID       *uint64   `json:"last_action_by_owner_id,omitempty"`
 	LastActionAt              time.Time `gorm:"not null" json:"last_action_at"`
 
+	// ActingEmployeeID is the employee who ORIGINATED this bank-owned resource.
+	// Non-nil ONLY when the owner is the bank and an employee created it. It is the
+	// STABLE SI-TX wire-identity source: the bank party publishes as
+	// "employee-<ActingEmployeeID>" on every wire action, regardless of which
+	// employee performs later actions. nil for client-owned resources and legacy/seed bank rows.
 	ActingEmployeeID *uint64 `gorm:"index" json:"acting_employee_id,omitempty"`
+
+	// MintedContractID is set when the negotiation reached `accepted`
+	// status and a contract was successfully minted. Nil for any
+	// non-accepted terminal status and for accepted negotiations whose
+	// contract mint failed (rare; see AcceptNegotiationResult.Contract
+	// == nil case). Populated by OTCNegotiationService.AcceptNegotiation
+	// after the formation saga succeeds.
+	MintedContractID *uint64 `gorm:"index" json:"minted_contract_id,omitempty"`
+
+	// Remote-mirror columns (SP-2a). Populated ONLY on REMOTE rows
+	// (routing_number != OwnRouting()), folded in from the retired
+	// peer_otc_negotiation mirror. NULL/zero on local rows. The cross-bank
+	// negotiation lifecycle (CreateNegotiation / counter / accept / cascade-
+	// cancel webhooks) reads & writes ONLY these columns + Status; the local
+	// money paths are routing-guarded (Task 3) so they never observe them.
+	//
+	//   RemoteOfferJSON      — serialised contract/sitx.OtcOffer (authoritative
+	//                          terms for a remote chain; the Quantity/StrikePrice/
+	//                          Premium/SettlementDate columns are best-effort
+	//                          parses kept only to satisfy the NOT-NULL schema).
+	//   RemoteBuyerRouting / RemoteBuyerID   — SI-TX wire buyer party.
+	//   RemoteSellerRouting / RemoteSellerID — SI-TX wire seller party.
+	//   RemoteParentRouting / RemoteParentNativeID — Phase-10 cascade-cancel
+	//                          grouping key (the discovered listing's lot id).
+	//
+	// The shared Status column carries the PEER status vocabulary on remote
+	// rows ("ongoing" | "accepted" | "cancelled" | ...). The SP-1 read shaping
+	// understands it; local code never branches on those values because the
+	// routing guard keeps remote rows out of every local query.
+	RemoteOfferJSON      *string `gorm:"type:text" json:"-"`
+	RemoteBuyerRouting   *int64  `json:"-"`
+	RemoteBuyerID        *string `gorm:"size:128" json:"-"`
+	RemoteSellerRouting  *int64  `json:"-"`
+	RemoteSellerID       *string `gorm:"size:128" json:"-"`
+	RemoteParentRouting  *int64  `gorm:"index:idx_otcneg_remote_parent,priority:1" json:"-"`
+	RemoteParentNativeID *string `gorm:"size:128;index:idx_otcneg_remote_parent,priority:2" json:"-"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -88,8 +145,25 @@ type OTCNegotiation struct {
 
 func (OTCNegotiation) TableName() string { return "otc_negotiations" }
 
+// BeforeCreate stamps the own routing number on local rows. Remote rows
+// (added in later tasks) arrive with RoutingNumber already set to the peer's
+// routing and are left untouched. Tolerates a nil tx (only touches the struct).
+func (n *OTCNegotiation) BeforeCreate(tx *gorm.DB) error {
+	if n.RoutingNumber == 0 {
+		n.RoutingNumber = OwnRouting()
+	}
+	// Stamp the discriminator AFTER routing is finalized. Must NOT live in
+	// BeforeSave: GORM runs BeforeSave BEFORE BeforeCreate, where routing would
+	// still be 0 and a local row would be mis-stamped false.
+	n.Local = n.RoutingNumber == OwnRouting()
+	return nil
+}
+
 func (n *OTCNegotiation) BeforeSave(tx *gorm.DB) error {
-	return ValidateOwner(n.BidderOwnerType, n.BidderOwnerID)
+	if err := ValidateOwner(n.BidderOwnerType, n.BidderOwnerID); err != nil {
+		return err
+	}
+	return ValidateActingEmployee(n.BidderOwnerType, n.ActingEmployeeID)
 }
 
 func (n *OTCNegotiation) BeforeUpdate(tx *gorm.DB) error {

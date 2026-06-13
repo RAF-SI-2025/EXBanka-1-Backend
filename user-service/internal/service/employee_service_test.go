@@ -6,9 +6,41 @@ import (
 	"errors"
 	"testing"
 
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 )
+
+// TestCreateEmployee_DuplicateMapsToAlreadyExists: a unique-constraint violation
+// (translated to gorm.ErrDuplicatedKey) must surface as ErrEmployeeAlreadyExists
+// (HTTP 409), not a raw DB error (HTTP 500).
+func TestCreateEmployee_DuplicateMapsToAlreadyExists(t *testing.T) {
+	repo := newMockRepo()
+	repo.createErr = gorm.ErrDuplicatedKey
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	emp := &model.Employee{FirstName: "Dup", LastName: "E", Email: "dup@x.com", Username: "dup", JMBG: "0101990710024"}
+	err := svc.CreateEmployee(context.Background(), emp)
+	assert.ErrorIs(t, err, ErrEmployeeAlreadyExists)
+}
+
+// spyEmployeePublisher records the force-refresh (RolePermissionsChanged) events
+// EmployeeService emits on per-employee permission changes.
+type spyEmployeePublisher struct {
+	rolePermChanges []kafkamsg.RolePermissionsChangedMessage
+}
+
+func (s *spyEmployeePublisher) PublishEmployeeCreated(context.Context, kafkamsg.EmployeeCreatedMessage) error {
+	return nil
+}
+func (s *spyEmployeePublisher) PublishEmployeeUpdated(context.Context, kafkamsg.EmployeeCreatedMessage) error {
+	return nil
+}
+func (s *spyEmployeePublisher) PublishRolePermissionsChanged(_ context.Context, msg kafkamsg.RolePermissionsChangedMessage) error {
+	s.rolePermChanges = append(s.rolePermChanges, msg)
+	return nil
+}
 
 func TestValidatePassword(t *testing.T) {
 	tests := []struct {
@@ -278,6 +310,50 @@ func TestSetEmployeeRoles(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, updated.Roles)
 	assert.Equal(t, "EmployeeAgent", updated.Roles[0].Name)
+}
+
+// TestSetEmployeeRoles_PublishesForceRefresh: changing an employee's roles must
+// emit a RolePermissionsChanged event naming that employee, so auth-service
+// bumps their revocation epoch (force-refresh) instead of waiting for the access
+// token to expire.
+func TestSetEmployeeRoles_PublishesForceRefresh(t *testing.T) {
+	repo := newMockRepo()
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	roleSvc := NewRoleService(roleRepo, permRepo)
+	pub := &spyEmployeePublisher{}
+	svc := NewEmployeeService(repo, pub, nil, roleSvc)
+
+	emp := &model.Employee{FirstName: "Ada", LastName: "L", Email: "ada@x.com", Username: "ada", JMBG: "0101990710024"}
+	_ = repo.Create(emp)
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
+
+	assert.NoError(t, svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"}, 0))
+	if assert.Len(t, pub.rolePermChanges, 1) {
+		assert.Equal(t, []int64{emp.ID}, pub.rolePermChanges[0].AffectedEmployeeIDs)
+		assert.Equal(t, "set_employee_roles", pub.rolePermChanges[0].Source)
+	}
+}
+
+// TestSetEmployeeAdditionalPermissions_PublishesForceRefresh: same for the
+// additional-permissions path.
+func TestSetEmployeeAdditionalPermissions_PublishesForceRefresh(t *testing.T) {
+	repo := newMockRepo()
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	roleSvc := NewRoleService(roleRepo, permRepo)
+	pub := &spyEmployeePublisher{}
+	svc := NewEmployeeService(repo, pub, nil, roleSvc)
+
+	emp := &model.Employee{FirstName: "Bo", LastName: "J", Email: "bo@x.com", Username: "bo", JMBG: "0201990710025"}
+	_ = repo.Create(emp)
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
+
+	assert.NoError(t, svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read.all"}, 0))
+	if assert.Len(t, pub.rolePermChanges, 1) {
+		assert.Equal(t, []int64{emp.ID}, pub.rolePermChanges[0].AffectedEmployeeIDs)
+		assert.Equal(t, "set_employee_permissions", pub.rolePermChanges[0].Source)
+	}
 }
 
 func TestSetEmployeeAdditionalPermissions(t *testing.T) {

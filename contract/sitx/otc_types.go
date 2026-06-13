@@ -11,8 +11,13 @@ type ForeignBankId struct {
 	ID            string `json:"id"`
 }
 
-// OtcOffer is the in-flight SI-TX offer body. Sent on POST /negotiations
-// (initial offer) and PUT /negotiations/{rid}/{id} (counter-offers).
+// OtcOffer is the INTERNAL flat mirror of an OTC offer (stored in
+// RemoteOfferJSON, carried over gRPC). It is NOT the SI-TX wire shape: the spec
+// OtcOffer (§8) nests stock/pricePerUnit/premium and carries buyerId + sellerId.
+// The wire↔internal translation lives at the api-gateway boundary
+// (peerOtcOfferReq/offerReqToProto inbound, protoOfferToJSON outbound) and in
+// stock-service's outbound offer map. Do NOT marshal this struct straight to a
+// peer — that would emit the non-conformant flat dialect.
 type OtcOffer struct {
 	Ticker          string          `json:"ticker"`
 	Amount          int64           `json:"amount"`
@@ -46,59 +51,53 @@ type OtcOffer struct {
 	BuyerAccountNumber string `json:"buyerAccountNumber,omitempty"`
 }
 
-// OtcNegotiation is the full negotiation record (offer + meta).
-type OtcNegotiation struct {
-	ID        ForeignBankId `json:"id"`
-	BuyerID   ForeignBankId `json:"buyerId"`
-	SellerID  ForeignBankId `json:"sellerId"`
-	Offer     OtcOffer      `json:"offer"`
-	Status    string        `json:"status"` // ongoing | accepted | cancelled | expired
-	UpdatedAt string        `json:"updatedAt"`
-}
+// (Removed) The former `OtcNegotiation` struct was a non-conformant, unused
+// mirror shape ({id,buyerId,sellerId,offer,status,updatedAt}). The SI-TX wire
+// GET /negotiations/{rn}/{id} response is `OtcOffer & { isOngoing }` (§8.4),
+// which the api-gateway composes inline (protoOfferToJSON + isOngoing); the
+// reconciler reads only {isOngoing}. Keeping a divergent typed struct invited
+// emitting the wrong shape, so it was deleted (2026-06-06 spec-purity pass).
 
-// OptionDescription is the SI-TX `assetId` shape for option-contract
-// postings inside a NEW_TX. When acceptance triggers TX formation, the
-// 4 postings reference the option's terms via this struct (encoded as
-// JSON in the assetId field per cohort convention).
-//
-// Intent is a local extension (cohort partners ignore unknown fields)
-// that differentiates an accept TX (intent="" or "accept") from an
-// exercise TX (intent="exercise"). On exercise, the same 4-posting
-// envelope reuses the option's terms but tells each bank's executor
-// "transition the existing contract to exercised + run holding ops"
-// rather than "form a new contract + lock seller holdings".
+// OptionDescription is the §2.7.2 option asset payload (asset Type "OPTION").
+// Spec shape: nested stock + pricePerUnit, no internal "intent" field — the
+// transaction SHAPE (OPTION asset = accept; OPTION pseudo-account = exercise)
+// encodes the operation, per the design doc.
 type OptionDescription struct {
-	Ticker         string          `json:"ticker"`
-	Amount         int64           `json:"amount"`
-	StrikePrice    decimal.Decimal `json:"strikePrice"`
-	Currency       string          `json:"currency"`
-	SettlementDate string          `json:"settlementDate"`
-	NegotiationID  ForeignBankId   `json:"negotiationId"`
-	Intent         string          `json:"intent,omitempty"`
+	NegotiationID  ForeignBankId    `json:"negotiationId"`
+	Stock          StockDescription `json:"stock"`
+	PricePerUnit   MonetaryValue    `json:"pricePerUnit"`
+	SettlementDate string           `json:"settlementDate"`
+	Amount         int64            `json:"amount"`
 }
 
-// UserInformation is the response shape of GET /user/{rid}/{id}.
+// Option intents are INTERNAL ONLY — never serialized to the wire. The
+// receiver derives accept vs exercise from transaction shape (OPTION asset
+// vs OPTION pseudo-account) and passes the right intent to RecordOptionContract.
+const (
+	OptionIntentAccept   = "accept"
+	OptionIntentExercise = "exercise"
+)
+
+// UserInformation is the response shape of GET /user/{rid}/{id} (SI-TX §3.7).
 type UserInformation struct {
-	ID        ForeignBankId `json:"id"`
-	FirstName string        `json:"firstName"`
-	LastName  string        `json:"lastName"`
+	BankDisplayName string `json:"bankDisplayName"`
+	DisplayName     string `json:"displayName"`
 }
 
-// PublicStocksResponse is the response shape of GET /public-stock.
-type PublicStocksResponse struct {
-	Stocks []PublicStock `json:"stocks"`
+// PublicSeller is one seller of a public stock (§3.1).
+type PublicSeller struct {
+	Seller ForeignBankId `json:"seller"`
+	Amount int64         `json:"amount"`
 }
 
-// PublicStock is one entry in PublicStocksResponse — a stock holding the
-// owner has flagged as public on this bank, available for OTC offers
-// from peer banks.
+// PublicStock groups all sellers of one ticker (§3.1).
 type PublicStock struct {
-	OwnerID       ForeignBankId   `json:"ownerId"`
-	Ticker        string          `json:"ticker"`
-	Amount        int64           `json:"amount"`
-	PricePerStock decimal.Decimal `json:"pricePerStock"`
-	Currency      string          `json:"currency"`
+	Stock   StockDescription `json:"stock"`
+	Sellers []PublicSeller   `json:"sellers"`
 }
+
+// PublicStocksResponse is the §3.1 response: a BARE array.
+type PublicStocksResponse []PublicStock
 
 // PublicOptionOffersResponse is the response shape of
 // GET /api/v3/public-option-offers — Phase 6 cross-bank option
@@ -108,9 +107,11 @@ type PublicOptionOffersResponse struct {
 }
 
 // PublicOptionOffer is one OPEN OTC option listing on a peer bank.
-// Discovering banks then drive negotiation via the existing
-// POST /api/v3/me/peer-otc/negotiations using offerId.routingNumber
-// as seller_bank_code and sellerId.id as seller_id.
+// Discovering banks then drive negotiation via the unified
+// POST /api/v3/otc/options/{id}/bid; stock-service dispatches the
+// cross-bank negotiation using offerId.routingNumber as the seller
+// bank and sellerId.id as the seller (SP-2b folded the retired
+// /me/peer-otc/negotiations client route into the unified surface).
 //
 // Money values use the canonical {amount, currency} pair so the
 // discovering UI can render strike + premium without inferring

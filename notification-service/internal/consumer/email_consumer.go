@@ -34,9 +34,11 @@ type EmailConsumer struct {
 	sender    emailDispatcher
 	producer  emailSentPublisher
 	templates templateRenderer
+	dlq       DeadLetterWriter
+	dedup     Deduper
 }
 
-func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, templateSvc *svc.TemplateService) *EmailConsumer {
+func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, templateSvc *svc.TemplateService, dlq DeadLetterWriter, dedup Deduper) *EmailConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  strings.Split(brokers, ","),
 		Topic:    kafkamsg.TopicSendEmail,
@@ -49,6 +51,8 @@ func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer 
 		sender:    emailSender,
 		producer:  producer,
 		templates: templateSvc,
+		dlq:       dlq,
+		dedup:     dedup,
 	}
 }
 
@@ -59,71 +63,56 @@ func newEmailConsumerForTest(d emailDispatcher, p emailSentPublisher, r template
 }
 
 func (c *EmailConsumer) Start(ctx context.Context) {
-	log.Println("email consumer started, listening on", kafkamsg.TopicSendEmail)
-	for {
-		msg, err := c.reader.ReadMessage(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				log.Println("email consumer shutting down")
-				return
-			}
-			log.Printf("error reading kafka message: %v", err)
-			continue
-		}
-		c.handleMessage(ctx, msg.Value)
-	}
+	go runConsumer(ctx, "email", c.reader, c.dlq, c.dedup, c.handleMessage)
 }
 
-func (c *EmailConsumer) handleMessage(ctx context.Context, data []byte) {
+// handleMessage returns an error ONLY for transient failures (SMTP send) so the
+// runner retries then dead-letters. Non-retryable failures (malformed payload,
+// bad template) are logged and return nil — retrying them would never succeed.
+func (c *EmailConsumer) handleMessage(ctx context.Context, data []byte) error {
 	var emailMsg kafkamsg.SendEmailMessage
 	if err := json.Unmarshal(data, &emailMsg); err != nil {
-		log.Printf("error unmarshaling email message: %v", err)
-		return
+		log.Printf("email consumer: dropping malformed message: %v", err)
+		return nil // not retryable
 	}
 	log.Printf("[DEV] email queued | type=%s to=%s data=%v", emailMsg.EmailType, emailMsg.To, emailMsg.Data)
 
 	if isTestAddress(emailMsg.To) {
 		log.Printf("[TEST] skipping send to %s | type=%s data=%v", emailMsg.To, emailMsg.EmailType, emailMsg.Data)
-		if pubErr := c.producer.PublishEmailSent(ctx, kafkamsg.EmailSentMessage{
-			To:        emailMsg.To,
-			EmailType: emailMsg.EmailType,
-			Success:   true,
-		}); pubErr != nil {
-			log.Printf("failed to publish email-sent confirmation: %v", pubErr)
-		}
-		return
+		c.publishConfirmation(ctx, kafkamsg.EmailSentMessage{To: emailMsg.To, EmailType: emailMsg.EmailType, Success: true})
+		return nil
 	}
 
 	subject, body, renderErr := c.templates.Render(string(emailMsg.EmailType), "email", emailMsg.Data)
 	if renderErr != nil {
-		log.Printf("failed to render email template %s: %v", emailMsg.EmailType, renderErr)
-		if pubErr := c.producer.PublishEmailSent(ctx, kafkamsg.EmailSentMessage{
-			To: emailMsg.To, EmailType: emailMsg.EmailType, Success: false, Error: renderErr.Error(),
-		}); pubErr != nil {
-			log.Printf("failed to publish email-sent confirmation: %v", pubErr)
-		}
-		return
+		log.Printf("email consumer: render error for %s (not retryable): %v", emailMsg.EmailType, renderErr)
+		c.publishConfirmation(ctx, kafkamsg.EmailSentMessage{To: emailMsg.To, EmailType: emailMsg.EmailType, Success: false, Error: renderErr.Error()})
+		return nil // bad template — retrying won't help
 	}
+
 	sendStart := time.Now()
 	err := c.sender.Send(emailMsg.To, subject, body)
 	svc.NotificationEmailSendDuration.Observe(time.Since(sendStart).Seconds())
-
-	confirmation := kafkamsg.EmailSentMessage{
-		To:        emailMsg.To,
-		EmailType: emailMsg.EmailType,
-		Success:   err == nil,
-	}
 	if err != nil {
 		svc.NotificationEmailsSentTotal.WithLabelValues("failure").Inc()
-		log.Printf("failed to send email to %s: %v", emailMsg.To, err)
-		confirmation.Error = err.Error()
-	} else {
-		svc.NotificationEmailsSentTotal.WithLabelValues("success").Inc()
-		log.Printf("email sent successfully to %s (type: %s)", emailMsg.To, emailMsg.EmailType)
+		// Transient SMTP failure — return the error so the runner retries, then
+		// dead-letters. The failure confirmation is NOT published per-attempt;
+		// the dead-letter record is the durable signal on permanent failure.
+		return err
 	}
 
-	if pubErr := c.producer.PublishEmailSent(ctx, confirmation); pubErr != nil {
-		log.Printf("failed to publish email-sent confirmation: %v", pubErr)
+	svc.NotificationEmailsSentTotal.WithLabelValues("success").Inc()
+	log.Printf("email sent successfully to %s (type: %s)", emailMsg.To, emailMsg.EmailType)
+	c.publishConfirmation(ctx, kafkamsg.EmailSentMessage{To: emailMsg.To, EmailType: emailMsg.EmailType, Success: true})
+	return nil
+}
+
+func (c *EmailConsumer) publishConfirmation(ctx context.Context, msg kafkamsg.EmailSentMessage) {
+	if c.producer == nil {
+		return
+	}
+	if err := c.producer.PublishEmailSent(ctx, msg); err != nil {
+		log.Printf("email consumer: failed to publish email-sent confirmation: %v", err)
 	}
 }
 

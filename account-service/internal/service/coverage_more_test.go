@@ -298,7 +298,7 @@ func TestSpendingCronService_TickRunsResetWhenTimerFires(t *testing.T) {
 	// cancelled context is honoured before any work happens.
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
-	svc := NewSpendingCronService(repo)
+	svc := NewSpendingCronService(repo, nilRegistry())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -329,7 +329,7 @@ func TestMaintenanceCron_StartReturnsAfterCancel(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil, nilRegistry())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

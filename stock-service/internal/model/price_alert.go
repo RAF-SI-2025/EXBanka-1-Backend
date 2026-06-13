@@ -56,8 +56,24 @@ func (a *PriceAlert) BeforeSave(*gorm.DB) error {
 	if !a.Condition.Valid() {
 		return errors.New("invalid condition")
 	}
-	if a.Threshold.Sign() <= 0 {
-		return errors.New("threshold must be positive")
+	switch a.Condition {
+	case PriceAlertConditionGTE, PriceAlertConditionLTE:
+		// Absolute-price conditions: threshold must be strictly positive
+		// (a price of zero or below is not a real market price).
+		if a.Threshold.Sign() <= 0 {
+			return errors.New("threshold must be positive for price conditions")
+		}
+	case PriceAlertConditionDailyChangePctGTE, PriceAlertConditionDailyChangePctLTE:
+		// Percent-change conditions: threshold may be any real number
+		// (e.g. -5 means "alert me when daily change drops below -5%").
+		// Reject only obviously unreasonable values (|threshold| > 100).
+		abs := a.Threshold
+		if abs.IsNegative() {
+			abs = abs.Neg()
+		}
+		if abs.GreaterThan(decimal.NewFromInt(100)) {
+			return errors.New("daily_change_pct threshold must be in [-100, 100]")
+		}
 	}
 	if a.Cooldown < 60 || a.Cooldown > 86400 {
 		return errors.New("cooldown_seconds must be in [60, 86400]")

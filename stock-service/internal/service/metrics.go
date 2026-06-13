@@ -14,11 +14,6 @@ var (
 		Buckets: []float64{1, 5, 10, 30, 60, 120},
 	})
 
-	StockOTCTradesTotal = prom.NewCounter(prom.CounterOpts{
-		Name: "stock_otc_trades_total",
-		Help: "Total number of OTC trades completed",
-	})
-
 	StockTaxCollectedTotal = prom.NewCounter(prom.CounterOpts{
 		Name: "stock_tax_collected_total",
 		Help: "Total number of tax collection runs",
@@ -28,6 +23,5 @@ var (
 func init() {
 	prom.MustRegister(StockOrderTotal)
 	prom.MustRegister(StockPriceRefreshDuration)
-	prom.MustRegister(StockOTCTradesTotal)
 	prom.MustRegister(StockTaxCollectedTotal)
 }

@@ -24,6 +24,12 @@ func (r *fakeBaseCtxOrderRepo) GetByID(id uint64) (*model.Order, error) {
 	}
 	return r.order, nil
 }
+func (r *fakeBaseCtxOrderRepo) GetBySagaID(sagaID string) (*model.Order, error) {
+	if r.order == nil || r.order.SagaID != sagaID {
+		return nil, errors.New("not found")
+	}
+	return r.order, nil
+}
 func (r *fakeBaseCtxOrderRepo) Update(o *model.Order) error {
 	r.order = o
 	return nil
@@ -61,7 +67,11 @@ func (r *fakeBaseCtxTxRepo) Create(txn *model.OrderTransaction) error {
 	}
 	return nil
 }
+func (r *fakeBaseCtxTxRepo) GetByID(_ uint64) (*model.OrderTransaction, error) {
+	return nil, errors.New("not found")
+}
 func (r *fakeBaseCtxTxRepo) Update(_ *model.OrderTransaction) error { return nil }
+func (r *fakeBaseCtxTxRepo) Delete(_ uint64) error                  { return nil }
 func (r *fakeBaseCtxTxRepo) ListByOrderID(_ uint64) ([]model.OrderTransaction, error) {
 	return nil, nil
 }

@@ -47,6 +47,21 @@ func ValidateOwner(t OwnerType, id *uint64) error {
 	return nil
 }
 
+// ValidateActingEmployee enforces the acting-employee invariant: an
+// ActingEmployeeID may be set ONLY on a bank-owned resource. It records the
+// employee who ORIGINATED a bank-owned OTC resource and is the stable SI-TX
+// wire-identity source ("employee-<N>"). A bank owner MAY leave it nil
+// (legacy / seed / system-path rows); a client owner MUST leave it nil.
+//
+// Called from the BeforeSave GORM hooks on OTCOffer / OTCNegotiation
+// alongside the ValidateOwner check.
+func ValidateActingEmployee(ownerType OwnerType, actingEmployeeID *uint64) error {
+	if actingEmployeeID != nil && ownerType != OwnerBank {
+		return errors.New("acting_employee_id may only be set on a bank-owned resource")
+	}
+	return nil
+}
+
 // OwnerIDOrZero returns 0 for nil owner ids. Useful for legacy callers / logs
 // that need a uint64. Do not use for query predicates — use the *uint64
 // directly so SQL emits IS NULL.

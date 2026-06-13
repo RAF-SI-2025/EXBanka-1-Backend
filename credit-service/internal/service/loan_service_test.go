@@ -67,6 +67,48 @@ func TestLoanService_GetLoan_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
+// newLoanSvcDBNoTable returns a DB connection with NO loans table so repository
+// queries fail, exercising the service-layer error wrapping branches.
+func newLoanSvcDBNoTable(t *testing.T) *gorm.DB {
+	t.Helper()
+	dbName := strings.ReplaceAll(t.Name(), "/", "_")
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", dbName)
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	return db // intentionally no AutoMigrate
+}
+
+func TestLoanService_ListLoansByClient_RepoErrorWrapped(t *testing.T) {
+	db := newLoanSvcDBNoTable(t)
+	svc := NewLoanService(repository.NewLoanRepository(db))
+
+	_, _, err := svc.ListLoansByClient(1, 1, 50)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrLoanLookup)
+}
+
+func TestLoanService_ListAllLoans_RepoErrorWrapped(t *testing.T) {
+	db := newLoanSvcDBNoTable(t)
+	svc := NewLoanService(repository.NewLoanRepository(db))
+
+	_, _, err := svc.ListAllLoans("", "", "", 1, 50)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrLoanLookup)
+}
+
+func TestLoanService_GetLoan_LookupErrorWrapped(t *testing.T) {
+	db := newLoanSvcDBNoTable(t)
+	svc := NewLoanService(repository.NewLoanRepository(db))
+
+	// Missing table → not a gorm.ErrRecordNotFound → ErrLoanLookup branch.
+	_, err := svc.GetLoan(1)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrLoanLookup)
+}
+
 func TestLoanService_ListLoansByClient_FiltersByClient(t *testing.T) {
 	db := newLoanSvcTestDB(t)
 	repo := repository.NewLoanRepository(db)

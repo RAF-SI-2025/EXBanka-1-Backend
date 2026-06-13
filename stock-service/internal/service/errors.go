@@ -104,6 +104,28 @@ var (
 	// shares of the underlying.
 	ErrOTCInsufficientShares = svcerr.New(codes.FailedPrecondition, "insufficient available shares")
 
+	// ErrOTCSellerNoHolding — sell_initiated create by a seller who holds no
+	// position in the underlying at all (distinct from holding-too-few, which
+	// is ErrOTCInsufficientShares). Surfaces as a 404/precondition rather than
+	// a leaked DB record-not-found that the gateway maps to 500.
+	ErrOTCSellerNoHolding = svcerr.New(codes.FailedPrecondition, "seller holds no position in the underlying")
+
+	// ErrOTCOfferFieldInvalid — a create/counter field failed validation
+	// (non-positive quantity/strike, negative premium, malformed/half-set
+	// counterparty, unknown direction). InvalidArgument → HTTP 400.
+	ErrOTCOfferFieldInvalid = svcerr.New(codes.InvalidArgument, "invalid OTC offer field")
+
+	// ErrOTCNotOwner — caller attempted to edit an OTC offer they do not own.
+	// Only the offer's initiator (owner) may edit its quantity. Carries
+	// codes.PermissionDenied so the handler passthrough maps it to HTTP 403.
+	ErrOTCNotOwner = svcerr.New(codes.PermissionDenied, "only the offer's owner can edit it")
+
+	// ErrOTCOfferDuplicateOpen — create rejected because the owner already has
+	// an OPEN offer for the same (ticker, direction). Offers are termless
+	// inventory; only one open offer per (owner, ticker, direction) is allowed.
+	// Carries codes.AlreadyExists so the handler passthrough maps it to HTTP 409.
+	ErrOTCOfferDuplicateOpen = svcerr.New(codes.AlreadyExists, "an open option offer already exists for this ticker and direction")
+
 	// ErrOTCSettlementInvalid — settlement_date constraint violated
 	// (in the past, or after underlying expiry).
 	ErrOTCSettlementInvalid = svcerr.New(codes.FailedPrecondition, "invalid settlement_date")
@@ -303,6 +325,37 @@ var (
 	// ErrOTCListingNotOpen — caller tried to cancel a listing that is no
 	// longer in an open status (e.g. already consumed, expired, or cancelled).
 	ErrOTCListingNotOpen = svcerr.New(codes.FailedPrecondition, "OTC listing is not open")
+
+	// ErrOTCRevisionsUnauthorized — caller is neither the bidder nor the
+	// parent listing's poster so may not view the revision chain.
+	ErrOTCRevisionsUnauthorized = svcerr.New(codes.PermissionDenied, "only the negotiation's participants may view its revision history")
+
+	// ErrOTCListingAudienceForbidden — caller is neither the listing's
+	// poster nor a permission-gated employee, so may not see every chain
+	// (or the cross-chain timeline) on the listing. Competing bidders hit
+	// this; they retain their own-chain view via ListMyNegotiations.
+	ErrOTCListingAudienceForbidden = svcerr.New(codes.PermissionDenied, "only the listing's poster may view all chains on this offer")
+
+	// --- OTC negotiation / accept business-rule rejections ---
+
+	// ErrOTCOfferTerminalState — operation rejected because the offer is in
+	// a terminal state (accepted/rejected/cancelled/expired).
+	ErrOTCOfferTerminalState = svcerr.New(codes.FailedPrecondition, "offer is in a terminal state")
+
+	// ErrOTCCounterOwnTerms — counter rejected because the actor is the
+	// same principal who last modified the offer (self-counter guard).
+	ErrOTCCounterOwnTerms = svcerr.New(codes.FailedPrecondition, "you cannot counter your own most recent terms")
+
+	// ErrOTCAcceptOwnTerms — accept rejected because the actor is the same
+	// principal who last modified the offer (self-accept guard).
+	ErrOTCAcceptOwnTerms = svcerr.New(codes.FailedPrecondition, "you cannot accept your own most recent terms")
+
+	// ErrOTCSettlementNotFuture — settlement_date is not in the future.
+	ErrOTCSettlementNotFuture = svcerr.New(codes.FailedPrecondition, "settlement_date is not in the future")
+
+	// ErrOTCAccountsNotBound — both buyer and seller accounts must be
+	// bound before the accept saga can run.
+	ErrOTCAccountsNotBound = svcerr.New(codes.FailedPrecondition, "both buyer and seller accounts must be bound")
 
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---

@@ -39,12 +39,20 @@ func (r *ClientLimitRepository) GetByClientID(clientID int64) (*model.ClientLimi
 
 // Upsert creates or updates the client limit for a client.
 // Uses ON CONFLICT DO UPDATE to eliminate the TOCTOU race between SELECT and INSERT.
+// Version is incremented on every conflict-update so SP-5 account-propagation
+// events can be ordered correctly (same pattern as EmployeeLimit SP-2 fix).
 func (r *ClientLimitRepository) Upsert(limit *model.ClientLimit) error {
+	updates := clause.AssignmentColumns([]string{
+		"daily_limit", "monthly_limit", "transfer_limit", "set_by_employee", "updated_at",
+	})
+	// Monotonic version: `version + 1` in ON CONFLICT DO UPDATE refers to the
+	// existing row value (Postgres and SQLite both support this expression).
+	updates = append(updates, clause.Assignment{
+		Column: clause.Column{Name: "version"},
+		Value:  gorm.Expr("version + 1"),
+	})
 	return r.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "client_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"daily_limit", "monthly_limit", "transfer_limit",
-			"set_by_employee", "updated_at",
-		}),
+		Columns:   []clause.Column{{Name: "client_id"}},
+		DoUpdates: updates,
 	}).Create(limit).Error
 }

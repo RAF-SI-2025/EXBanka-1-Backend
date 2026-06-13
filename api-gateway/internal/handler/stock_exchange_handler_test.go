@@ -72,6 +72,56 @@ func TestStockExchange_Get_Success(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"NYSE"`)
 }
 
+func TestStockExchange_Get_IncludesIsOpen(t *testing.T) {
+	st := &stubStockExchangeClient{
+		getFn: func(*stockpb.GetExchangeRequest) (*stockpb.Exchange, error) {
+			return &stockpb.Exchange{Id: 7, Acronym: "NYSE", IsOpen: true}, nil
+		},
+	}
+	h := handler.NewStockExchangeHandler(st)
+	r := stockExchangeRouter(h)
+	req := httptest.NewRequest("GET", "/api/v2/stock-exchanges/7", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"is_open":true`)
+}
+
+func TestStockExchange_Get_ClosedEmitsIsOpenFalse(t *testing.T) {
+	// is_open must be present even when false (no omitempty), so the FE can read
+	// open/closed unambiguously.
+	st := &stubStockExchangeClient{
+		getFn: func(*stockpb.GetExchangeRequest) (*stockpb.Exchange, error) {
+			return &stockpb.Exchange{Id: 7, Acronym: "NYSE", IsOpen: false}, nil
+		},
+	}
+	h := handler.NewStockExchangeHandler(st)
+	r := stockExchangeRouter(h)
+	req := httptest.NewRequest("GET", "/api/v2/stock-exchanges/7", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"is_open":false`)
+}
+
+func TestStockExchange_List_IncludesIsOpen(t *testing.T) {
+	st := &stubStockExchangeClient{
+		listFn: func(*stockpb.ListExchangesRequest) (*stockpb.ListExchangesResponse, error) {
+			return &stockpb.ListExchangesResponse{
+				TotalCount: 1,
+				Exchanges:  []*stockpb.Exchange{{Id: 1, Acronym: "NYSE", IsOpen: true}},
+			}, nil
+		},
+	}
+	h := handler.NewStockExchangeHandler(st)
+	r := stockExchangeRouter(h)
+	req := httptest.NewRequest("GET", "/api/v2/stock-exchanges", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"is_open":true`)
+}
+
 func TestStockExchange_Get_BadID(t *testing.T) {
 	h := handler.NewStockExchangeHandler(&stubStockExchangeClient{})
 	r := stockExchangeRouter(h)

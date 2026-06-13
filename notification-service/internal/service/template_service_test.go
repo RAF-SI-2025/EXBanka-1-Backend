@@ -104,8 +104,8 @@ func TestTemplateService_GetOneAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(all) != 13 {
-		t.Errorf("List(email) = %d, want 13", len(all))
+	if len(all) != 14 {
+		t.Errorf("List(email) = %d, want 14", len(all))
 	}
 }
 

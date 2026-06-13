@@ -41,9 +41,24 @@ service AccountService {
   // idempotent
   rpc ReleaseIncoming(ReleaseIncomingRequest) returns (ReleaseIncomingResponse);
 
+  // Debit-side reservation lifecycle for inter-bank OUTBOUND transfers
+  // (Celina-5 SI-TX reserve-then-settle: hold at NEW_TX, debit at COMMIT_TX,
+  // release on NO/ROLLBACK/timeout). String-keyed mirror of the Incoming trio.
+  // ReserveOutgoing reduces AvailableBalance (not Balance); SettleOutgoing
+  // reduces Balance + writes the debit ledger entry; ReleaseOutgoing restores
+  // AvailableBalance. All idempotent on reservation_key.
+  rpc ReserveOutgoing(ReserveOutgoingRequest) returns (ReserveOutgoingResponse);
+  rpc SettleOutgoing(SettleOutgoingRequest)   returns (SettleOutgoingResponse);
+  rpc ReleaseOutgoing(ReleaseOutgoingRequest) returns (ReleaseOutgoingResponse);
+
   // Audit-trail reads. Returns changelog rows scoped by entity_type +
   // entity_id; pagination matches list endpoints (1-based page).
   rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
+
+  // ListAllChangelogs returns every changelog row for this service (global
+  // audit view, admin-only). Supports optional filters: since/until (unix
+  // seconds), actor_id (changed_by), action string, and pagination.
+  rpc ListAllChangelogs(ListAllChangelogsRequest) returns (ListAllChangelogsResponse);
 }
 
 message ListChangelogRequest {
@@ -69,6 +84,22 @@ message ChangelogEntry {
 message ListChangelogResponse {
   repeated ChangelogEntry entries = 1;
   int64                   total   = 2;
+}
+
+message ListAllChangelogsRequest {
+  int32  page      = 1;
+  int32  page_size = 2;
+  int64  since     = 3; // unix seconds, 0 = no lower bound
+  int64  until     = 4; // unix seconds, 0 = no upper bound
+  int64  actor_id  = 5; // changed_by filter, 0 = all
+  string action    = 6; // exact match, "" = all
+}
+
+message ListAllChangelogsResponse {
+  repeated ChangelogEntry entries   = 1;
+  int64                   total     = 2;
+  int32                   page      = 3;
+  int32                   page_size = 4;
 }
 
 message CreateAccountRequest {
@@ -249,6 +280,11 @@ message CreateBankAccountRequest {
   string currency_code = 1;
   string account_kind = 2;
   string account_name = 3;
+  // account_category is an optional tag for the created account (e.g.
+  // "investment_fund"). When set it is stored verbatim on the account row so
+  // downstream services (transaction-service) can inspect it without a
+  // cross-service lookup.
+  string account_category = 4;
 }
 
 message ListBankAccountsRequest {}
@@ -355,6 +391,7 @@ message ReserveIncomingResponse {
 message CommitIncomingRequest  {
     string reservation_key = 1;
     string idempotency_key = 2;  // saga step idempotency
+    string memo            = 3;  // optional ledger description (SI-TX NEW_TX message)
 }
 message CommitIncomingResponse { string balance_after   = 1; }
 
@@ -363,3 +400,27 @@ message ReleaseIncomingRequest  {
     string idempotency_key = 2;  // saga step idempotency
 }
 message ReleaseIncomingResponse { bool   released        = 1; }
+
+message ReserveOutgoingRequest {
+    string account_number  = 1;
+    string amount          = 2;  // decimal string
+    string currency        = 3;
+    string reservation_key = 4;  // domain dedup key (SI-TX "<peer>:<idem>:<i>")
+    string idempotency_key = 5;  // saga step idempotency
+}
+message ReserveOutgoingResponse {
+    string reservation_key   = 1;
+    string available_after   = 2;  // AvailableBalance after the hold
+}
+
+message SettleOutgoingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;
+}
+message SettleOutgoingResponse { string balance_after = 1; }
+
+message ReleaseOutgoingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;
+}
+message ReleaseOutgoingResponse { bool released = 1; }

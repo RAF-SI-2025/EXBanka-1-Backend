@@ -43,8 +43,8 @@ func TestGenerateToken(t *testing.T) {
 }
 
 func TestDetectDeviceType_Service(t *testing.T) {
-	assert.Equal(t, "browser", detectDeviceType("Mozilla/5.0"))
-	assert.Equal(t, "mobile", detectDeviceType("Android/11"))
-	assert.Equal(t, "api", detectDeviceType("curl/7.0"))
-	assert.Equal(t, "browser", detectDeviceType(""))
+	assert.Equal(t, "browser", DetectDeviceType("Mozilla/5.0"))
+	assert.Equal(t, "mobile", DetectDeviceType("Android/11"))
+	assert.Equal(t, "api", DetectDeviceType("curl/7.0"))
+	assert.Equal(t, "browser", DetectDeviceType(""))
 }

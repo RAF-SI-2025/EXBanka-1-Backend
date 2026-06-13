@@ -89,32 +89,6 @@ func (m *mockBlueprintRepo) Delete(id uint64) error {
 	return nil
 }
 
-// --- Mock ClientLimitClient ---
-
-type mockClientLimitClient struct {
-	calls []clientLimitCall
-	err   error
-}
-
-type clientLimitCall struct {
-	ClientID      int64
-	DailyLimit    string
-	MonthlyLimit  string
-	TransferLimit string
-	SetByEmployee int64
-}
-
-func (m *mockClientLimitClient) SetClientLimits(ctx context.Context, clientID int64, dailyLimit, monthlyLimit, transferLimit string, setByEmployee int64) error {
-	m.calls = append(m.calls, clientLimitCall{
-		ClientID:      clientID,
-		DailyLimit:    dailyLimit,
-		MonthlyLimit:  monthlyLimit,
-		TransferLimit: transferLimit,
-		SetByEmployee: setByEmployee,
-	})
-	return m.err
-}
-
 // --- Mock ActuaryRepo with Upsert ---
 
 type mockActuaryRepoWithUpsert struct {
@@ -146,7 +120,7 @@ func mustMarshal(v interface{}) datatypes.JSON {
 
 func TestCreateBlueprint_Employee(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name:        "BasicTeller",
@@ -169,7 +143,7 @@ func TestCreateBlueprint_Employee(t *testing.T) {
 
 func TestCreateBlueprint_InvalidType(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name:   "Bad",
@@ -183,7 +157,7 @@ func TestCreateBlueprint_InvalidType(t *testing.T) {
 
 func TestCreateBlueprint_InvalidValues(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name:   "Bad",
@@ -197,7 +171,7 @@ func TestCreateBlueprint_InvalidValues(t *testing.T) {
 
 func TestListBlueprints_FilterByType(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	// Create one of each type
 	empBp := model.LimitBlueprint{
@@ -229,7 +203,7 @@ func TestListBlueprints_FilterByType(t *testing.T) {
 func TestApplyBlueprint_Employee(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
 	limitRepo := newMockEmployeeLimitRepo()
-	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name: "TestEmp", Type: model.BlueprintTypeEmployee,
@@ -253,7 +227,7 @@ func TestApplyBlueprint_Employee(t *testing.T) {
 func TestApplyBlueprint_Actuary(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
 	actuaryRepo := newMockActuaryRepoWithUpsert()
-	svc := NewBlueprintService(bpRepo, nil, actuaryRepo, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, actuaryRepo, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name: "TestAct", Type: model.BlueprintTypeActuary,
@@ -269,10 +243,9 @@ func TestApplyBlueprint_Actuary(t *testing.T) {
 	assert.True(t, actuaryRepo.upserted[0].NeedApproval)
 }
 
-func TestApplyBlueprint_Client(t *testing.T) {
+func TestApplyBlueprint_ClientType_Rejected(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	clientClient := &mockClientLimitClient{}
-	svc := NewBlueprintService(bpRepo, nil, nil, clientClient, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name: "TestClient", Type: model.BlueprintTypeClient,
@@ -283,16 +256,13 @@ func TestApplyBlueprint_Client(t *testing.T) {
 	created, _ := svc.CreateBlueprint(context.Background(), bp)
 
 	err := svc.ApplyBlueprint(context.Background(), created.ID, 99, 7)
-	require.NoError(t, err)
-	require.Len(t, clientClient.calls, 1)
-	assert.Equal(t, int64(99), clientClient.calls[0].ClientID)
-	assert.Equal(t, "100000", clientClient.calls[0].DailyLimit)
-	assert.Equal(t, int64(7), clientClient.calls[0].SetByEmployee)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrClientBlueprintNotApplicable)
 }
 
 func TestApplyBlueprint_NotFound(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	err := svc.ApplyBlueprint(context.Background(), 999, 1, 1)
 	assert.Error(t, err)
@@ -301,7 +271,7 @@ func TestApplyBlueprint_NotFound(t *testing.T) {
 
 func TestDeleteBlueprint(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name: "ToDelete", Type: model.BlueprintTypeEmployee,
@@ -321,7 +291,7 @@ func TestDeleteBlueprint(t *testing.T) {
 
 func TestSeedFromTemplates(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	templates := []model.LimitTemplate{
 		{
@@ -353,7 +323,7 @@ func TestSeedFromTemplates(t *testing.T) {
 func TestApplyBlueprint_Employee_SetsLimits(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
 	limitRepo := newMockEmployeeLimitRepo()
-	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name: "SetLimitsEmp", Type: model.BlueprintTypeEmployee,
@@ -383,7 +353,7 @@ func TestApplyBlueprint_Employee_SetsLimits(t *testing.T) {
 func TestApplyBlueprint_Actuary_SetsLimits(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
 	actuaryRepo := newMockActuaryRepoWithUpsert()
-	svc := NewBlueprintService(bpRepo, nil, actuaryRepo, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, actuaryRepo, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name: "SetLimitsAct", Type: model.BlueprintTypeActuary,
@@ -401,36 +371,10 @@ func TestApplyBlueprint_Actuary_SetsLimits(t *testing.T) {
 	assert.False(t, actuaryRepo.upserted[0].NeedApproval)
 }
 
-func TestApplyBlueprint_Client_CallsGRPC(t *testing.T) {
-	bpRepo := newMockBlueprintRepo()
-	clientClient := &mockClientLimitClient{}
-	svc := NewBlueprintService(bpRepo, nil, nil, clientClient, nil, nil)
-
-	bp := model.LimitBlueprint{
-		Name: "ClientGRPCBP", Type: model.BlueprintTypeClient,
-		Values: mustMarshal(model.ClientBlueprintValues{
-			DailyLimit: "200000", MonthlyLimit: "2000000", TransferLimit: "600000",
-		}),
-	}
-	created, err := svc.CreateBlueprint(context.Background(), bp)
-	require.NoError(t, err)
-
-	err = svc.ApplyBlueprint(context.Background(), created.ID, 33, 5)
-	require.NoError(t, err)
-
-	require.Len(t, clientClient.calls, 1)
-	call := clientClient.calls[0]
-	assert.Equal(t, int64(33), call.ClientID)
-	assert.Equal(t, "200000", call.DailyLimit)
-	assert.Equal(t, "2000000", call.MonthlyLimit)
-	assert.Equal(t, "600000", call.TransferLimit)
-	assert.Equal(t, int64(5), call.SetByEmployee)
-}
-
 func TestApplyBlueprint_Employee_UpsertOverwrites(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
 	limitRepo := newMockEmployeeLimitRepo()
-	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil)
 
 	// First blueprint
 	bp1 := model.LimitBlueprint{
@@ -473,7 +417,7 @@ func TestApplyBlueprint_Employee_UpsertOverwrites(t *testing.T) {
 
 func TestCreateBlueprint_InvalidValues_MissingField(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	// Employee blueprint missing max_single_transaction
 	bp := model.LimitBlueprint{
@@ -495,7 +439,7 @@ func TestCreateBlueprint_InvalidValues_MissingField(t *testing.T) {
 
 func TestCreateBlueprint_InvalidValues_NonDecimal(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	// Employee blueprint with non-decimal value "abc"
 	bp := model.LimitBlueprint{
@@ -516,7 +460,7 @@ func TestCreateBlueprint_InvalidValues_NonDecimal(t *testing.T) {
 
 func TestUpdateBlueprint(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
-	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil)
 
 	bp := model.LimitBlueprint{
 		Name: "OldName", Type: model.BlueprintTypeActuary,

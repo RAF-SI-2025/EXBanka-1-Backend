@@ -467,6 +467,9 @@ func TestListPaymentRecipients_Success(t *testing.T) {
 func TestDeletePaymentRecipient_Success(t *testing.T) {
 	deleted := false
 	h := newTestHandler(nil, nil, func(rm *mockRecipientFacade) {
+		rm.getByIDFn = func(id uint64) (*model.PaymentRecipient, error) {
+			return &model.PaymentRecipient{ID: id, ClientID: 5}, nil
+		}
 		rm.deleteFn = func(id uint64) error {
 			deleted = true
 			return nil
@@ -483,6 +486,9 @@ func TestDeletePaymentRecipient_Success(t *testing.T) {
 
 func TestDeletePaymentRecipient_Error(t *testing.T) {
 	h := newTestHandler(nil, nil, func(rm *mockRecipientFacade) {
+		rm.getByIDFn = func(id uint64) (*model.PaymentRecipient, error) {
+			return &model.PaymentRecipient{ID: id, ClientID: 5}, nil
+		}
 		rm.deleteFn = func(id uint64) error {
 			return service.ErrRecipientNotFound
 		}
@@ -663,6 +669,9 @@ func TestListTransfersByClient_Error(t *testing.T) {
 
 func TestUpdatePaymentRecipient_Success(t *testing.T) {
 	rm := &mockRecipientFacade{
+		getByIDFn: func(id uint64) (*model.PaymentRecipient, error) {
+			return &model.PaymentRecipient{ID: id, ClientID: 5}, nil
+		},
 		updateFn: func(id uint64, name, acct *string) (*model.PaymentRecipient, error) {
 			return &model.PaymentRecipient{ID: id, RecipientName: "Updated"}, nil
 		},
@@ -679,6 +688,9 @@ func TestUpdatePaymentRecipient_Success(t *testing.T) {
 
 func TestUpdatePaymentRecipient_NotFound(t *testing.T) {
 	rm := &mockRecipientFacade{
+		getByIDFn: func(id uint64) (*model.PaymentRecipient, error) {
+			return &model.PaymentRecipient{ID: id, ClientID: 5}, nil
+		},
 		updateFn: func(_ uint64, _, _ *string) (*model.PaymentRecipient, error) {
 			return nil, service.ErrRecipientNotFound
 		},

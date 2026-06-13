@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -239,5 +240,163 @@ func TestSeedDefaultTemplates(t *testing.T) {
 	templates2, _ := templateRepo.List()
 	if len(templates2) != 3 {
 		t.Errorf("expected still 3 templates after re-seed, got %d", len(templates2))
+	}
+}
+
+// --- Recording producer mock ---
+
+// recordingLimitProducer captures the last published EmployeeLimitsUpdatedMessage.
+type recordingLimitProducer struct {
+	lastLimitsMsg *kafkamsg.EmployeeLimitsUpdatedMessage
+}
+
+func (r *recordingLimitProducer) PublishEmployeeLimitsUpdated(_ context.Context, msg kafkamsg.EmployeeLimitsUpdatedMessage) error {
+	r.lastLimitsMsg = &msg
+	return nil
+}
+
+func (r *recordingLimitProducer) PublishLimitTemplate(_ context.Context, _ kafkamsg.LimitTemplateMessage) error {
+	return nil
+}
+
+// versionedLimitRepo simulates DB-side version assignment on Upsert.
+type versionedLimitRepo struct {
+	limits map[int64]*model.EmployeeLimit
+}
+
+func newVersionedLimitRepo() *versionedLimitRepo {
+	return &versionedLimitRepo{limits: make(map[int64]*model.EmployeeLimit)}
+}
+
+func (r *versionedLimitRepo) Create(limit *model.EmployeeLimit) error {
+	r.limits[limit.EmployeeID] = limit
+	return nil
+}
+
+func (r *versionedLimitRepo) GetByEmployeeID(employeeID int64) (*model.EmployeeLimit, error) {
+	if l, ok := r.limits[employeeID]; ok {
+		return l, nil
+	}
+	return &model.EmployeeLimit{EmployeeID: employeeID}, nil
+}
+
+func (r *versionedLimitRepo) Update(limit *model.EmployeeLimit) error {
+	r.limits[limit.EmployeeID] = limit
+	return nil
+}
+
+func (r *versionedLimitRepo) Delete(employeeID int64) error {
+	delete(r.limits, employeeID)
+	return nil
+}
+
+func (r *versionedLimitRepo) Upsert(limit *model.EmployeeLimit) error {
+	// Simulate DB-side monotonic version: version=1 on first insert, version+1 on
+	// each subsequent conflict-update — matching the ON CONFLICT DO UPDATE behaviour
+	// in EmployeeLimitRepository.Upsert after the SP-2 fix.
+	if existing, ok := r.limits[limit.EmployeeID]; ok {
+		limit.Version = existing.Version + 1
+	} else {
+		limit.Version = 1
+	}
+	r.limits[limit.EmployeeID] = limit
+	return nil
+}
+
+func (r *versionedLimitRepo) ResetDailyUsedLimits() error {
+	return nil
+}
+
+// --- SP-2 publish tests ---
+
+func TestSetEmployeeLimits_PublishesFullSnapshot(t *testing.T) {
+	limitRepo := newVersionedLimitRepo()
+	templateRepo := newMockLimitTemplateRepo()
+	pub := &recordingLimitProducer{}
+	svc := NewLimitService(limitRepo, templateRepo, newMockHierarchyEmpRepo(), pub)
+
+	limit := model.EmployeeLimit{
+		EmployeeID:            10,
+		MaxLoanApprovalAmount: decimal.NewFromInt(50000),
+		MaxSingleTransaction:  decimal.NewFromInt(10000),
+		MaxDailyTransaction:   decimal.NewFromInt(20000),
+		MaxClientDailyLimit:   decimal.NewFromInt(5000),
+		MaxClientMonthlyLimit: decimal.NewFromInt(100000),
+	}
+	result, err := svc.SetEmployeeLimits(context.Background(), limit, 0)
+	if err != nil {
+		t.Fatalf("SetEmployeeLimits: %v", err)
+	}
+	if pub.lastLimitsMsg == nil {
+		t.Fatal("expected EmployeeLimitsUpdatedMessage to be published, got nil")
+	}
+	msg := pub.lastLimitsMsg
+	if msg.Action != "set" {
+		t.Errorf("expected action=set, got %q", msg.Action)
+	}
+	if msg.MaxLoanApprovalAmount != result.MaxLoanApprovalAmount.StringFixed(4) {
+		t.Errorf("MaxLoanApprovalAmount: want %q, got %q", result.MaxLoanApprovalAmount.StringFixed(4), msg.MaxLoanApprovalAmount)
+	}
+	if msg.MaxSingleTransaction != result.MaxSingleTransaction.StringFixed(4) {
+		t.Errorf("MaxSingleTransaction: want %q, got %q", result.MaxSingleTransaction.StringFixed(4), msg.MaxSingleTransaction)
+	}
+	if msg.MaxDailyTransaction != result.MaxDailyTransaction.StringFixed(4) {
+		t.Errorf("MaxDailyTransaction: want %q, got %q", result.MaxDailyTransaction.StringFixed(4), msg.MaxDailyTransaction)
+	}
+	if msg.MaxClientDailyLimit != result.MaxClientDailyLimit.StringFixed(4) {
+		t.Errorf("MaxClientDailyLimit: want %q, got %q", result.MaxClientDailyLimit.StringFixed(4), msg.MaxClientDailyLimit)
+	}
+	if msg.MaxClientMonthlyLimit != result.MaxClientMonthlyLimit.StringFixed(4) {
+		t.Errorf("MaxClientMonthlyLimit: want %q, got %q", result.MaxClientMonthlyLimit.StringFixed(4), msg.MaxClientMonthlyLimit)
+	}
+	if msg.Version != result.Version {
+		t.Errorf("Version: want %d, got %d", result.Version, msg.Version)
+	}
+}
+
+func TestApplyTemplate_PublishesFullSnapshot(t *testing.T) {
+	limitRepo := newVersionedLimitRepo()
+	templateRepo := newMockLimitTemplateRepo()
+	pub := &recordingLimitProducer{}
+
+	tmpl := &model.LimitTemplate{
+		Name:                  "BasicTeller",
+		MaxLoanApprovalAmount: decimal.NewFromInt(50000),
+		MaxSingleTransaction:  decimal.NewFromInt(10000),
+		MaxDailyTransaction:   decimal.NewFromInt(20000),
+		MaxClientDailyLimit:   decimal.NewFromInt(5000),
+		MaxClientMonthlyLimit: decimal.NewFromInt(100000),
+	}
+	_ = templateRepo.Create(tmpl)
+
+	svc := NewLimitService(limitRepo, templateRepo, newMockHierarchyEmpRepo(), pub)
+	result, err := svc.ApplyTemplate(context.Background(), 99, "BasicTeller", 0)
+	if err != nil {
+		t.Fatalf("ApplyTemplate: %v", err)
+	}
+	if pub.lastLimitsMsg == nil {
+		t.Fatal("expected EmployeeLimitsUpdatedMessage to be published, got nil")
+	}
+	msg := pub.lastLimitsMsg
+	if msg.Action != "template_applied" {
+		t.Errorf("expected action=template_applied, got %q", msg.Action)
+	}
+	if msg.MaxLoanApprovalAmount != result.MaxLoanApprovalAmount.StringFixed(4) {
+		t.Errorf("MaxLoanApprovalAmount: want %q, got %q", result.MaxLoanApprovalAmount.StringFixed(4), msg.MaxLoanApprovalAmount)
+	}
+	if msg.MaxSingleTransaction != result.MaxSingleTransaction.StringFixed(4) {
+		t.Errorf("MaxSingleTransaction: want %q, got %q", result.MaxSingleTransaction.StringFixed(4), msg.MaxSingleTransaction)
+	}
+	if msg.MaxDailyTransaction != result.MaxDailyTransaction.StringFixed(4) {
+		t.Errorf("MaxDailyTransaction: want %q, got %q", result.MaxDailyTransaction.StringFixed(4), msg.MaxDailyTransaction)
+	}
+	if msg.MaxClientDailyLimit != result.MaxClientDailyLimit.StringFixed(4) {
+		t.Errorf("MaxClientDailyLimit: want %q, got %q", result.MaxClientDailyLimit.StringFixed(4), msg.MaxClientDailyLimit)
+	}
+	if msg.MaxClientMonthlyLimit != result.MaxClientMonthlyLimit.StringFixed(4) {
+		t.Errorf("MaxClientMonthlyLimit: want %q, got %q", result.MaxClientMonthlyLimit.StringFixed(4), msg.MaxClientMonthlyLimit)
+	}
+	if msg.Version != result.Version {
+		t.Errorf("Version: want %d, got %d", result.Version, msg.Version)
 	}
 }

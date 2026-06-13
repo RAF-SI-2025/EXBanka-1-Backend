@@ -14,7 +14,7 @@ import (
 func runAuthMW(t *testing.T, m *mockAuthClient, req *http.Request) int {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/x", AuthMiddleware(m), func(c *gin.Context) {
+	r.GET("/x", AuthMiddleware(vfy(m)), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 	})
 	w := httptest.NewRecorder()
@@ -58,7 +58,7 @@ func TestAnyAuthMiddleware_BadFormat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	mock := &mockAuthClient{}
-	r.GET("/x", AnyAuthMiddleware(mock), func(c *gin.Context) {
+	r.GET("/x", AnyAuthMiddleware(vfy(mock)), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 	})
 	req := httptest.NewRequest("GET", "/x", nil)
@@ -74,7 +74,7 @@ func TestAnyAuthMiddleware_MissingHeaderExtra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	mock := &mockAuthClient{}
-	r.GET("/x", AnyAuthMiddleware(mock), func(c *gin.Context) {
+	r.GET("/x", AnyAuthMiddleware(vfy(mock)), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 	})
 	w := httptest.NewRecorder()
@@ -88,7 +88,7 @@ func TestAnyAuthMiddleware_ValidateErr(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	mock := &mockAuthClient{err: errors.New("rpc down")}
-	r.GET("/x", AnyAuthMiddleware(mock), func(c *gin.Context) {
+	r.GET("/x", AnyAuthMiddleware(vfy(mock)), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 	})
 	req := httptest.NewRequest("GET", "/x", nil)

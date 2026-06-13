@@ -57,9 +57,10 @@ func TestMapOTCErr_Passthrough(t *testing.T) {
 func TestToContractProto_NoTimestamps(t *testing.T) {
 	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	uid := uint64(7)
+	offerID := uint64(5)
 	c := &model.OptionContract{
 		ID:              42,
-		OfferID:         5,
+		OfferID:         &offerID,
 		StockID:         99,
 		Quantity:        decimal.NewFromInt(100),
 		StrikePrice:     decimal.NewFromInt(150),
@@ -129,9 +130,6 @@ func TestToOTCOfferProto_Minimal(t *testing.T) {
 		Direction:                   model.OTCDirectionSellInitiated,
 		StockID:                     7,
 		Quantity:                    decimal.NewFromInt(50),
-		StrikePrice:                 decimal.NewFromInt(120),
-		Premium:                     decimal.NewFromInt(300),
-		SettlementDate:              now,
 		Status:                      model.OTCOfferStatusPending,
 		InitiatorOwnerType:          model.OwnerClient,
 		InitiatorOwnerID:            &uid,
@@ -166,7 +164,6 @@ func TestToOTCOfferProto_WithCounterparty(t *testing.T) {
 		InitiatorOwnerID:      &uid,
 		CounterpartyOwnerType: &cpt,
 		CounterpartyOwnerID:   nil,
-		SettlementDate:        now,
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}
@@ -176,44 +173,5 @@ func TestToOTCOfferProto_WithCounterparty(t *testing.T) {
 	}
 	if r.Counterparty.SystemType != "bank" || r.Counterparty.UserId != 0 {
 		t.Errorf("got %+v", r.Counterparty)
-	}
-}
-
-func TestPeerContractToProto(t *testing.T) {
-	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
-	p := &model.PeerOptionContract{
-		ID:                       1,
-		CrossbankTxID:            "tx-123",
-		PostingIndex:             2,
-		NegotiationRoutingNumber: 222,
-		NegotiationID:            "neg-1",
-		BuyerRoutingNumber:       111,
-		BuyerID:                  "client-7",
-		SellerRoutingNumber:      222,
-		SellerID:                 "client-9",
-		Ticker:                   "AAPL",
-		Quantity:                 100,
-		StrikePrice:              decimal.NewFromInt(150),
-		Currency:                 "USD",
-		SettlementDate:           "2026-12-31",
-		Direction:                "DEBIT",
-		Status:                   "active",
-		CreatedAt:                now,
-	}
-	r := peerContractToProto(p)
-	if r.Id != 1 || r.CrossbankTxId != "tx-123" || r.Ticker != "AAPL" || r.Quantity != 100 {
-		t.Errorf("basic: %+v", r)
-	}
-	if r.BuyerId == nil || r.BuyerId.RoutingNumber != 111 || r.BuyerId.Id != "client-7" {
-		t.Errorf("buyer: %+v", r.BuyerId)
-	}
-	if r.SellerId == nil || r.SellerId.RoutingNumber != 222 {
-		t.Errorf("seller: %+v", r.SellerId)
-	}
-	if r.StrikePrice != "150" {
-		t.Errorf("strike: %s", r.StrikePrice)
-	}
-	if r.CreatedAtUnix != now.Unix() {
-		t.Errorf("created_at: %d", r.CreatedAtUnix)
 	}
 }

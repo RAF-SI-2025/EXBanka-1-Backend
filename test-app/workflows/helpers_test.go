@@ -171,20 +171,30 @@ func getBankRSDAccount(t *testing.T, c *client.APIClient) (string, float64) {
 	if !ok {
 		t.Fatalf("getBankRSDAccount: response missing 'accounts' array. Body: %s", string(resp.RawBody))
 	}
+	// Deterministically pick the lowest-id RSD bank account: the seeded bank
+	// treasury / fee-collector. Investment-fund RSD accounts are also flagged
+	// is_bank_account, so "first RSD in the list" is non-deterministic under
+	// parallel runs (and would return a 0-balance fund account); the seeded
+	// treasury always has the lowest id.
+	bestID := -1.0
+	var bestNum string
+	var bestBal float64
 	for _, a := range accts {
 		m, ok := a.(map[string]interface{})
-		if !ok {
+		if !ok || m["currency_code"] != "RSD" {
 			continue
 		}
-		if m["currency_code"] != "RSD" {
-			continue
+		idVal, _ := m["id"].(float64)
+		if bestID < 0 || idVal < bestID {
+			bestID = idVal
+			bestNum, _ = m["account_number"].(string)
+			bestBal = parseJSONBalance(t, m, "available_balance")
 		}
-		acctNum, _ := m["account_number"].(string)
-		bal := parseJSONBalance(t, m, "available_balance")
-		return acctNum, bal
 	}
-	t.Fatal("getBankRSDAccount: no bank account with currency_code=RSD found")
-	return "", 0
+	if bestID < 0 {
+		t.Fatal("getBankRSDAccount: no bank account with currency_code=RSD found")
+	}
+	return bestNum, bestBal
 }
 
 // scanKafkaForActivationToken reads the notification.send-email topic from the earliest
@@ -380,6 +390,41 @@ func submitVerificationCode(t *testing.T, c *client.APIClient, challengeID int, 
 		t.Fatalf("submitVerificationCode: POST /api/verifications/%d/code: %v", challengeID, err)
 	}
 	helpers.RequireStatus(t, resp, 200)
+}
+
+// scanKafkaForEmailType reads notification.send-email from the earliest offset and
+// reports whether an email of the given type was sent to the given address within 15s.
+// Mirrors scanKafkaForActivationToken but matches on email_type instead of extracting a token.
+func scanKafkaForEmailType(t *testing.T, email, emailType string) bool {
+	t.Helper()
+	r := kafkalib.NewReader(kafkalib.ReaderConfig{
+		Brokers:     []string{cfg.KafkaBrokers},
+		Topic:       "notification.send-email",
+		Partition:   0,
+		StartOffset: kafkalib.FirstOffset,
+		MaxWait:     500 * time.Millisecond,
+	})
+	defer r.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	for {
+		msg, err := r.ReadMessage(ctx)
+		if err != nil {
+			break
+		}
+		var body struct {
+			To        string            `json:"to"`
+			EmailType string            `json:"email_type"`
+			Data      map[string]string `json:"data"`
+		}
+		if json.Unmarshal(msg.Value, &body) != nil {
+			continue
+		}
+		if body.To == email && body.EmailType == emailType {
+			return true
+		}
+	}
+	return false
 }
 
 // setupActivatedClientWithForeignAccount creates a client with RSD (100k) + foreign currency account (10k).
@@ -598,4 +643,24 @@ func assertBalanceChanged(t *testing.T, c *client.APIClient, accountNum string, 
 		t.Errorf("assertBalanceChanged(%s): expected delta %.2f, got %.2f (before=%.2f, after=%.2f)",
 			accountNum, expectedDelta, actual, before, after)
 	}
+}
+
+// createClientForeignAccount creates a foreign-currency account for a client
+// (account_kind=foreign — current accounts are RSD-only) and returns the
+// account ID + number. Used by OTC stock tests that need a USD account to back
+// a buy offer / receive sale proceeds on a USD-denominated listing.
+func createClientForeignAccount(t *testing.T, adminC *client.APIClient, clientID int, currency string, balance float64) (accountID uint64, accountNumber string) {
+	t.Helper()
+	resp, err := adminC.POST("/api/v3/accounts", map[string]interface{}{
+		"owner_id":        clientID,
+		"account_kind":    "foreign",
+		"account_type":    "personal",
+		"currency_code":   currency,
+		"initial_balance": balance,
+	})
+	if err != nil {
+		t.Fatalf("createClientForeignAccount: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 201)
+	return uint64(helpers.GetNumberField(t, resp, "id")), helpers.GetStringField(t, resp, "account_number")
 }

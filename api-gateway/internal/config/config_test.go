@@ -35,6 +35,44 @@ func TestLoadOverrides(t *testing.T) {
 	}
 }
 
+func TestLoad_RateLimitDefaults(t *testing.T) {
+	for _, k := range []string{"RATE_LIMIT_GLOBAL_PER_MIN", "RATE_LIMIT_LOGIN_PER_5MIN", "RATE_LIMIT_RESET_PER_5MIN"} {
+		_ = os.Unsetenv(k)
+	}
+	cfg := Load()
+	if cfg.RateLimitGlobalPerMin != 3000 {
+		t.Fatalf("global default: want 3000, got %d", cfg.RateLimitGlobalPerMin)
+	}
+	if cfg.RateLimitLoginPer5Min != 20 {
+		t.Fatalf("login default: want 20, got %d", cfg.RateLimitLoginPer5Min)
+	}
+	if cfg.RateLimitResetPer5Min != 5 {
+		t.Fatalf("reset default: want 5, got %d", cfg.RateLimitResetPer5Min)
+	}
+}
+
+func TestLoad_RateLimitOverride(t *testing.T) {
+	t.Setenv("RATE_LIMIT_GLOBAL_PER_MIN", "100")
+	if got := Load().RateLimitGlobalPerMin; got != 100 {
+		t.Fatalf("override: want 100, got %d", got)
+	}
+}
+
+func TestGetEnvInt(t *testing.T) {
+	t.Setenv("X_INT_KEY", "42")
+	if got := getEnvInt("X_INT_KEY", 7); got != 42 {
+		t.Fatalf("want 42, got %d", got)
+	}
+	t.Setenv("X_INT_BAD", "notanint")
+	if got := getEnvInt("X_INT_BAD", 7); got != 7 {
+		t.Fatalf("bad value should fall back to 7, got %d", got)
+	}
+	_ = os.Unsetenv("X_INT_MISSING")
+	if got := getEnvInt("X_INT_MISSING", 9); got != 9 {
+		t.Fatalf("want 9, got %d", got)
+	}
+}
+
 func TestGetEnv(t *testing.T) {
 	t.Setenv("X_TEST_KEY", "set")
 	if got := getEnv("X_TEST_KEY", "fb"); got != "set" {

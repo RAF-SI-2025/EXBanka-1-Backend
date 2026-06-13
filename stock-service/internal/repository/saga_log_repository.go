@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -38,6 +39,34 @@ func (r *SagaLogRepository) GetByID(id uint64) (*model.SagaLog, error) {
 		return nil, err
 	}
 	return &log, nil
+}
+
+// FindLatestCompensationRow returns the most-recent compensation row for
+// (saga_id, step_name), or (nil, nil) when none exists. RecordCompensation uses
+// it to REUSE an existing compensation row instead of inserting a new one on
+// every recovery tick: the recovery loop re-drives the WHOLE rollback each time
+// it reconciles a stuck saga, so without reuse a persistently-failing Backward
+// would spawn a fresh compensating row per tick and grow saga_logs without bound.
+// Reuse keeps the stuck compensation on ONE row whose retry_count climbs to
+// dead_letter (the correct escalation). Safe because every Backward in this
+// service is idempotent, so re-running it against the reused row is a no-op when
+// the effect already applied.
+func (r *SagaLogRepository) FindLatestCompensationRow(sagaID, stepName string) (*model.SagaLog, error) {
+	if sagaID == "" {
+		return nil, nil
+	}
+	var row model.SagaLog
+	err := r.db.
+		Where("saga_id = ? AND step_name = ? AND is_compensation = ?", sagaID, stepName, true).
+		Order("id DESC").
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 // ListPendingForOrder returns saga steps for an order that are in pending or
@@ -121,6 +150,45 @@ func (r *SagaLogRepository) IsForwardCompleted(sagaID, stepName string) (bool, e
 			sagaID, stepName, model.SagaStatusCompleted, false).
 		Count(&count).Error
 	return count > 0, err
+}
+
+// HasCompensations reports whether any compensation row exists for a saga,
+// i.e. the saga had begun rolling back before the process died. Crash recovery
+// uses this to decide direction: a saga with compensation rows was aborting, so
+// recovery finishes the rollback (Compensate); one without was crashed mid
+// forward, so recovery resumes forward (Execute). Counts any compensation row
+// regardless of status (compensating / compensated / failed) so a rollback that
+// barely started is still detected.
+func (r *SagaLogRepository) HasCompensations(sagaID string) (bool, error) {
+	if sagaID == "" {
+		return false, nil
+	}
+	var count int64
+	err := r.db.Model(&model.SagaLog{}).
+		Where("saga_id = ? AND is_compensation = ?", sagaID, true).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// MarkDeadLetter transitions a saga_log row to "dead_letter" status, indicating
+// it has exhausted all recovery retries and requires manual operator review or
+// out-of-band reconciliation. The status is a terminal state from the recovery
+// reconciler's perspective — it will no longer attempt retries for this row.
+func (r *SagaLogRepository) MarkDeadLetter(id uint64) error {
+	result := r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.SagaLog{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":     "dead_letter",
+			"updated_at": time.Now(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrOptimisticLock
+	}
+	return nil
 }
 
 // IncrementRetryCount bumps retry_count + updated_at on a saga row without

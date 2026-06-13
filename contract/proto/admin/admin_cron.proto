@@ -1,0 +1,42 @@
+syntax = "proto3";
+package admin;
+option go_package = "github.com/exbanka/contract/adminpb;adminpb";
+
+service AdminCron {
+  rpc ListCrons(ListCronsRequest) returns (ListCronsResponse);
+  rpc GetCron(GetCronRequest) returns (CronInfoMsg);
+  rpc TriggerCron(TriggerRequest) returns (CronCtrlResponse);
+  rpc PauseCron(PauseRequest) returns (CronCtrlResponse);
+  rpc ResumeCron(ResumeRequest) returns (CronCtrlResponse);
+}
+
+message ListCronsRequest {}
+message ListCronsResponse { repeated CronInfoMsg crons = 1; }
+
+message GetCronRequest { string name = 1; }
+
+message TriggerRequest {
+  string name = 1;
+  bool   force = 2;
+  int64  triggered_by = 3;
+}
+message PauseRequest  { string name = 1; int64 paused_by  = 2; }
+message ResumeRequest { string name = 1; int64 resumed_by = 2; }
+message CronCtrlResponse { string status = 1; }
+
+message CronInfoMsg {
+  string name              = 1;
+  string service           = 2;
+  string description       = 3;
+  string interval          = 4;   // duration string e.g. "30s","24h"
+  string cron_expression   = 5;
+  string last_started_at   = 6;   // RFC3339, empty if never run
+  string last_finished_at  = 7;   // RFC3339, empty if never run
+  string last_error        = 8;
+  string next_scheduled_at = 9;   // RFC3339
+  bool   is_paused         = 10;
+  int64  paused_by_employee = 11;
+  string paused_at         = 12;  // RFC3339, empty if not paused
+  int64  run_count         = 13;
+  int64  error_count       = 14;
+}

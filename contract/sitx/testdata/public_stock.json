@@ -1,0 +1,23 @@
+[
+  {
+    "stock": {
+      "ticker": "AAPL"
+    },
+    "sellers": [
+      {
+        "seller": {
+          "routingNumber": 111,
+          "id": "client-3"
+        },
+        "amount": 50
+      },
+      {
+        "seller": {
+          "routingNumber": 111,
+          "id": "client-9"
+        },
+        "amount": 20
+      }
+    ]
+  }
+]

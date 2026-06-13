@@ -78,6 +78,18 @@ const docTemplate = `{
                         "description": "filter to active funds",
                         "name": "active_only",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "name|value|profit|annualized_return|volatility|reward_to_variability|max_drawdown",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc|desc",
+                        "name": "sort_order",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -169,45 +181,6 @@ const docTemplate = `{
             }
         },
         "/api/v1/investment-funds/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "InvestmentFunds"
-                ],
-                "summary": "Get investment fund detail",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "fund id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
             "put": {
                 "security": [
                     {
@@ -1704,7 +1677,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Copies blueprint limit values to the target entity (employee, actuary, or client based on blueprint type)",
+                "description": "Copies blueprint limit values to the target entity (employee, actuary, or client based on blueprint type). Client-type blueprints are applied directly via client-service; employee/actuary types go through user-service.",
                 "consumes": [
                     "application/json"
                 ],
@@ -5607,7 +5580,7 @@ const docTemplate = `{
                 "summary": "Place a securities order (stock/futures/forex/option) for the authenticated user",
                 "parameters": [
                     {
-                        "description": "Order. security_type is optional ('stock'|'futures'|'forex'|'option'); required for forex validation. base_account_id is required for forex buy orders.",
+                        "description": "Order. security_type is optional ('stock'|'futures'|'forex'|'option'); required for forex validation. base_account_id is required for forex buy orders. on_behalf_of_fund_id (employee-only) places the order against an investment fund — account_id is then OPTIONAL and auto-resolves to the fund's RSD account; a fund sell draws from the fund's portfolio (fund_holdings).",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -6569,7 +6542,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.",
+                "description": "Employee-only. Supply exactly one of ` + "`" + `client_id` + "`" + ` (on behalf of a client) or ` + "`" + `on_behalf_of_fund_id` + "`" + ` (on behalf of an investment fund). For client orders the gateway verifies the account belongs to the named client; for fund orders the account is the fund's RSD account and stock-service re-validates the fund-manager binding. stock-service records acting_employee_id for audit.",
                 "consumes": [
                     "application/json"
                 ],
@@ -6579,10 +6552,10 @@ const docTemplate = `{
                 "tags": [
                     "orders"
                 ],
-                "summary": "Place stock/futures/forex/option order on behalf of a client",
+                "summary": "Place stock/futures/forex/option order on behalf of a client or fund",
                 "parameters": [
                     {
-                        "description": "Order",
+                        "description": "Order. Provide client_id OR on_behalf_of_fund_id (not both). For fund orders account_id is OPTIONAL and auto-resolves to the fund's RSD account; a fund sell draws from the fund's portfolio (fund_holdings).",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -6600,7 +6573,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad Request",
+                        "description": "validation_error — provide exactly one of client_id / on_behalf_of_fund_id",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -6622,74 +6595,6 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v2/otc/admin/offers/{id}/buy": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "otc"
-                ],
-                "summary": "Buy an OTC offer on behalf of a client",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Offer ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Purchase",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -8584,6 +8489,1203 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/admin/audit/accounts-changelog": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all changelog entries for the account-service across all accounts. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Global accounts changelog (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter from date YYYY-MM-DD (inclusive)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to date YYYY-MM-DD (inclusive)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by employee (actor) ID",
+                        "name": "actor_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action string (exact match)",
+                        "name": "action",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/audit/business-actions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns who-did-what audit entries for high-value business actions (limit changes, usedLimit resets, order approve/reject, permission changes, manual tax collection), persisted by notification-service. Filterable by date range, actor, action, and target type. Requires admin.audit.view.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Global business-action audit log (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter from date YYYY-MM-DD (inclusive)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to date YYYY-MM-DD (inclusive)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by actor employee ID",
+                        "name": "actor_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action (limit.set|limit.used_reset|order.approve|order.decline|permissions.set|tax.collect)",
+                        "name": "action",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by target type (employee|order|role|tax)",
+                        "name": "target_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/audit/cards-changelog": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all changelog entries for the card-service across all cards. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Global cards changelog (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter from date YYYY-MM-DD (inclusive)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to date YYYY-MM-DD (inclusive)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by employee (actor) ID",
+                        "name": "actor_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action string (exact match)",
+                        "name": "action",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/audit/clients-changelog": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all changelog entries for the client-service across all clients. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Global clients changelog (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter from date YYYY-MM-DD (inclusive)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to date YYYY-MM-DD (inclusive)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by employee (actor) ID",
+                        "name": "actor_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action string (exact match)",
+                        "name": "action",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/audit/cron-actions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all admin cron-control action entries (trigger/pause/resume) persisted by notification-service. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Global admin cron-action audit log (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter from date YYYY-MM-DD (inclusive)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to date YYYY-MM-DD (inclusive)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by employee ID",
+                        "name": "actor_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action string (trigger|pause|resume)",
+                        "name": "action",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/audit/employees-changelog": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all changelog entries for the user-service across all employees. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Global employees changelog (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter from date YYYY-MM-DD (inclusive)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to date YYYY-MM-DD (inclusive)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by employee (actor) ID",
+                        "name": "actor_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action string (exact match)",
+                        "name": "action",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/audit/loans-changelog": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all changelog entries for the credit-service across all loans. Filterable by date range, actor, and action. Admin-only (requires admin.audit.view).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Global loans changelog (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter from date YYYY-MM-DD (inclusive)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to date YYYY-MM-DD (inclusive)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by employee (actor) ID",
+                        "name": "actor_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action string (exact match)",
+                        "name": "action",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/audit/saga-logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns transaction-service saga_logs (forward + compensation steps), paginated and filterable. Requires admin.audit.view. Lets an admin review saga execution and compensation history.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AdminAudit"
+                ],
+                "summary": "List transfer/payment saga execution logs (admin audit)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 50, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "filter to a single saga",
+                        "name": "saga_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "pending|completed|failed|compensating|dead_letter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "transfer|payment",
+                        "name": "transaction_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "YYYY-MM-DD (created_at \u003e=)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "YYYY-MM-DD (created_at \u003c=)",
+                        "name": "until",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/crons": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns cron job information from every service that exposes the AdminCron gRPC interface. Each service result carries status \"ok\" or \"unreachable\". A single unreachable service does NOT fail the whole response.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "List all crons across services",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/crons/{service}/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the full CronInfo for a named cron on the specified service.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get one cron's detail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name (e.g. stock-service)",
+                        "name": "service",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Cron name (e.g. tax-collection)",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/crons/{service}/{name}/pause": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pauses the named cron on the specified service. Optional body: { \"reason\": string }.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Pause a cron",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "service",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Cron name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pause options",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handler.pauseResumeBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/crons/{service}/{name}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resumes a previously paused cron on the specified service. Optional body: { \"reason\": string }.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Resume a paused cron",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "service",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Cron name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Resume options",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handler.pauseResumeBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/crons/{service}/{name}/trigger": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Forces an immediate execution of the named cron on the specified service. Optional body: { \"force\": bool, \"reason\": string }.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Trigger a cron manually",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "service",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Cron name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Trigger options",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handler.triggerBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/dividends": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin creates a declared DividendPayment row. Idempotent on (security_id, payment_date).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "Declare a dividend for a security",
+                "parameters": [
+                    {
+                        "description": "dividend declaration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.declareDividendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/admin/dividends/{id}/payout": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fans out dividend credits to all holders of the security. Idempotent.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "Trigger dividend payout",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "dividend_payment_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/bank-accounts/{id}/activity": {
             "get": {
                 "security": [
@@ -9226,6 +10328,427 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/cross-bank-protocol/interbank": {
+            "post": {
+                "description": "Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on ` + "`" + `type` + "`" + ` and dispatches.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX / VOTE)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/cross-bank-protocol/interbank/{transaction_id}/status": {
+            "get": {
+                "description": "Allows a peer bank to query the state of a cross-bank SI-TX transaction by its transactionId. Returns the state and our role (sender|receiver). Used by the Celina-5 CHECK_STATUS retry mechanism so stuck sagas can be resolved by either side.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: query cross-bank transaction status (CHECK_STATUS)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SI-TX transaction UUID (idempotence key)",
+                        "name": "transaction_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/cross-bank-protocol/negotiations": {
+            "post": {
+                "description": "Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing and sellerId.routingNumber MUST equal this bank.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: create OTC option negotiation",
+                "parameters": [
+                    {
+                        "description": "SI-TX OtcOffer wire shape",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.peerOtcOfferReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "ForeignBankId of the newly-created negotiation",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/cross-bank-protocol/negotiations/{rid}/{id}": {
+            "get": {
+                "description": "Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: read an OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: counter-offer on an existing OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number (this bank's, that issued the foreign_id)",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new SI-TX OtcOffer terms",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.peerOtcOfferReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "out of turn or negotiation closed (SI-TX §3.3)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: cancel an OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/cross-bank-protocol/negotiations/{rid}/{id}/accept": {
+            "get": {
+                "description": "Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: accept an OTC negotiation (triggers option-formation SI-TX)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "transactionId + status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/cross-bank-protocol/public-stock": {
+            "get": {
+                "description": "Inbound from a peer bank. Returns this bank's holdings flagged public_quantity \u003e 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: list public stock holdings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/cross-bank-protocol/user/{rid}/{id}": {
+            "get": {
+                "description": "Inbound from a peer bank. Forwards to interbank-service which looks up the local (client-N / employee-N) user and returns first+last name. Routing number in path MUST match this bank's routing — others return 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: resolve a foreign user to display name",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number (must equal this bank's routing)",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "principal id, e.g. client-1 or employee-3",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/employees/{id}/changelog": {
             "get": {
                 "security": [
@@ -9301,19 +10824,30 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/interbank": {
-            "post": {
-                "description": "Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on ` + "`" + `type` + "`" + ` and dispatches.",
-                "consumes": [
-                    "application/json"
+        "/api/v3/investment-funds/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
                 ],
+                "description": "Returns the fund's basic fields plus computed statistics: investor_count, total_contributed_rsd, liquid_rsd_balance, total_holdings_value_rsd, total_value_rsd, total_dividends_paid_rsd (always \"0.00\" until E4), profit_rsd, profit_pct, and a holdings[] array with current_value_rsd per position.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "PeerOTC"
+                    "InvestmentFunds"
                 ],
-                "summary": "Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX / VOTE)",
+                "summary": "Get investment fund detail (enriched — E1)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "fund id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9322,8 +10856,62 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/investment-funds/{id}/dividends": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated fund_dividend_payments for the fund, most-recent first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "List an investment fund's dividend history",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "fund id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -9776,6 +11364,95 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/cards/requests/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single card request owned by the authenticated client. The /me self-version of GET /api/v3/cards/requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "card-requests"
+                ],
+                "summary": "Get one of the caller's own card requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "card request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/dividends": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated dividend_payouts for the caller's holdings, most-recent first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dividends"
+                ],
+                "summary": "List the caller's dividend history",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/loan-requests": {
             "post": {
                 "security": [
@@ -9842,23 +11519,40 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/me/otc/contracts": {
+        "/api/v3/me/loan-requests/{id}": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
+                "description": "Returns a single loan request owned by the authenticated client. The /me self-version of GET /api/v3/loan-requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "OTCOptions"
+                    "loans"
                 ],
-                "summary": "List the caller's OTC contracts",
+                "summary": "Get one of the caller's own loan requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "loan request id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -9867,40 +11561,39 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/me/otc/contracts/peer/{id}/exercise": {
-            "post": {
+        "/api/v3/me/otc/contracts": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Buyer-only. Initiates the SI-TX exercise flow: strike money buyer→seller + option markers carrying intent=exercise. Both banks transition the contract to status=exercised on COMMIT_TX, the seller's reservation is consumed and the buyer's holding is credited.",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Returns the caller's formed option contracts, LOCAL and REMOTE merged into one contracts[] array. Each item carries kind/routing_number/bank_code and me_owner (true when the caller is the buyer/holder). peer_contracts[] has been removed — remote contracts appear in contracts[] with kind=remote. (SP-1 Task 8)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Exercise a cross-bank OTC option contract",
+                "summary": "List the caller's OTC contracts (unified local + remote)",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "peer_option_contracts row id on this bank",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
+                        "type": "string",
+                        "description": "buyer|seller|either",
+                        "name": "role",
+                        "in": "query"
                     },
                     {
-                        "description": "buyer's currency account number that pays the strike",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.exercisePeerRequest"
-                        }
+                        "type": "integer",
+                        "description": "page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 20)",
+                        "name": "page_size",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -10046,6 +11739,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Posts an open OTC option offer. Terms (strike_price, premium, settlement_date) are NOT set at creation — they are agreed during negotiation. Only one open offer per (owner, ticker, direction) is allowed; a duplicate returns 409.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10058,7 +11752,7 @@ const docTemplate = `{
                 "summary": "Create an OTC option offer",
                 "parameters": [
                     {
-                        "description": "offer details (ticker-keyed; account_id is the initiator's account)",
+                        "description": "offer details (ticker-keyed, open terms; account_id is the initiator's account)",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10088,6 +11782,13 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -10099,14 +11800,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns chains where the caller is the bidder. Filter with ` + "`" + `?statuses=open,countered,accepted,rejected,cancelled,expired` + "`" + `.",
+                "description": "Returns a unified list of the caller's LOCAL (intra-bank bidder) and REMOTE (cross-bank peer) negotiation chains. Each item carries ` + "`" + `kind` + "`" + ` (local|remote), ` + "`" + `routing_number` + "`" + `/` + "`" + `bank_code` + "`" + ` provenance, and ` + "`" + `me_owner` + "`" + ` (true only when the caller is the parent listing's poster/seller). Filter with ` + "`" + `?statuses=open,countered,accepted,rejected,cancelled,expired` + "`" + ` (applied to both sets).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "List the caller's OTC option negotiation chains",
+                "summary": "List the caller's OTC option negotiation chains (local + remote, merged)",
                 "parameters": [
                     {
                         "type": "string",
@@ -10130,6 +11831,55 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/negotiations/{nid}/revisions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all bid/counter/accept/reject revisions for a negotiation chain in revision_number order. Caller must be either the bidder or the parent listing's poster.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List the full revision chain of an OTC option negotiation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "caller is not a party to this negotiation",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "negotiation not found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10185,6 +11935,79 @@ const docTemplate = `{
             }
         },
         "/api/v3/me/otc/options/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the TOTAL quantity of an open option offer the caller owns (up or down). Option offers are termless inventory; since only one open offer per (owner, ticker, direction) is allowed, the owner edits the total instead of posting a second offer. The new quantity must be \u003e 0, not below the shares already committed to formed/forming contracts on the offer, and not above the owner's holding for the ticker. Owner-only; the offer must be local and open.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Edit the total quantity of one of the caller's OTC option offers",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "offer id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new total quantity",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.updateOTCOptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -10551,151 +12374,33 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/me/otc/stocks": {
+        "/api/v3/me/otc/transactions/{txid}/status": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns sell offers (holdings with public_quantity \u003e 0) and buy offers (otc_stock_buy_offers rows) where the caller is the owner. Filter with ` + "`" + `?direction=sell|buy` + "`" + `.",
+                "description": "Resolves a cross-bank OTC trade's transaction id (bare idem, or the contract's \"peerCode:idem\" crossbank_tx_id) to {transaction_id, status, role, last_action_at, last_error}.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "OTCStocks"
+                    "otc"
                 ],
-                "summary": "List the caller's OTC stock offers (both directions)",
+                "summary": "Cross-bank OTC transaction status (SI-TX)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "sell|buy (omit for both)",
-                        "name": "direction",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "1-based, default 1",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "default 20, max 200",
-                        "name": "page_size",
-                        "in": "query"
+                        "description": "SI-TX transaction id (bare idem or 'peerCode:idem')",
+                        "name": "txid",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "direction=sell publishes shares from ` + "`" + `holding_id` + "`" + ` (accumulative); direction=buy creates a standing buy offer at ` + "`" + `price_per_unit` + "`" + ` backed by a cash reservation on ` + "`" + `buyer_account_id` + "`" + `.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCStocks"
-                ],
-                "summary": "Create an OTC stock sell or buy offer",
-                "parameters": [
-                    {
-                        "description": "offer details (direction-keyed)",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.createOTCStockOfferRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/otc/stocks/{id}": {
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Direction-keyed: sell cancels by holding_id (zeros public_quantity); buy cancels by offer_id (releases reserved cash).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCStocks"
-                ],
-                "summary": "Cancel your own OTC stock sell or buy offer",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "holding_id (sell) or otc_stock_buy_offers.id (buy)",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "sell|buy",
-                        "name": "direction",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10711,46 +12416,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/me/peer-otc/negotiations": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns rows from this bank's peer_otc_negotiations where the caller is either the buyer (this bank hosts the buyer) or the seller. Use ` + "`" + `role=buyer` + "`" + ` / ` + "`" + `role=seller` + "`" + ` to filter.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCOptions"
-                ],
-                "summary": "List the caller's pending peer-OTC negotiations",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "buyer|seller (default: both)",
-                        "name": "role",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
+        "/api/v3/me/payments": {
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Buyer-side client-facing endpoint. Composes an SI-TX OtcOffer with buyerId from the caller's JWT and sellerId from the body, then HTTP POSTs to the seller's bank's /api/v3/negotiations. Returns the foreign negotiation id assigned by the seller's bank.",
+                "description": "Intra-bank receivers (own 3-digit prefix) run the standard payment flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}. An unregistered destination bank code returns 404 before any debit. Currency is resolved from the sender's account unless an explicit \"currency\" is supplied.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10758,18 +12431,16 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "OTCOptions"
+                    "payments"
                 ],
-                "summary": "Initiate a cross-bank OTC negotiation",
+                "summary": "Create a payment (dispatches intra-bank or inter-bank SI-TX)",
                 "parameters": [
                     {
-                        "description": "negotiation terms",
+                        "description": "Payment request — see TransactionHandler.CreatePayment; optional 'currency' override for cross-bank",
                         "name": "body",
                         "in": "body",
                         "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.initiateNegotiationRequest"
-                        }
+                        "schema": {}
                     }
                 ],
                 "responses": {
@@ -10779,18 +12450,46 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
         },
-        "/api/v3/me/peer-otc/negotiations/{rid}/{id}": {
-            "put": {
+        "/api/v3/me/payments/preview": {
+            "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates the negotiation offer on the counterparty's bank. Body is the same OtcOffer shape as the initial POST. The gateway proxies a PUT to the counterparty's /api/v3/negotiations/:rid/:id. The local mirror row is updated by the inbound webhook from the counterparty after they refetch.",
+                "description": "Returns the commission fee and total debit for a payment without creating it. Payments are single-currency (no exchange).",
                 "consumes": [
                     "application/json"
                 ],
@@ -10798,20 +12497,68 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "OTCOptions"
+                    "payments"
                 ],
-                "summary": "Counter-offer on a cross-bank OTC negotiation",
+                "summary": "Preview payment costs",
+                "parameters": [
+                    {
+                        "description": "Payment preview data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.previewPaymentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/payments/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Numeric id → intra-bank payment. UUID id (from a cross-bank payment's poll_url) → SI-TX status {transaction_id, status, role, last_action_at, last_error}.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Get a payment by ID (or cross-bank SI-TX status by UUID)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "routing number of the bank that issued the negotiation id",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "foreign id",
+                        "description": "Payment ID (numeric) or SI-TX transaction id (UUID)",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10824,75 +12571,36 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Soft-cancels the negotiation on the counterparty's bank (DELETE flips isOngoing to false; the row is preserved per SI-TX §3.5). The local mirror is updated by the inbound webhook from the counterparty after they refetch.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCOptions"
-                ],
-                "summary": "Cancel a cross-bank OTC negotiation",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "routing number",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
                     },
-                    {
-                        "type": "string",
-                        "description": "foreign id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content",
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
-                            "type": "string"
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
             }
         },
-        "/api/v3/me/peer-otc/negotiations/{rid}/{id}/accept": {
-            "post": {
+        "/api/v3/me/payments/{id}/status": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Calls the counterparty's /api/v3/negotiations/:rid/:id/accept which begins the option-formation SI-TX (4-posting NEW_TX). Returns the transaction_id assigned by the counterparty.",
+                "description": "Lightweight status of a payment the caller owns. Mirrors the transfer status route so the frontend can poll payments and transfers separately.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "OTCOptions"
+                    "payments"
                 ],
-                "summary": "Accept a cross-bank OTC negotiation",
+                "summary": "Get the status of one of the caller's payments",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "routing number",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "foreign id",
+                        "type": "integer",
+                        "description": "payment id",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10901,6 +12609,53 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/portfolio": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all securities holdings and fund positions for the caller,",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "portfolio"
+                ],
+                "summary": "Get the caller's unified portfolio",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -11565,107 +13320,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/me/transfers": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Intra-bank receivers (own 3-digit prefix) delegate to the standard transfer flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "transfers"
-                ],
-                "summary": "Create a transfer (dispatches intra-bank or inter-bank SI-TX)",
-                "parameters": [
-                    {
-                        "description": "Transfer request — see TransactionHandler.CreateTransfer",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {}
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/me/transfers/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction IDs return 404 since the inter-bank lookup path is not yet wired.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "transfers"
-                ],
-                "summary": "Get a transfer by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Transfer ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v3/me/transfers/{id}/status": {
             "get": {
                 "security": [
@@ -11839,9 +13493,36 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/negotiations": {
+        "/api/v3/me/watchlists": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Watchlist"
+                ],
+                "summary": "List the caller's named watchlists (SP6)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
             "post": {
-                "description": "Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9).",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "consumes": [
                     "application/json"
                 ],
@@ -11849,23 +13530,23 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PeerOTC"
+                    "Watchlist"
                 ],
-                "summary": "Peer-to-peer: create OTC option negotiation",
+                "summary": "Create a named watchlist (SP6)",
                 "parameters": [
                     {
-                        "description": "SI-TX OtcOffer wire shape",
+                        "description": "list name",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handler.peerOtcOfferReq"
+                            "$ref": "#/definitions/handler.createWatchlistRequest"
                         }
                     }
                 ],
                 "responses": {
                     "201": {
-                        "description": "ForeignBankId of the newly-created negotiation",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -11877,16 +13558,39 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
+                    }
+                }
+            }
+        },
+        "/api/v3/me/watchlists/{watchlist_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Watchlist"
+                ],
+                "summary": "Delete a named watchlist and its items (SP6)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "watchlist id",
+                        "name": "watchlist_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "type": "string"
                         }
                     },
-                    "403": {
-                        "description": "Forbidden",
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -11895,30 +13599,33 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/negotiations/{rid}/{id}": {
+        "/api/v3/me/watchlists/{watchlist_id}/items": {
             "get": {
-                "description": "Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair.",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "PeerOTC"
+                    "Watchlist"
                 ],
-                "summary": "Peer-to-peer: read an OTC negotiation",
+                "summary": "List a named watchlist's items (SP6)",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "routing number",
-                        "name": "rid",
+                        "description": "watchlist id",
+                        "name": "watchlist_id",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
+                        "description": "stock|option|futures|forex",
+                        "name": "listing_type",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -11928,25 +13635,15 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
                     }
                 }
             },
-            "put": {
-                "description": "Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.",
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
                 "consumes": [
                     "application/json"
                 ],
@@ -11954,85 +13651,30 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PeerOTC"
+                    "Watchlist"
                 ],
-                "summary": "Peer-to-peer: counter-offer on an existing OTC negotiation",
+                "summary": "Add a listing to a named watchlist (SP6)",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "routing number (this bank's, that issued the foreign_id)",
-                        "name": "rid",
+                        "description": "watchlist id",
+                        "name": "watchlist_id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "new SI-TX OtcOffer terms",
+                        "description": "listing_id to track",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handler.peerOtcOfferReq"
+                            "$ref": "#/definitions/handler.addWatchlistRequest"
                         }
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "description": "Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PeerOTC"
-                ],
-                "summary": "Peer-to-peer: cancel an OTC negotiation",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "routing number",
-                        "name": "rid",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "401": {
-                        "description": "Unauthorized",
+                    "201": {
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -12041,52 +13683,38 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/negotiations/{rid}/{id}/accept": {
-            "get": {
-                "description": "Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics.",
-                "produces": [
-                    "application/json"
+        "/api/v3/me/watchlists/{watchlist_id}/items/{listing_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
                 ],
                 "tags": [
-                    "PeerOTC"
+                    "Watchlist"
                 ],
-                "summary": "Peer-to-peer: accept an OTC negotiation (triggers option-formation SI-TX)",
+                "summary": "Remove a listing from a named watchlist (SP6)",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "routing number",
-                        "name": "rid",
+                        "description": "watchlist id",
+                        "name": "watchlist_id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "type": "string",
-                        "description": "foreign negotiation id",
-                        "name": "id",
+                        "type": "integer",
+                        "description": "listing id",
+                        "name": "listing_id",
                         "in": "path",
                         "required": true
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "transactionId + status",
+                    "204": {
+                        "description": "No Content",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "type": "string"
                         }
                     }
                 }
@@ -12307,13 +13935,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Resolves an option contract by id. A LOCAL contract is returned with kind=local + own provenance + me_owner (true when caller is the buyer/holder). A non-local id falls back to the cross-bank mirror and returns kind=remote (me_owner=direction==CREDIT). 404 only when neither exists. (SP-1 Task 8)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Get an OTC contract",
+                "summary": "Get an OTC contract (unified local + remote)",
                 "parameters": [
                     {
                         "type": "integer",
@@ -12330,6 +13959,20 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -12341,6 +13984,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Exercises an option contract. The dispatch (local saga vs cross-bank SI-TX) is decided in stock-service from the contract's routing — the frontend uses ONE route regardless of kind. For a cross-bank contract, supply buyer_account_number (the buyer's currency account that pays the strike); the gateway validates the caller owns it. For a local contract the accounts come from the persisted contract and buyer_account_number is ignored.",
                 "consumes": [
                     "application/json"
                 ],
@@ -12350,7 +13994,7 @@ const docTemplate = `{
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Exercise an OTC option contract",
+                "summary": "Exercise an OTC option contract (unified local + cross-bank)",
                 "parameters": [
                     {
                         "type": "integer",
@@ -12360,7 +14004,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "optional on-behalf client id; accounts come from the contract",
+                        "description": "optional on-behalf client/fund id; buyer_account_number required only for cross-bank contracts",
                         "name": "body",
                         "in": "body",
                         "schema": {
@@ -12371,6 +14015,27 @@ const docTemplate = `{
                 "responses": {
                     "201": {
                         "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -12450,17 +14115,18 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Resolves an OTC option offer by its stable surrogate id (the local_id from the discovery feed). Local offers return the {offer,revisions} body decorated with kind=\"local\" + me_owner. If the id is not a local offer it is resolved from the remote (cross-bank) mirror and returned as a flat body with kind=\"remote\" + me_owner=false. When the authenticated caller has an own (bidder) negotiation chain against the offer, the offer object also carries my_negotiation_id + my_negotiation_status so the FE can jump straight to its chain (absent/0 otherwise; a poster who never bid has no chain).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Get an OTC offer with revisions",
+                "summary": "Get an OTC option offer by surrogate id (local or remote)",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "offer id",
+                        "description": "surrogate offer id",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -12469,6 +14135,20 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -12552,7 +14232,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal).",
+                "description": "Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal). Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403 and see only their own chain via GET /api/v3/me/otc/options/negotiations.",
                 "produces": [
                     "application/json"
                 ],
@@ -12576,44 +14256,39 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "403": {
+                        "description": "caller is neither the poster nor a permission-gated employee",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
         },
-        "/api/v3/otc/stocks/{id}/sell": {
-            "post": {
+        "/api/v3/otc/options/{id}/timeline": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "The caller sells the requested quantity of shares into",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Returns the offer plus every negotiation chain's revisions merged into one chronological stream (oldest first). Each entry carries its chain's negotiation_id and bidder identity so the frontend can render a single timeline or regroup into per-bidder swimlanes. Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "OTCStocks"
+                    "OTCOptions"
                 ],
-                "summary": "Fill a buy-direction OTC stock offer (sell into it)",
+                "summary": "Cross-chain interaction timeline for an OTC option offer",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "otc_stock_buy_offers.id",
+                        "description": "parent OTCOffer listing id",
                         "name": "id",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "description": "quantity + seller's destination account",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.sellOTCStockOfferRequest"
-                        }
                     }
                 ],
                 "responses": {
@@ -12624,29 +14299,15 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
                     "403": {
-                        "description": "Forbidden",
+                        "description": "caller is neither the poster nor a permission-gated employee",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "412": {
-                        "description": "offer not active OR seller short on shares",
+                        "description": "offer not found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -12702,18 +14363,21 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/public-option-offers": {
+        "/api/v3/portfolio/bank": {
             "get": {
-                "description": "Phase 6 cross-bank discovery. Returns this bank's\nInbound from a peer bank. Returns this bank's open option listings (kind=local). Includes best_bid / best_ask / active_chains_count when available so the peer's cache can surface a richer marketplace view.",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the bank-owned securities holdings and fund positions.",
                 "produces": [
-                    "application/json",
                     "application/json"
                 ],
                 "tags": [
-                    "PeerOTC",
-                    "PeerOTC"
+                    "portfolio"
                 ],
-                "summary": "Peer-to-peer: list public OPEN OTC option listings (Phase 6 discovery)",
+                "summary": "Get the bank's unified portfolio",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -12722,15 +14386,8 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "501": {
-                        "description": "OTCOfferReader not wired",
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -12739,16 +14396,30 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/public-stock": {
+        "/api/v3/portfolio/client/{client_id}": {
             "get": {
-                "description": "Inbound from a peer bank. Returns this bank's holdings flagged public_quantity \u003e 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2.",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires portfolio.view_client permission.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "PeerOTC"
+                    "portfolio"
                 ],
-                "summary": "Peer-to-peer: list public stock holdings",
+                "summary": "Get unified portfolio for a specific client",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Client ID",
+                        "name": "client_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -12757,8 +14428,113 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/portfolio/investment-fund/{fund_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires portfolio.view_fund permission.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "portfolio"
+                ],
+                "summary": "Get unified portfolio for an investment fund",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Fund ID",
+                        "name": "fund_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/portfolio/{portfolio_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "portfolio_id is in the form client-\u003cn\u003e, bank, or fund-\u003cn\u003e.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "portfolio"
+                ],
+                "summary": "Get unified portfolio by portfolio_id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Portfolio ID (client-42 / bank / fund-7)",
+                        "name": "portfolio_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "invalid_portfolio_id",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -13019,30 +14795,57 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/user/{rid}/{id}": {
+        "/api/v3/version": {
             "get": {
-                "description": "Inbound from a peer bank. Looks up a local (client-N / employee-N) and returns first+last name for OTC negotiation display. Routing number in path MUST match this bank's routing — calls for foreign users return 404.",
+                "description": "Returns the semantic version of the running backend. Public and unauthenticated, so front-end developers can confirm which backend build they are talking to.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "PeerOTC"
+                    "version"
                 ],
-                "summary": "Peer-to-peer: resolve a foreign user to display name",
+                "summary": "Backend version",
+                "responses": {
+                    "200": {
+                        "description": "example: {\\\"version\\\": \\\"1.0.0\\\"}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/watchlist/{portfolio_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "portfolio_id is in the form client-\u003cn\u003e, bank, or fund-\u003cn\u003e.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Watchlist"
+                ],
+                "summary": "Get watchlist for any owner identified by portfolio_id",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "routing number (must equal this bank's routing)",
-                        "name": "rid",
+                        "type": "string",
+                        "description": "Portfolio ID (client-42 / bank / fund-7)",
+                        "name": "portfolio_id",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "principal id, e.g. client-1 or employee-3",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
+                        "description": "stock|option|futures|forex",
+                        "name": "listing_type",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -13053,15 +14856,15 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "404": {
-                        "description": "Not Found",
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -13098,6 +14901,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "acceptor_account_id": {
+                    "type": "integer"
+                },
+                "on_behalf_of_fund_id": {
+                    "description": "OnBehalfOfFundID, when non-zero, places this accept on behalf of a fund (E2).\nThe acceptor_account_id must equal the fund's RSD account.\nCaller must be the fund's manager (acting_employee_id enforced in stock-service).",
                     "type": "integer"
                 }
             }
@@ -13505,6 +15312,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "dividend_mode": {
+                    "description": "payout|reinvest; \"\" defaults to payout (SP4)",
+                    "type": "string"
+                },
                 "minimum_contribution_rsd": {
                     "type": "string"
                 },
@@ -13638,48 +15449,11 @@ const docTemplate = `{
                 "on_behalf_of_client_id": {
                     "type": "integer"
                 },
-                "premium": {
-                    "type": "string"
-                },
                 "quantity": {
-                    "type": "string"
-                },
-                "settlement_date": {
-                    "type": "string"
-                },
-                "strike_price": {
                     "type": "string"
                 },
                 "ticker": {
                     "type": "string"
-                }
-            }
-        },
-        "handler.createOTCStockOfferRequest": {
-            "type": "object",
-            "properties": {
-                "buyer_account_id": {
-                    "description": "buy only",
-                    "type": "integer"
-                },
-                "direction": {
-                    "description": "\"sell\" | \"buy\"",
-                    "type": "string"
-                },
-                "holding_id": {
-                    "description": "sell only",
-                    "type": "integer"
-                },
-                "listing_id": {
-                    "description": "buy only",
-                    "type": "integer"
-                },
-                "price_per_unit": {
-                    "description": "buy only (decimal)",
-                    "type": "string"
-                },
-                "quantity": {
-                    "type": "integer"
                 }
             }
         },
@@ -13935,6 +15709,32 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.createWatchlistRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.declareDividendRequest": {
+            "type": "object",
+            "properties": {
+                "amount_per_share_rsd": {
+                    "type": "string"
+                },
+                "payment_date": {
+                    "description": "\"2026-06-15\"",
+                    "type": "string"
+                },
+                "security_id": {
+                    "type": "integer"
+                },
+                "ticker": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.executePaymentRequest": {
             "type": "object",
             "properties": {
@@ -13965,82 +15765,19 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.exercisePeerRequest": {
-            "type": "object",
-            "properties": {
-                "buyer_account_number": {
-                    "type": "string"
-                }
-            }
-        },
         "handler.exerciseRequest": {
             "type": "object",
             "properties": {
+                "buyer_account_number": {
+                    "description": "BuyerAccountNumber is REQUIRED only for cross-bank (remote) contracts: the\nbuyer's currency account that pays the strike. The gateway validates the\ncaller owns it before forwarding (the only client-supplied resource on the\nmoney path). LOCAL contracts ignore it — their accounts come from the\npersisted contract. (SP-2b Task 5 — unified local+cross-bank exercise.)",
+                    "type": "string"
+                },
                 "on_behalf_of_client_id": {
                     "type": "integer"
-                }
-            }
-        },
-        "handler.initiateNegotiationRequest": {
-            "type": "object",
-            "properties": {
-                "amount": {
+                },
+                "on_behalf_of_fund_id": {
+                    "description": "OnBehalfOfFundID, when non-zero, exercises this contract on behalf of a fund (E2).\nCaller must be the fund's manager (enforced in stock-service).",
                     "type": "integer"
-                },
-                "bidder_account_id": {
-                    "description": "Fix #1 (2026-05-16) — the buyer's bank account that pays the\npremium on accept. REQUIRED. Gateway validates the account belongs\nto the caller and its currency matches premium.currency (no\ncross-bank FX in SI-TX yet). The resolved account number is\nthreaded through to the seller's bank in the OtcOffer wire payload\nas buyerAccountNumber so the seller's bank's posting executor\nuses this exact account (no \"first active USD account\" guesswork).",
-                    "type": "integer"
-                },
-                "parent_offer_id": {
-                    "description": "Phase 10 — optional cross-bank cascade-cancel grouping key. When\nthe bidder discovered this listing via /public-option-offers,\nthey pass the listing's (routingNumber, id) here so the seller's\nbank can group sibling chains and cascade-cancel them on accept.\nFree-form bidders (no discovery) leave this unset; they're never\npart of a sibling group.",
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string"
-                        },
-                        "routingNumber": {
-                            "type": "integer"
-                        }
-                    }
-                },
-                "premium": {
-                    "type": "object",
-                    "properties": {
-                        "amount": {
-                            "type": "string"
-                        },
-                        "currency": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "price_per_unit": {
-                    "type": "object",
-                    "properties": {
-                        "amount": {
-                            "type": "string"
-                        },
-                        "currency": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "seller_bank_code": {
-                    "type": "string"
-                },
-                "seller_id": {
-                    "type": "string"
-                },
-                "settlement_date": {
-                    "type": "string"
-                },
-                "stock": {
-                    "type": "object",
-                    "properties": {
-                        "ticker": {
-                            "type": "string"
-                        }
-                    }
                 }
             }
         },
@@ -14118,65 +15855,40 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.peerForeignBankIdReq": {
+        "handler.pauseResumeBody": {
             "type": "object",
             "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "routingNumber": {
-                    "type": "integer"
-                }
-            }
-        },
-        "handler.peerMonetaryValueReq": {
-            "type": "object",
-            "properties": {
-                "amount": {
-                    "type": "string"
-                },
-                "currency": {
+                "reason": {
                     "type": "string"
                 }
             }
         },
         "handler.peerOtcOfferReq": {
-            "type": "object",
-            "properties": {
-                "amount": {
-                    "type": "integer"
-                },
-                "buyerAccountNumber": {
-                    "description": "Fix #1 (2026-05-16) — the buyer's 18-digit account number,\noptionally pinned by the buyer's bank so the seller's bank uses\nthis exact account for the buyer-debit posting on accept.\nEmpty string ⇒ legacy path (participant-id resolution).",
-                    "type": "string"
-                },
-                "buyerId": {
-                    "$ref": "#/definitions/handler.peerForeignBankIdReq"
-                },
-                "lastModifiedBy": {
-                    "$ref": "#/definitions/handler.peerForeignBankIdReq"
-                },
-                "premium": {
-                    "$ref": "#/definitions/handler.peerMonetaryValueReq"
-                },
-                "pricePerUnit": {
-                    "$ref": "#/definitions/handler.peerMonetaryValueReq"
-                },
-                "sellerId": {
-                    "$ref": "#/definitions/handler.peerForeignBankIdReq"
-                },
-                "settlementDate": {
-                    "type": "string"
-                },
-                "stock": {
-                    "$ref": "#/definitions/handler.peerStockDescriptionReq"
-                }
-            }
+            "type": "object"
         },
         "handler.peerStockDescriptionReq": {
             "type": "object",
             "properties": {
                 "ticker": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.previewPaymentRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "from_account_number",
+                "to_account_number"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "from_account_number": {
+                    "type": "string"
+                },
+                "to_account_number": {
                     "type": "string"
                 }
             }
@@ -14297,17 +16009,6 @@ const docTemplate = `{
             "properties": {
                 "current_refresh_token": {
                     "type": "string"
-                }
-            }
-        },
-        "handler.sellOTCStockOfferRequest": {
-            "type": "object",
-            "properties": {
-                "quantity": {
-                    "type": "integer"
-                },
-                "seller_account_id": {
-                    "type": "integer"
                 }
             }
         },
@@ -14477,6 +16178,17 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.triggerBody": {
+            "type": "object",
+            "properties": {
+                "force": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.updateAccountLimitsRequest": {
             "type": "object",
             "properties": {
@@ -14623,6 +16335,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "dividend_mode": {
+                    "description": "payout|reinvest (SP4)",
+                    "type": "string"
+                },
                 "minimum_contribution_rsd": {
                     "type": "string"
                 },
@@ -14649,6 +16365,14 @@ const docTemplate = `{
                 },
                 "variable_base": {
                     "type": "number"
+                }
+            }
+        },
+        "handler.updateOTCOptionRequest": {
+            "type": "object",
+            "properties": {
+                "quantity": {
+                    "type": "string"
                 }
             }
         },

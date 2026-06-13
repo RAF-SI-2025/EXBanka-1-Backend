@@ -351,5 +351,28 @@ deliberately left as a TODO instead of being half-implemented.
      wiring + new email templates per event type, plus depend on a
      new EmailType enum value per topic. Outside the four OTC plans.
 
+5. Cross-bank OTC option BUYER taxation (resolution-month tax model, 2026-06-04)
+   - The options/premium tax extension (docs/superpowers/specs/
+     2026-06-04-options-premium-tax-design.md) taxes the OTC buyer at
+     exercise on (market - strike) * qty - premium, and books a -premium
+     loss at expiry. This is fully implemented for INTRA-bank OTC (the
+     requirement's scenario) in otc_exercise_saga.go / otc_expiry_cron.go.
+   - CROSS-bank buyers are NOT taxed at exercise/expiry, for two structural
+     reasons that cannot be fixed unilaterally:
+       (a) the frozen SI-TX OptionDescription wire (contract/sitx/otc_types.go)
+           carries no premium, and the premium money leg never reaches the
+           buyer's-bank RecordOptionContract handler — so the `premium` term
+           is unknown on the buyer's bank;
+       (b) PeerOTCGRPCHandler has no listing/price resolver — so the `market`
+           term is unavailable without new wiring.
+     Cross-bank SELLERS are taxed as before (strike-gain write in the DEBIT
+     path of recordOptionExercise is unchanged). Cross-bank buyers continue
+     to be taxed via their eventual stock sale (shares credited at strike
+     basis) — i.e. pre-existing behaviour, not a regression.
+   - Unblock requires a cohort-agreed wire change (add `premium` to
+     OptionDescription) or a premium side-channel, plus a price resolver on
+     the peer handler, then mirror §4 C2/C3 in recordOptionExercise (CREDIT)
+     and expirePeerContract.
+
 Each item is genuinely "won't" rather than "missed". Track here so a
 future maintainer doesn't re-discover the same conclusions.

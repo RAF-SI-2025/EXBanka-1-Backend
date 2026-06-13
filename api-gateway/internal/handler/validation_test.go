@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -280,4 +281,23 @@ func TestDerefU64Ptr_NilIsZero(t *testing.T) {
 func TestDerefU64Ptr_PtrPassThrough(t *testing.T) {
 	v := uint64(11)
 	require.Equal(t, uint64(11), derefU64Ptr(&v))
+}
+
+func TestNotBeforeToday(t *testing.T) {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	yesterday := today.Add(-24 * time.Hour)
+	tomorrow := today.Add(24 * time.Hour)
+
+	// A date before today is rejected (both RFC3339 and date-only forms).
+	require.Error(t, notBeforeToday("settlement_date", yesterday.Format(time.RFC3339)))
+	require.Error(t, notBeforeToday("settlement_date", yesterday.Format("2006-01-02")))
+
+	// Today and the future are accepted.
+	require.NoError(t, notBeforeToday("settlement_date", today.Format(time.RFC3339)))
+	require.NoError(t, notBeforeToday("settlement_date", today.Format("2006-01-02")))
+	require.NoError(t, notBeforeToday("settlement_date", tomorrow.Format("2006-01-02")))
+
+	// Unparseable input is rejected.
+	require.Error(t, notBeforeToday("settlement_date", "not-a-date"))
+	require.Error(t, notBeforeToday("settlement_date", ""))
 }

@@ -62,13 +62,24 @@ func (r *EmployeeLimitRepository) ResetDailyUsedLimits() error {
 
 // Upsert creates or updates the limit record based on employee_id.
 // Uses ON CONFLICT DO UPDATE to eliminate the TOCTOU race between SELECT and INSERT.
+// On a conflict (update) the existing row's version is incremented atomically so
+// downstream SP-2 EmployeeLimitReplica consumers can apply a strict version-ordering
+// guard: every successful update after the initial insert yields version 2, 3, ...
+// The expression "version + 1" in ON CONFLICT DO UPDATE refers to the existing row's
+// version, which is the standard semantics in both Postgres and SQLite.
 func (r *EmployeeLimitRepository) Upsert(limit *model.EmployeeLimit) error {
+	updates := clause.AssignmentColumns([]string{
+		"max_loan_approval_amount", "max_single_transaction",
+		"max_daily_transaction", "max_client_daily_limit",
+		"max_client_monthly_limit", "updated_at",
+	})
+	// Monotonic version bump: on conflict the DB increments the existing row's version.
+	updates = append(updates, clause.Assignment{
+		Column: clause.Column{Name: "version"},
+		Value:  gorm.Expr("version + 1"),
+	})
 	return r.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "employee_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"max_loan_approval_amount", "max_single_transaction",
-			"max_daily_transaction", "max_client_daily_limit",
-			"max_client_monthly_limit", "updated_at",
-		}),
+		Columns:   []clause.Column{{Name: "employee_id"}},
+		DoUpdates: updates,
 	}).Create(limit).Error
 }

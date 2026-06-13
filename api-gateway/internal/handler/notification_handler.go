@@ -34,6 +34,7 @@ func (h *NotificationHandler) ListNotifications(c *gin.Context) {
 
 	resp, err := h.notificationClient.ListNotifications(c.Request.Context(), &notificationpb.ListNotificationsRequest{
 		UserId:     uint64(userID),
+		SystemType: c.GetString("principal_type"),
 		Page:       int32(page),
 		PageSize:   int32(pageSize),
 		ReadFilter: readFilter,
@@ -73,7 +74,8 @@ func (h *NotificationHandler) GetUnreadCount(c *gin.Context) {
 	userID := c.GetInt64("principal_id")
 
 	resp, err := h.notificationClient.GetUnreadCount(c.Request.Context(), &notificationpb.GetUnreadCountRequest{
-		UserId: uint64(userID),
+		UserId:     uint64(userID),
+		SystemType: c.GetString("principal_type"),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -100,8 +102,9 @@ func (h *NotificationHandler) MarkRead(c *gin.Context) {
 	}
 
 	_, err = h.notificationClient.MarkNotificationRead(c.Request.Context(), &notificationpb.MarkNotificationReadRequest{
-		Id:     id,
-		UserId: uint64(userID),
+		Id:         id,
+		UserId:     uint64(userID),
+		SystemType: c.GetString("principal_type"),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -121,7 +124,8 @@ func (h *NotificationHandler) MarkAllRead(c *gin.Context) {
 	userID := c.GetInt64("principal_id")
 
 	resp, err := h.notificationClient.MarkAllNotificationsRead(c.Request.Context(), &notificationpb.MarkAllNotificationsReadRequest{
-		UserId: uint64(userID),
+		UserId:     uint64(userID),
+		SystemType: c.GetString("principal_type"),
 	})
 	if err != nil {
 		handleGRPCError(c, err)

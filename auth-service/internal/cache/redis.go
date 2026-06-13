@@ -3,10 +3,11 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/exbanka/contract/authredis"
 )
 
 type RedisCache struct {
@@ -72,20 +73,22 @@ func (c *RedisCache) Close() error {
 	return c.client.Close()
 }
 
-// SetUserRevokedAt records the revocation epoch for a user. Tokens whose
+// SetUserRevokedAt records the revocation epoch for a principal. Tokens whose
 // `iat` predates this timestamp must be rejected by ValidateToken.
 // ttl is the access-token lifetime — after it expires no surviving token
 // could possibly be older than the cutoff anyway, so the key is safe to drop.
-func (c *RedisCache) SetUserRevokedAt(ctx context.Context, userID int64, atUnix int64, ttl time.Duration) error {
-	key := userRevokedAtKey(userID)
+// principalType ("employee" | "client") namespaces the key so same-id
+// principals of different types do not collide.
+func (c *RedisCache) SetUserRevokedAt(ctx context.Context, principalType string, userID int64, atUnix int64, ttl time.Duration) error {
+	key := userRevokedAtKey(principalType, userID)
 	return c.client.Set(ctx, key, atUnix, ttl).Err()
 }
 
 // GetUserRevokedAt returns the revocation epoch in unix seconds, or 0 when
 // no revocation key exists. A Redis error is propagated so callers can
 // decide on fail-open vs fail-closed.
-func (c *RedisCache) GetUserRevokedAt(ctx context.Context, userID int64) (int64, error) {
-	key := userRevokedAtKey(userID)
+func (c *RedisCache) GetUserRevokedAt(ctx context.Context, principalType string, userID int64) (int64, error) {
+	key := userRevokedAtKey(principalType, userID)
 	val, err := c.client.Get(ctx, key).Int64()
 	if err == redis.Nil {
 		return 0, nil
@@ -96,6 +99,6 @@ func (c *RedisCache) GetUserRevokedAt(ctx context.Context, userID int64) (int64,
 	return val, nil
 }
 
-func userRevokedAtKey(userID int64) string {
-	return "user_revoked_at:" + strconv.FormatInt(userID, 10)
+func userRevokedAtKey(principalType string, userID int64) string {
+	return authredis.UserRevokedAtKey(principalType, userID)
 }

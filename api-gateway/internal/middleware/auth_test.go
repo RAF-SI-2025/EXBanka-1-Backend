@@ -27,6 +27,9 @@ type mockAuthClient struct {
 	err  error
 }
 
+func (m *mockAuthClient) GetSigningKeys(_ context.Context, _ *authpb.GetSigningKeysRequest, _ ...grpc.CallOption) (*authpb.GetSigningKeysResponse, error) {
+	return &authpb.GetSigningKeysResponse{}, nil
+}
 func (m *mockAuthClient) ValidateToken(_ context.Context, _ *authpb.ValidateTokenRequest, _ ...grpc.CallOption) (*authpb.ValidateTokenResponse, error) {
 	return m.resp, m.err
 }
@@ -56,9 +59,6 @@ func (m *mockAuthClient) GetAccountStatus(_ context.Context, _ *authpb.GetAccoun
 	panic("not implemented")
 }
 func (m *mockAuthClient) GetAccountStatusBatch(_ context.Context, _ *authpb.GetAccountStatusBatchRequest, _ ...grpc.CallOption) (*authpb.GetAccountStatusBatchResponse, error) {
-	panic("not implemented")
-}
-func (m *mockAuthClient) CreateAccount(_ context.Context, _ *authpb.CreateAccountRequest, _ ...grpc.CallOption) (*authpb.CreateAccountResponse, error) {
 	panic("not implemented")
 }
 func (m *mockAuthClient) RequestMobileActivation(_ context.Context, _ *authpb.MobileActivationRequest, _ ...grpc.CallOption) (*authpb.MobileActivationResponse, error) {
@@ -110,6 +110,13 @@ func (m *mockAuthClient) ResendActivationEmail(_ context.Context, _ *authpb.Rese
 // ---------------------------------------------------------------------------
 // helper
 // ---------------------------------------------------------------------------
+
+// vfy wraps an auth client into a TokenVerifier with NO local keys, so Verify
+// falls back to the client's gRPC ValidateToken — letting the legacy
+// mock-ValidateToken tests exercise the same code paths.
+func vfy(c authpb.AuthServiceClient) *TokenVerifier {
+	return NewTokenVerifier(nil, nil, c)
+}
 
 func serveWithMiddleware(mw gin.HandlerFunc) (*gin.Engine, *httptest.ResponseRecorder, *http.Request) {
 	gin.SetMode(gin.TestMode)
@@ -208,11 +215,11 @@ func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 			Email:         "emp@example.com",
 		},
 	}
-	r, w, req := serveWithMiddleware(AnyAuthMiddleware(client))
+	r, w, req := serveWithMiddleware(AnyAuthMiddleware(vfy(client)))
 	// Replace the handler so we can inspect context values
 	gin.SetMode(gin.TestMode)
 	r2 := gin.New()
-	r2.Use(AnyAuthMiddleware(client))
+	r2.Use(AnyAuthMiddleware(vfy(client)))
 	r2.GET("/test", func(c *gin.Context) {
 		uid, exists := c.Get("principal_id")
 		require.True(t, exists, "principal_id should be set in context")
@@ -240,7 +247,7 @@ func TestAnyAuthMiddleware_ClientToken_SetsUserID(t *testing.T) {
 	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AnyAuthMiddleware(client))
+	r.Use(AnyAuthMiddleware(vfy(client)))
 	r.GET("/test", func(c *gin.Context) {
 		uid, exists := c.Get("principal_id")
 		require.True(t, exists, "principal_id should be set in context for client tokens")
@@ -270,7 +277,7 @@ func TestAuthMiddleware_RejectsClientToken(t *testing.T) {
 	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(AuthMiddleware(client))
+	r.Use(AuthMiddleware(vfy(client)))
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -335,6 +342,35 @@ func TestRequireClientToken_RejectsMissingType(t *testing.T) {
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// ---------------------------------------------------------------------------
+// DenyClientToken (employee/non-client only — e.g. forex & options market data,
+// which Celina 3 restricts to actuaries; clients trade only stocks & futures)
+// ---------------------------------------------------------------------------
+
+func TestDenyClientToken_AllowsEmployee(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("principal_type", "employee"); c.Next() })
+	r.Use(DenyClientToken())
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDenyClientToken_RejectsClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("principal_type", "client"); c.Next() })
+	r.Use(DenyClientToken())
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 	req, _ := http.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

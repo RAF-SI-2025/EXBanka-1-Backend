@@ -46,6 +46,15 @@ func parseTimezoneLocation(tz string) (*time.Location, error) {
 		return loc, nil
 	}
 
+	// Named zero-offset zones that are neither IANA paths nor numeric offsets.
+	// Without this the "UTC" fallback that generated_source.go stamps on unmapped
+	// exchanges would hit the numeric path below, fail Atoi, and report the
+	// exchange permanently closed.
+	switch strings.ToUpper(tz) {
+	case "UTC", "GMT", "Z":
+		return time.UTC, nil
+	}
+
 	// Fall back to numeric offset ("-5", "+9", "0")
 	offset, err := strconv.Atoi(tz)
 	if err != nil {

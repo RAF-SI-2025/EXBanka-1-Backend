@@ -25,6 +25,7 @@ SERVICES = [
     ("verification-service", "verification_db"),
     ("notification-service", "notification_db"),
     ("stock-service",        "stock_db"),
+    ("interbank-service",    "interbank_db"),
 ]
 
 BG_COLOR            = (248, 249, 252)

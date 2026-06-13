@@ -78,15 +78,41 @@ func (h *OTCOptionsHandler) OpenNegotiationChain(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "quantity, strike_price, settlement_date are required")
 		return
 	}
+	if err := notBeforeToday("settlement_date", req.SettlementDate); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
 	if req.BidderAccountID == 0 {
 		apiError(c, http.StatusBadRequest, ErrValidation, "bidder_account_id is required")
 		return
+	}
+	// Money-safety: amounts must be sane before forwarding. Quantity and strike
+	// strictly positive; premium non-negative (zero premium is legitimate, a
+	// negative one is not).
+	if err := positiveDecimalString("quantity", req.Quantity); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	if err := positiveDecimalString("strike_price", req.StrikePrice); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	if req.Premium != "" {
+		if err := nonNegativeDecimalString("premium", req.Premium); err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+			return
+		}
 	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	// Verify the bidder's account belongs to them before forwarding.
 	if err := ResolveAndCheckAccount(c, h.accounts, identity, req.BidderAccountID, 0); err != nil {
 		return
 	}
+	// stock-service's OpenNegotiation dispatches a local saga OR a cross-bank
+	// SI-TX negotiation depending on whether :id is a local or remote listing.
+	// The remote branch fetches the account itself (for owner/active/currency
+	// validation) and reads the account number directly from account-service —
+	// no need for the gateway to pre-fetch and forward bidder_account_number.
 	resp, err := h.client.OpenNegotiation(c.Request.Context(), &stockpb.OpenNegotiationRequest{
 		ParentOfferId:       parentID,
 		BidderOwnerType:     identity.OwnerType,
@@ -134,6 +160,25 @@ func (h *OTCOptionsHandler) CounterMyNegotiation(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "quantity, strike_price, settlement_date are required")
 		return
 	}
+	if err := notBeforeToday("settlement_date", req.SettlementDate); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	// Money-safety: same positivity checks as the bid path.
+	if err := positiveDecimalString("quantity", req.Quantity); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	if err := positiveDecimalString("strike_price", req.StrikePrice); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	if req.Premium != "" {
+		if err := nonNegativeDecimalString("premium", req.Premium); err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+			return
+		}
+	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.CounterNegotiation(c.Request.Context(), &stockpb.CounterNegotiationRequest{
 		NegotiationId:       negID,
@@ -156,6 +201,10 @@ func (h *OTCOptionsHandler) CounterMyNegotiation(c *gin.Context) {
 
 type acceptNegotiationRequest struct {
 	AcceptorAccountID uint64 `json:"acceptor_account_id"`
+	// OnBehalfOfFundID, when non-zero, places this accept on behalf of a fund (E2).
+	// The acceptor_account_id must equal the fund's RSD account.
+	// Caller must be the fund's manager (acting_employee_id enforced in stock-service).
+	OnBehalfOfFundID uint64 `json:"on_behalf_of_fund_id,omitempty"`
 }
 
 // AcceptMyNegotiation godoc
@@ -204,17 +253,19 @@ func (h *OTCOptionsHandler) AcceptMyNegotiation(c *gin.Context) {
 		ActingPrincipalId:   identity.PrincipalID,
 		ActingEmployeeId:    derefU64(identity.ActingEmployeeID),
 		AcceptorAccountId:   req.AcceptorAccountID,
+		OnBehalfOfFundId:    req.OnBehalfOfFundID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"winning":            resp.GetWinning(),
-		"parent_offer_id":    resp.GetParentOfferId(),
-		"parent_status":      resp.GetParentStatus(),
-		"cancelled_siblings": resp.GetCancelledSiblings(),
-		"contract":           resp.GetContract(),
+		"winning":                   resp.GetWinning(),
+		"parent_offer_id":           resp.GetParentOfferId(),
+		"parent_status":             resp.GetParentStatus(),
+		"cancelled_siblings":        resp.GetCancelledSiblings(),
+		"contract":                  resp.GetContract(),
+		"cross_bank_transaction_id": resp.GetCrossBankTransactionId(),
 	})
 }
 
@@ -303,8 +354,10 @@ func (h *OTCOptionsHandler) CancelMyListing(c *gin.Context) {
 	// Gateway-level ownership pre-check: fetch the offer and verify the
 	// caller is the initiator. The service-layer also checks (defense in
 	// depth) but per CLAUDE.md ownership must be verified before the gRPC
-	// call. GetOffer returns NotFound for non-participants which gives
-	// us a clean 404 for "offer doesn't exist or isn't mine".
+	// call. GetOffer now returns the offer to any authenticated caller
+	// (OTC offers are publicly discoverable), so a missing offer yields a
+	// clean 404 here while a non-initiator falls through to the explicit
+	// 403 below — never a 404 that would imply non-existence.
 	detail, gerr := h.client.GetOffer(c.Request.Context(), &stockpb.GetOTCOfferRequest{
 		OfferId:         offerID,
 		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
@@ -341,8 +394,8 @@ func (h *OTCOptionsHandler) CancelMyListing(c *gin.Context) {
 }
 
 // ListMyNegotiations godoc
-// @Summary      List the caller's OTC option negotiation chains
-// @Description  Returns chains where the caller is the bidder. Filter with `?statuses=open,countered,accepted,rejected,cancelled,expired`.
+// @Summary      List the caller's OTC option negotiation chains (local + remote, merged)
+// @Description  Returns a unified list of the caller's LOCAL (intra-bank bidder) and REMOTE (cross-bank peer) negotiation chains. Each item carries `kind` (local|remote), `routing_number`/`bank_code` provenance, and `me_owner` (true only when the caller is the parent listing's poster/seller). Filter with `?statuses=open,countered,accepted,rejected,cancelled,expired` (applied to both sets).
 // @Tags         OTCOptions
 // @Security     BearerAuth
 // @Produce      json
@@ -379,14 +432,45 @@ func (h *OTCOptionsHandler) ListMyNegotiations(c *gin.Context) {
 	})
 }
 
+// ListMyNegotiationRevisions godoc
+// @Summary      List the full revision chain of an OTC option negotiation
+// @Description  Returns all bid/counter/accept/reject revisions for a negotiation chain in revision_number order. Caller must be either the bidder or the parent listing's poster.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        nid path int true "negotiation chain id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{} "caller is not a party to this negotiation"
+// @Failure      404 {object} map[string]interface{} "negotiation not found"
+// @Router       /api/v3/me/otc/options/negotiations/{nid}/revisions [get]
+func (h *OTCOptionsHandler) ListMyNegotiationRevisions(c *gin.Context) {
+	negID, err := strconv.ParseUint(c.Param("nid"), 10, 64)
+	if err != nil || negID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid nid")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	resp, err := h.client.ListNegotiationRevisions(c.Request.Context(), &stockpb.ListNegotiationRevisionsRequest{
+		NegotiationId:   negID,
+		CallerOwnerType: identity.OwnerType,
+		CallerOwnerId:   derefU64(identity.OwnerID),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"revisions": resp.GetRevisions()})
+}
+
 // ListNegotiationsOnListing godoc
 // @Summary      List every negotiation chain against a given OTC option listing
-// @Description  Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal).
+// @Description  Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal). Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403 and see only their own chain via GET /api/v3/me/otc/options/negotiations.
 // @Tags         OTCOptions
 // @Security     BearerAuth
 // @Produce      json
 // @Param        id path int true "parent OTCOffer listing id"
 // @Success      200 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{} "caller is neither the poster nor a permission-gated employee"
 // @Router       /api/v3/otc/options/{id}/negotiations [get]
 func (h *OTCOptionsHandler) ListNegotiationsOnListing(c *gin.Context) {
 	parentID, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -394,8 +478,11 @@ func (h *OTCOptionsHandler) ListNegotiationsOnListing(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.ListNegotiationsByListing(c.Request.Context(), &stockpb.ListNegotiationsByListingRequest{
-		ParentOfferId: parentID,
+		ParentOfferId:   parentID,
+		CallerOwnerType: identity.OwnerType,
+		CallerOwnerId:   derefU64(identity.OwnerID),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -404,6 +491,39 @@ func (h *OTCOptionsHandler) ListNegotiationsOnListing(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"negotiations": resp.GetNegotiations(),
 		"total":        resp.GetTotal(),
+	})
+}
+
+// GetOfferTimeline godoc
+// @Summary      Cross-chain interaction timeline for an OTC option offer
+// @Description  Returns the offer plus every negotiation chain's revisions merged into one chronological stream (oldest first). Each entry carries its chain's negotiation_id and bidder identity so the frontend can render a single timeline or regroup into per-bidder swimlanes. Restricted to the listing's poster or an employee holding otc.read.all; competing bidders receive 403.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path int true "parent OTCOffer listing id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{} "caller is neither the poster nor a permission-gated employee"
+// @Failure      404 {object} map[string]interface{} "offer not found"
+// @Router       /api/v3/otc/options/{id}/timeline [get]
+func (h *OTCOptionsHandler) GetOfferTimeline(c *gin.Context) {
+	parentID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || parentID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	resp, err := h.client.GetOfferTimeline(c.Request.Context(), &stockpb.GetOfferTimelineRequest{
+		ParentOfferId:   parentID,
+		CallerOwnerType: identity.OwnerType,
+		CallerOwnerId:   derefU64(identity.OwnerID),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"offer":    resp.GetOffer(),
+		"timeline": resp.GetTimeline(),
 	})
 }
 

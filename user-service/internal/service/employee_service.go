@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -10,11 +11,11 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/cache"
-	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
 )
 
@@ -26,7 +27,7 @@ type OutboxInserter interface {
 
 type EmployeeService struct {
 	repo          EmployeeRepo
-	producer      *kafkaprod.Producer
+	producer      EmployeeEventPublisher
 	cache         *cache.RedisCache
 	roleSvc       *RoleService
 	changelogRepo ChangelogRepo
@@ -43,7 +44,7 @@ func (s *EmployeeService) WithOutbox(repo OutboxInserter) *EmployeeService {
 	return &cp
 }
 
-func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache, roleSvc *RoleService, changelogRepo ...ChangelogRepo) *EmployeeService {
+func NewEmployeeService(repo EmployeeRepo, producer EmployeeEventPublisher, cache *cache.RedisCache, roleSvc *RoleService, changelogRepo ...ChangelogRepo) *EmployeeService {
 	svc := &EmployeeService{repo: repo, producer: producer, cache: cache, roleSvc: roleSvc}
 	if len(changelogRepo) > 0 {
 		svc.changelogRepo = changelogRepo[0]
@@ -79,6 +80,9 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 	}
 
 	if err := s.repo.Create(emp); err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return fmt.Errorf("create employee: %w", ErrEmployeeAlreadyExists)
+		}
 		return fmt.Errorf("create employee: %w", err)
 	}
 	UserEmployeeCreatedTotal.Inc()
@@ -100,12 +104,19 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 	return nil
 }
 
+// employeeIDCacheKey is the Redis key for a cached employee-by-id. Single source
+// of truth shared by EmployeeService (read/evict) and RoleService (evict on a
+// role-permission change), so the two can never drift.
+func employeeIDCacheKey(id int64) string {
+	return "employee:id:" + strconv.FormatInt(id, 10)
+}
+
 func (s *EmployeeService) GetEmployeeByEmail(email string) (*model.Employee, error) {
 	return s.repo.GetByEmail(email)
 }
 
 func (s *EmployeeService) GetEmployee(id int64) (*model.Employee, error) {
-	cacheKey := "employee:id:" + strconv.FormatInt(id, 10)
+	cacheKey := employeeIDCacheKey(id)
 	if s.cache != nil {
 		var cached model.Employee
 		if err := s.cache.Get(context.Background(), cacheKey, &cached); err == nil {
@@ -175,6 +186,9 @@ func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates 
 	}
 
 	if err := s.repo.Update(emp); err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return nil, fmt.Errorf("update employee: %w", ErrEmployeeAlreadyExists)
+		}
 		return nil, err
 	}
 
@@ -184,7 +198,7 @@ func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates 
 		_ = s.changelogRepo.CreateBatch(entries)
 	}
 	if s.cache != nil {
-		_ = s.cache.Delete(context.Background(), "employee:id:"+strconv.FormatInt(id, 10))
+		_ = s.cache.Delete(context.Background(), employeeIDCacheKey(id))
 		_ = s.cache.Delete(context.Background(), "employee:email:"+emp.Email)
 	}
 
@@ -209,7 +223,7 @@ func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates 
 func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string, changedBy int64) error {
 	emp, err := s.repo.GetByIDWithRoles(employeeID)
 	if err != nil {
-		return fmt.Errorf("employee %d not found: %w", employeeID, err)
+		return fmt.Errorf("employee not found: %w", ErrEmployeeNotFound)
 	}
 
 	// Capture old roles for changelog.
@@ -219,7 +233,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 	if s.roleSvc != nil {
 		for _, name := range roleNames {
 			if !s.roleSvc.ValidRole(name) {
-				return fmt.Errorf("SetEmployeeRoles(employee=%d, role=%s): %w", employeeID, name, ErrRoleNotFound)
+				return fmt.Errorf("set employee roles: unknown role %q: %w", name, ErrRoleNotFound)
 			}
 		}
 	}
@@ -251,7 +265,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 
 	// Invalidate cache
 	if s.cache != nil {
-		_ = s.cache.Delete(ctx, "employee:id:"+strconv.FormatInt(employeeID, 10))
+		_ = s.cache.Delete(ctx, employeeIDCacheKey(employeeID))
 		emp2, err2 := s.repo.GetByID(employeeID)
 		if err2 == nil {
 			_ = s.cache.Delete(ctx, "employee:email:"+emp2.Email)
@@ -259,6 +273,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 	}
 
 	s.emitSupervisorDemotedIfLost(employeeID, changedBy, beforePerms)
+	s.publishEmployeePermissionsChanged(employeeID, "set_employee_roles")
 	return nil
 }
 
@@ -266,7 +281,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string, changedBy int64) error {
 	emp, err := s.repo.GetByIDWithRoles(employeeID)
 	if err != nil {
-		return fmt.Errorf("employee %d not found: %w", employeeID, err)
+		return fmt.Errorf("employee not found: %w", ErrEmployeeNotFound)
 	}
 
 	beforePerms := s.ResolvePermissions(emp)
@@ -283,7 +298,7 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 	}
 
 	if len(perms) != len(permCodes) {
-		return fmt.Errorf("SetEmployeeAdditionalPermissions(employee=%d): %w", employeeID, ErrPermissionNotInCatalog)
+		return fmt.Errorf("set additional permissions: %w", ErrPermissionNotInCatalog)
 	}
 
 	if err := s.repo.SetAdditionalPermissions(employeeID, perms); err != nil {
@@ -307,7 +322,7 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 
 	// Invalidate cache
 	if s.cache != nil {
-		_ = s.cache.Delete(ctx, "employee:id:"+strconv.FormatInt(employeeID, 10))
+		_ = s.cache.Delete(ctx, employeeIDCacheKey(employeeID))
 		emp2, err2 := s.repo.GetByID(employeeID)
 		if err2 == nil {
 			_ = s.cache.Delete(ctx, "employee:email:"+emp2.Email)
@@ -315,7 +330,29 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 	}
 
 	s.emitSupervisorDemotedIfLost(employeeID, changedBy, beforePerms)
+	s.publishEmployeePermissionsChanged(employeeID, "set_employee_permissions")
 	return nil
+}
+
+// publishEmployeePermissionsChanged force-refreshes a single employee at the
+// gateway after THEIR effective permissions change (roles or additional
+// permissions). auth-service consumes RolePermissionsChanged and bumps that
+// employee's revocation epoch, so the change takes effect immediately instead
+// of lingering until the access token expires. Best-effort; DB state is
+// canonical. Mirrors RoleService.publishRolePermissionsChanged but scoped to a
+// single employee (no role to fan out from).
+func (s *EmployeeService) publishEmployeePermissionsChanged(employeeID int64, source string) {
+	if s.producer == nil {
+		return
+	}
+	msg := kafkamsg.RolePermissionsChangedMessage{
+		AffectedEmployeeIDs: []int64{employeeID},
+		ChangedAt:           time.Now().Unix(),
+		Source:              source,
+	}
+	if err := s.producer.PublishRolePermissionsChanged(context.Background(), msg); err != nil {
+		log.Printf("warn: employee-perm-changed: publish for employee %d: %v", employeeID, err)
+	}
 }
 
 func ValidatePassword(password string) error {

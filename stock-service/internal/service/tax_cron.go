@@ -4,14 +4,20 @@ import (
 	"context"
 	"log"
 	"time"
+
+	"github.com/exbanka/contract/cronreg"
 )
 
 type TaxCronService struct {
-	taxSvc *TaxService
+	taxSvc   *TaxService
+	registry *cronreg.Registry
+	entry    *cronreg.Entry
 }
 
-func NewTaxCronService(taxSvc *TaxService) *TaxCronService {
-	return &TaxCronService{taxSvc: taxSvc}
+func NewTaxCronService(taxSvc *TaxService, registry *cronreg.Registry) *TaxCronService {
+	s := &TaxCronService{taxSvc: taxSvc, registry: registry}
+	s.entry = registry.Register("tax-collection", "Collect capital-gains tax monthly (fires ~1 min before month end)", 0)
+	return s
 }
 
 // StartMonthlyCron starts a background goroutine that triggers tax collection
@@ -35,7 +41,18 @@ func (s *TaxCronService) StartMonthlyCron(ctx context.Context) {
 
 			select {
 			case <-time.After(waitDuration):
-				s.runCollection()
+				if !s.entry.BeginRun() {
+					log.Println("tax cron: paused, skipping this tick")
+					continue
+				}
+				err := s.runCollection()
+				s.entry.EndRun(err)
+			case <-s.entry.TriggerChan():
+				if !s.entry.BeginRun() {
+					continue
+				}
+				err := s.runCollection()
+				s.entry.EndRun(err)
 			case <-ctx.Done():
 				log.Println("tax cron: shutting down")
 				return
@@ -44,7 +61,7 @@ func (s *TaxCronService) StartMonthlyCron(ctx context.Context) {
 	}()
 }
 
-func (s *TaxCronService) runCollection() {
+func (s *TaxCronService) runCollection() error {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
@@ -54,9 +71,10 @@ func (s *TaxCronService) runCollection() {
 	collected, totalRSD, failed, err := s.taxSvc.CollectTax(year, month)
 	if err != nil {
 		log.Printf("ERROR: tax cron: collection failed: %v", err)
-		return
+		return err
 	}
 
 	log.Printf("tax cron: collection complete — collected=%d total_rsd=%s failed=%d",
 		collected, totalRSD.StringFixed(2), failed)
+	return nil
 }

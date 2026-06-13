@@ -7,6 +7,11 @@ option go_package = "github.com/exbanka/contract/authpb;authpb";
 service AuthService {
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  // GetSigningKeys returns the public half of the ES256 access-token signing
+  // keys (JWKS-style) so the api-gateway can verify tokens locally without a
+  // per-request ValidateToken round-trip. Current key first; previous keys are
+  // included during a rotation overlap.
+  rpc GetSigningKeys(GetSigningKeysRequest) returns (GetSigningKeysResponse);
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);
   rpc RequestPasswordReset(PasswordResetRequest) returns (PasswordResetResponse);
@@ -15,7 +20,6 @@ service AuthService {
   rpc SetAccountStatus(SetAccountStatusRequest) returns (SetAccountStatusResponse);
   rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse);
   rpc GetAccountStatusBatch(GetAccountStatusBatchRequest) returns (GetAccountStatusBatchResponse);
-  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
   rpc ResendActivationEmail(ResendActivationEmailRequest) returns (ResendActivationEmailResponse);
 
   // Mobile device management
@@ -67,6 +71,19 @@ message ValidateTokenResponse {
   string last_name = 11;
   bool account_active = 12;
   bool biometrics_enabled = 13; // only set when device_type == "mobile"
+}
+
+message GetSigningKeysRequest {}
+
+message JWK {
+  string kid = 1;
+  string alg = 2;             // always "ES256"
+  string pem_public_key = 3;  // PKIX ("PUBLIC KEY") PEM block
+  bool primary = 4;           // true for the current signing key
+}
+
+message GetSigningKeysResponse {
+  repeated JWK keys = 1;      // current key first, then rotation-overlap keys
 }
 
 message RefreshTokenRequest {
@@ -147,17 +164,6 @@ message AccountStatusEntry {
 
 message GetAccountStatusBatchResponse {
   repeated AccountStatusEntry entries = 1;
-}
-
-message CreateAccountRequest {
-  int64 principal_id = 1;
-  string email = 2;
-  string first_name = 3;
-  string principal_type = 4;
-}
-
-message CreateAccountResponse {
-  bool success = 1;
 }
 
 message ResendActivationEmailRequest {

@@ -2,15 +2,16 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -53,7 +54,7 @@ func (s *FundService) WithLiquidation(orders FundOrderPlacer) *FundService {
 // caller (Redeem) returns ErrInsufficientFundCash to the user.
 func (s *FundService) LiquidateAndAwait(ctx context.Context, fund *model.InvestmentFund, deficitRSD decimal.Decimal, sagaID string) error {
 	if s.orderPlacer == nil || s.holdings == nil || s.listingRepo == nil || s.accounts == nil {
-		return errors.New("liquidation deps not wired")
+		return svcerr.New(codes.Internal, "liquidation deps not wired")
 	}
 	if !deficitRSD.IsPositive() {
 		return nil

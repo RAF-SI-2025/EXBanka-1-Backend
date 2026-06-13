@@ -57,7 +57,7 @@ func buildAuthServiceForStatusTests(t *testing.T, db *gorm.DB) *AuthService {
 	loginRepo := repository.NewLoginAttemptRepository(db)
 	totpRepo := repository.NewTOTPRepository(db)
 	totpSvc := NewTOTPService()
-	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 	accountRepo := repository.NewAccountRepository(db)
 
 	return NewAuthService(
@@ -227,7 +227,7 @@ func TestGetAccountStatusBatch(t *testing.T) {
 // ============================================================
 
 func TestEmployeeLogin_PrincipalTypeEmployee(t *testing.T) {
-	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	token, err := jwtSvc.GenerateAccessToken(1, "emp@test.com", []string{"EmployeeAdmin"}, []string{"users.manage"}, "employee", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
@@ -242,7 +242,7 @@ func TestEmployeeLogin_PrincipalTypeEmployee(t *testing.T) {
 }
 
 func TestClientLogin_PrincipalTypeClient(t *testing.T) {
-	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	token, err := jwtSvc.GenerateAccessToken(42, "client@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
@@ -257,7 +257,7 @@ func TestClientLogin_PrincipalTypeClient(t *testing.T) {
 }
 
 func TestMobileAccessToken_ContainsDeviceClaims(t *testing.T) {
-	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	deviceID := "abc-123-def-456"
 	token, err := jwtSvc.GenerateMobileAccessToken(
@@ -278,7 +278,7 @@ func TestMobileAccessToken_ContainsDeviceClaims(t *testing.T) {
 }
 
 func TestAccessToken_HasJTI(t *testing.T) {
-	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	token, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
@@ -289,7 +289,7 @@ func TestAccessToken_HasJTI(t *testing.T) {
 }
 
 func TestAccessToken_UniqueJTIs(t *testing.T) {
-	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	token1, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	require.NoError(t, err)

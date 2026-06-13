@@ -112,6 +112,9 @@ func (s *stubAuthClient) Login(_ context.Context, in *authpb.LoginRequest, _ ...
 	}
 	return &authpb.LoginResponse{}, nil
 }
+func (s *stubAuthClient) GetSigningKeys(_ context.Context, _ *authpb.GetSigningKeysRequest, _ ...grpc.CallOption) (*authpb.GetSigningKeysResponse, error) {
+	return &authpb.GetSigningKeysResponse{}, nil
+}
 func (s *stubAuthClient) ValidateToken(_ context.Context, in *authpb.ValidateTokenRequest, _ ...grpc.CallOption) (*authpb.ValidateTokenResponse, error) {
 	if s.validateTokenFn != nil {
 		return s.validateTokenFn(in)
@@ -165,9 +168,6 @@ func (s *stubAuthClient) GetAccountStatusBatch(_ context.Context, in *authpb.Get
 		return s.getStatusBatchFn(in)
 	}
 	return &authpb.GetAccountStatusBatchResponse{}, nil
-}
-func (s *stubAuthClient) CreateAccount(_ context.Context, _ *authpb.CreateAccountRequest, _ ...grpc.CallOption) (*authpb.CreateAccountResponse, error) {
-	return &authpb.CreateAccountResponse{}, nil
 }
 func (s *stubAuthClient) ResendActivationEmail(_ context.Context, in *authpb.ResendActivationEmailRequest, _ ...grpc.CallOption) (*authpb.ResendActivationEmailResponse, error) {
 	if s.resendActivationFn != nil {
@@ -537,6 +537,9 @@ func (s *stubClientClient) UpdateClient(_ context.Context, in *clientpb.UpdateCl
 func (s *stubClientClient) ListChangelog(_ context.Context, _ *clientpb.ListChangelogRequest, _ ...grpc.CallOption) (*clientpb.ListChangelogResponse, error) {
 	return &clientpb.ListChangelogResponse{}, nil
 }
+func (s *stubClientClient) ListAllChangelogs(_ context.Context, _ *clientpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*clientpb.ListAllChangelogsResponse, error) {
+	return &clientpb.ListAllChangelogsResponse{}, nil
+}
 
 // ---------------------------------------------------------------------------
 // ClientLimitServiceClient
@@ -628,6 +631,9 @@ func (s *stubCardClient) GetAuthorizedPerson(_ context.Context, _ *cardpb.GetAut
 }
 func (s *stubCardClient) ListChangelog(_ context.Context, _ *cardpb.ListChangelogRequest, _ ...grpc.CallOption) (*cardpb.ListChangelogResponse, error) {
 	return &cardpb.ListChangelogResponse{}, nil
+}
+func (s *stubCardClient) ListAllChangelogs(_ context.Context, _ *cardpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*cardpb.ListAllChangelogsResponse, error) {
+	return &cardpb.ListAllChangelogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +858,9 @@ func (s *stubCreditClient) ApplyVariableRateUpdate(_ context.Context, in *credit
 func (s *stubCreditClient) ListChangelog(_ context.Context, _ *creditpb.ListChangelogRequest, _ ...grpc.CallOption) (*creditpb.ListChangelogResponse, error) {
 	return &creditpb.ListChangelogResponse{}, nil
 }
+func (s *stubCreditClient) ListAllChangelogs(_ context.Context, _ *creditpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*creditpb.ListAllChangelogsResponse, error) {
+	return &creditpb.ListAllChangelogsResponse{}, nil
+}
 
 // ---------------------------------------------------------------------------
 // ExchangeServiceClient
@@ -909,14 +918,10 @@ type stubNotificationClient struct {
 	getTplFn      func(*notificationpb.GetTemplateRequest) (*notificationpb.TemplateInfo, error)
 	setTplFn      func(*notificationpb.SetTemplateRequest) (*notificationpb.TemplateInfo, error)
 	resetTplFn    func(*notificationpb.ResetTemplateRequest) (*notificationpb.TemplateInfo, error)
+
+	listBusinessAuditFn func(*notificationpb.ListBusinessAuditLogsRequest) (*notificationpb.ListBusinessAuditLogsResponse, error)
 }
 
-func (s *stubNotificationClient) SendEmail(_ context.Context, _ *notificationpb.SendEmailRequest, _ ...grpc.CallOption) (*notificationpb.SendEmailResponse, error) {
-	return &notificationpb.SendEmailResponse{}, nil
-}
-func (s *stubNotificationClient) GetDeliveryStatus(_ context.Context, _ *notificationpb.GetDeliveryStatusRequest, _ ...grpc.CallOption) (*notificationpb.GetDeliveryStatusResponse, error) {
-	return &notificationpb.GetDeliveryStatusResponse{}, nil
-}
 func (s *stubNotificationClient) GetPendingMobileItems(_ context.Context, in *notificationpb.GetPendingMobileRequest, _ ...grpc.CallOption) (*notificationpb.PendingMobileResponse, error) {
 	if s.pendingFn != nil {
 		return s.pendingFn(in)
@@ -976,6 +981,16 @@ func (s *stubNotificationClient) ResetTemplate(_ context.Context, in *notificati
 		return s.resetTplFn(in)
 	}
 	return &notificationpb.TemplateInfo{}, nil
+}
+func (s *stubNotificationClient) ListAdminAuditLogs(_ context.Context, _ *notificationpb.ListAdminAuditLogsRequest, _ ...grpc.CallOption) (*notificationpb.ListAdminAuditLogsResponse, error) {
+	return &notificationpb.ListAdminAuditLogsResponse{}, nil
+}
+
+func (s *stubNotificationClient) ListBusinessAuditLogs(_ context.Context, in *notificationpb.ListBusinessAuditLogsRequest, _ ...grpc.CallOption) (*notificationpb.ListBusinessAuditLogsResponse, error) {
+	if s.listBusinessAuditFn != nil {
+		return s.listBusinessAuditFn(in)
+	}
+	return &notificationpb.ListBusinessAuditLogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,6 +1112,9 @@ func (s *stubTransactionClient) GetTransfer(_ context.Context, in *transactionpb
 		return s.getTransferFn(in)
 	}
 	return &transactionpb.TransferResponse{Id: in.Id}, nil
+}
+func (s *stubTransactionClient) ListSagaLogs(_ context.Context, _ *transactionpb.ListSagaLogsRequest, _ ...grpc.CallOption) (*transactionpb.ListSagaLogsResponse, error) {
+	return &transactionpb.ListSagaLogsResponse{}, nil
 }
 func (s *stubTransactionClient) GetTransferStatus(_ context.Context, in *transactionpb.GetTransferRequest, _ ...grpc.CallOption) (*transactionpb.TransferStatusResponse, error) {
 	if s.getTransferStatusFn != nil {
@@ -1225,29 +1243,7 @@ func (s *stubStockExchangeClient) GetTestingMode(_ context.Context, in *stockpb.
 // ---------------------------------------------------------------------------
 
 type stubOTCClient struct {
-	listFn              func(*stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error)
-	buyFn               func(*stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error)
-	listUnifiedFn       func(*stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error)
 	listUnifiedOptionFn func(*stockpb.ListUnifiedOptionOffersRequest) (*stockpb.ListUnifiedOptionOffersResponse, error)
-}
-
-func (s *stubOTCClient) ListOffers(_ context.Context, in *stockpb.ListOTCOffersRequest, _ ...grpc.CallOption) (*stockpb.ListOTCOffersResponse, error) {
-	if s.listFn != nil {
-		return s.listFn(in)
-	}
-	return &stockpb.ListOTCOffersResponse{}, nil
-}
-func (s *stubOTCClient) BuyOffer(_ context.Context, in *stockpb.BuyOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCTransaction, error) {
-	if s.buyFn != nil {
-		return s.buyFn(in)
-	}
-	return &stockpb.OTCTransaction{}, nil
-}
-func (s *stubOTCClient) ListUnifiedOffers(_ context.Context, in *stockpb.ListUnifiedOTCOffersRequest, _ ...grpc.CallOption) (*stockpb.ListUnifiedOTCOffersResponse, error) {
-	if s.listUnifiedFn != nil {
-		return s.listUnifiedFn(in)
-	}
-	return &stockpb.ListUnifiedOTCOffersResponse{}, nil
 }
 
 // Phase-6 marketplace RPC. Tests can inject listUnifiedOptionFn to
@@ -1297,6 +1293,9 @@ func (s *stubUserClient) ListEmployeeFullNames(_ context.Context, _ *userpb.List
 }
 func (s *stubUserClient) ListChangelog(_ context.Context, _ *userpb.ListChangelogRequest, _ ...grpc.CallOption) (*userpb.ListChangelogResponse, error) {
 	return &userpb.ListChangelogResponse{}, nil
+}
+func (s *stubUserClient) ListAllChangelogs(_ context.Context, _ *userpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*userpb.ListAllChangelogsResponse, error) {
+	return &userpb.ListAllChangelogsResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------

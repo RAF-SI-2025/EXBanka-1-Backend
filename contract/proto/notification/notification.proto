@@ -5,8 +5,9 @@ package notification;
 option go_package = "github.com/exbanka/contract/notificationpb;notificationpb";
 
 service NotificationService {
-  rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
-  rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
+  // Email is delivered via the Kafka notification.send-email topic (consumed by
+  // EmailConsumer); there is no synchronous SendEmail RPC. Delivery status is
+  // signalled back via the notification.email-sent topic.
   rpc GetPendingMobileItems(GetPendingMobileRequest) returns (PendingMobileResponse);
   rpc AckMobileItem(AckMobileRequest) returns (AckMobileResponse);
 
@@ -21,27 +22,16 @@ service NotificationService {
   rpc GetTemplate(GetTemplateRequest) returns (TemplateInfo);
   rpc SetTemplate(SetTemplateRequest) returns (TemplateInfo);
   rpc ResetTemplate(ResetTemplateRequest) returns (TemplateInfo);
-}
 
-message SendEmailRequest {
-  string to = 1;
-  string email_type = 2;
-  map<string, string> data = 3;
-}
+  // ListAdminAuditLogs returns admin cron-action audit log entries (global,
+  // admin-only). Supports optional filters: since/until (unix seconds),
+  // actor_id (employee_id), action string, and pagination.
+  rpc ListAdminAuditLogs(ListAdminAuditLogsRequest) returns (ListAdminAuditLogsResponse);
 
-message SendEmailResponse {
-  bool success = 1;
-  string message = 2;
-}
-
-message GetDeliveryStatusRequest {
-  string message_id = 1;
-}
-
-message GetDeliveryStatusResponse {
-  string message_id = 1;
-  string status = 2;
-  string delivered_at = 3;
+  // ListBusinessAuditLogs returns business-action audit entries (limit changes,
+  // usedLimit resets, order approve/reject, permission changes, manual tax
+  // collection). Global, paginated, filterable. Gateway gates on admin.audit.view.
+  rpc ListBusinessAuditLogs(ListBusinessAuditLogsRequest) returns (ListBusinessAuditLogsResponse);
 }
 
 message GetPendingMobileRequest {
@@ -75,6 +65,11 @@ message ListNotificationsRequest {
   int32 page = 2;
   int32 page_size = 3;
   string read_filter = 4; // "", "read", "unread"
+  // system_type isolates recipients: "client" (or empty/legacy) reads ONLY the
+  // caller's own (user_id) client notifications; "employee" reads the shared
+  // bank inbox. Prevents a client's notifications (incl. personal data/codes)
+  // from reaching an employee/admin whose numeric id collides with the client's.
+  string system_type = 5;
 }
 
 message NotificationEntry {
@@ -95,6 +90,7 @@ message ListNotificationsResponse {
 
 message GetUnreadCountRequest {
   uint64 user_id = 1;
+  string system_type = 2;
 }
 
 message GetUnreadCountResponse {
@@ -104,6 +100,7 @@ message GetUnreadCountResponse {
 message MarkNotificationReadRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  string system_type = 3;
 }
 
 message MarkNotificationReadResponse {
@@ -112,6 +109,7 @@ message MarkNotificationReadResponse {
 
 message MarkAllNotificationsReadRequest {
   uint64 user_id = 1;
+  string system_type = 2;
 }
 
 message MarkAllNotificationsReadResponse {
@@ -162,4 +160,59 @@ message SetTemplateRequest {
 message ResetTemplateRequest {
   string type = 1;
   string channel = 2;
+}
+
+// ── Admin audit logs (cron actions) ─────────────────────────────────────────
+
+message ListAdminAuditLogsRequest {
+  int32  page      = 1;
+  int32  page_size = 2;
+  int64  since     = 3; // unix seconds, 0 = no lower bound
+  int64  until     = 4; // unix seconds, 0 = no upper bound
+  int64  actor_id  = 5; // employee_id filter, 0 = all
+  string action    = 6; // exact match, "" = all
+}
+
+message AdminAuditLogEntry {
+  uint64 id          = 1;
+  string action      = 2;
+  string service     = 3;
+  string cron_name   = 4;
+  int64  employee_id = 5;
+  string reason      = 6;
+  int64  timestamp   = 7; // unix seconds
+}
+
+message ListAdminAuditLogsResponse {
+  repeated AdminAuditLogEntry entries   = 1;
+  int64                        total     = 2;
+  int32                        page      = 3;
+  int32                        page_size = 4;
+}
+
+message ListBusinessAuditLogsRequest {
+  int32  page        = 1;
+  int32  page_size   = 2;
+  int64  since       = 3; // unix seconds, 0 = no lower bound
+  int64  until       = 4; // unix seconds, 0 = no upper bound
+  int64  actor_id    = 5; // actor employee_id filter, 0 = all
+  string action      = 6; // exact match, "" = all
+  string target_type = 7; // exact match, "" = all
+}
+
+message BusinessAuditLogEntry {
+  uint64 id          = 1;
+  string action      = 2;
+  int64  actor_id    = 3;
+  string target_type = 4;
+  string target_id   = 5;
+  string detail      = 6;
+  int64  timestamp   = 7; // unix seconds
+}
+
+message ListBusinessAuditLogsResponse {
+  repeated BusinessAuditLogEntry entries   = 1;
+  int64                          total     = 2;
+  int32                          page      = 3;
+  int32                          page_size = 4;
 }

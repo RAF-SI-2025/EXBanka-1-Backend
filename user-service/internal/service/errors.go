@@ -55,4 +55,8 @@ var (
 
 	// ErrInvalidBlueprint — blueprint payload or type is invalid.
 	ErrInvalidBlueprint = svcerr.New(codes.InvalidArgument, "invalid blueprint")
+
+	// ErrClientBlueprintNotApplicable — client-type blueprints are applied by
+	// client-service directly (via the gateway), not by user-service.
+	ErrClientBlueprintNotApplicable = svcerr.New(codes.FailedPrecondition, "client-type blueprints are applied by client-service, not user-service")
 )

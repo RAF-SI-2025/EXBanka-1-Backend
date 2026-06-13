@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AuthService_Login_FullMethodName                   = "/auth.AuthService/Login"
 	AuthService_ValidateToken_FullMethodName           = "/auth.AuthService/ValidateToken"
+	AuthService_GetSigningKeys_FullMethodName          = "/auth.AuthService/GetSigningKeys"
 	AuthService_RefreshToken_FullMethodName            = "/auth.AuthService/RefreshToken"
 	AuthService_Logout_FullMethodName                  = "/auth.AuthService/Logout"
 	AuthService_RequestPasswordReset_FullMethodName    = "/auth.AuthService/RequestPasswordReset"
@@ -29,7 +30,6 @@ const (
 	AuthService_SetAccountStatus_FullMethodName        = "/auth.AuthService/SetAccountStatus"
 	AuthService_GetAccountStatus_FullMethodName        = "/auth.AuthService/GetAccountStatus"
 	AuthService_GetAccountStatusBatch_FullMethodName   = "/auth.AuthService/GetAccountStatusBatch"
-	AuthService_CreateAccount_FullMethodName           = "/auth.AuthService/CreateAccount"
 	AuthService_ResendActivationEmail_FullMethodName   = "/auth.AuthService/ResendActivationEmail"
 	AuthService_RequestMobileActivation_FullMethodName = "/auth.AuthService/RequestMobileActivation"
 	AuthService_ActivateMobileDevice_FullMethodName    = "/auth.AuthService/ActivateMobileDevice"
@@ -53,6 +53,11 @@ const (
 type AuthServiceClient interface {
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	ValidateToken(ctx context.Context, in *ValidateTokenRequest, opts ...grpc.CallOption) (*ValidateTokenResponse, error)
+	// GetSigningKeys returns the public half of the ES256 access-token signing
+	// keys (JWKS-style) so the api-gateway can verify tokens locally without a
+	// per-request ValidateToken round-trip. Current key first; previous keys are
+	// included during a rotation overlap.
+	GetSigningKeys(ctx context.Context, in *GetSigningKeysRequest, opts ...grpc.CallOption) (*GetSigningKeysResponse, error)
 	RefreshToken(ctx context.Context, in *RefreshTokenRequest, opts ...grpc.CallOption) (*RefreshTokenResponse, error)
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 	RequestPasswordReset(ctx context.Context, in *PasswordResetRequest, opts ...grpc.CallOption) (*PasswordResetResponse, error)
@@ -61,7 +66,6 @@ type AuthServiceClient interface {
 	SetAccountStatus(ctx context.Context, in *SetAccountStatusRequest, opts ...grpc.CallOption) (*SetAccountStatusResponse, error)
 	GetAccountStatus(ctx context.Context, in *GetAccountStatusRequest, opts ...grpc.CallOption) (*GetAccountStatusResponse, error)
 	GetAccountStatusBatch(ctx context.Context, in *GetAccountStatusBatchRequest, opts ...grpc.CallOption) (*GetAccountStatusBatchResponse, error)
-	CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
 	ResendActivationEmail(ctx context.Context, in *ResendActivationEmailRequest, opts ...grpc.CallOption) (*ResendActivationEmailResponse, error)
 	// Mobile device management
 	RequestMobileActivation(ctx context.Context, in *MobileActivationRequest, opts ...grpc.CallOption) (*MobileActivationResponse, error)
@@ -104,6 +108,16 @@ func (c *authServiceClient) ValidateToken(ctx context.Context, in *ValidateToken
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ValidateTokenResponse)
 	err := c.cc.Invoke(ctx, AuthService_ValidateToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetSigningKeys(ctx context.Context, in *GetSigningKeysRequest, opts ...grpc.CallOption) (*GetSigningKeysResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSigningKeysResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetSigningKeys_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,16 +198,6 @@ func (c *authServiceClient) GetAccountStatusBatch(ctx context.Context, in *GetAc
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetAccountStatusBatchResponse)
 	err := c.cc.Invoke(ctx, AuthService_GetAccountStatusBatch_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *authServiceClient) CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateAccountResponse)
-	err := c.cc.Invoke(ctx, AuthService_CreateAccount_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -356,6 +360,11 @@ func (c *authServiceClient) GetLoginHistory(ctx context.Context, in *LoginHistor
 type AuthServiceServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	ValidateToken(context.Context, *ValidateTokenRequest) (*ValidateTokenResponse, error)
+	// GetSigningKeys returns the public half of the ES256 access-token signing
+	// keys (JWKS-style) so the api-gateway can verify tokens locally without a
+	// per-request ValidateToken round-trip. Current key first; previous keys are
+	// included during a rotation overlap.
+	GetSigningKeys(context.Context, *GetSigningKeysRequest) (*GetSigningKeysResponse, error)
 	RefreshToken(context.Context, *RefreshTokenRequest) (*RefreshTokenResponse, error)
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	RequestPasswordReset(context.Context, *PasswordResetRequest) (*PasswordResetResponse, error)
@@ -364,7 +373,6 @@ type AuthServiceServer interface {
 	SetAccountStatus(context.Context, *SetAccountStatusRequest) (*SetAccountStatusResponse, error)
 	GetAccountStatus(context.Context, *GetAccountStatusRequest) (*GetAccountStatusResponse, error)
 	GetAccountStatusBatch(context.Context, *GetAccountStatusBatchRequest) (*GetAccountStatusBatchResponse, error)
-	CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error)
 	ResendActivationEmail(context.Context, *ResendActivationEmailRequest) (*ResendActivationEmailResponse, error)
 	// Mobile device management
 	RequestMobileActivation(context.Context, *MobileActivationRequest) (*MobileActivationResponse, error)
@@ -399,6 +407,9 @@ func (UnimplementedAuthServiceServer) Login(context.Context, *LoginRequest) (*Lo
 func (UnimplementedAuthServiceServer) ValidateToken(context.Context, *ValidateTokenRequest) (*ValidateTokenResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ValidateToken not implemented")
 }
+func (UnimplementedAuthServiceServer) GetSigningKeys(context.Context, *GetSigningKeysRequest) (*GetSigningKeysResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSigningKeys not implemented")
+}
 func (UnimplementedAuthServiceServer) RefreshToken(context.Context, *RefreshTokenRequest) (*RefreshTokenResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RefreshToken not implemented")
 }
@@ -422,9 +433,6 @@ func (UnimplementedAuthServiceServer) GetAccountStatus(context.Context, *GetAcco
 }
 func (UnimplementedAuthServiceServer) GetAccountStatusBatch(context.Context, *GetAccountStatusBatchRequest) (*GetAccountStatusBatchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAccountStatusBatch not implemented")
-}
-func (UnimplementedAuthServiceServer) CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateAccount not implemented")
 }
 func (UnimplementedAuthServiceServer) ResendActivationEmail(context.Context, *ResendActivationEmailRequest) (*ResendActivationEmailResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResendActivationEmail not implemented")
@@ -524,6 +532,24 @@ func _AuthService_ValidateToken_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AuthServiceServer).ValidateToken(ctx, req.(*ValidateTokenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetSigningKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSigningKeysRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetSigningKeys(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetSigningKeys_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetSigningKeys(ctx, req.(*GetSigningKeysRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -668,24 +694,6 @@ func _AuthService_GetAccountStatusBatch_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AuthServiceServer).GetAccountStatusBatch(ctx, req.(*GetAccountStatusBatchRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AuthService_CreateAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateAccountRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).CreateAccount(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_CreateAccount_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).CreateAccount(ctx, req.(*CreateAccountRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -976,6 +984,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AuthService_ValidateToken_Handler,
 		},
 		{
+			MethodName: "GetSigningKeys",
+			Handler:    _AuthService_GetSigningKeys_Handler,
+		},
+		{
 			MethodName: "RefreshToken",
 			Handler:    _AuthService_RefreshToken_Handler,
 		},
@@ -1006,10 +1018,6 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAccountStatusBatch",
 			Handler:    _AuthService_GetAccountStatusBatch_Handler,
-		},
-		{
-			MethodName: "CreateAccount",
-			Handler:    _AuthService_CreateAccount_Handler,
 		},
 		{
 			MethodName: "ResendActivationEmail",

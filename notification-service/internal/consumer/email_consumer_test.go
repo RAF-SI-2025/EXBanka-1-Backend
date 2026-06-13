@@ -41,7 +41,7 @@ func TestEmailConsumer_HandleMessage_HappyPath(t *testing.T) {
 		},
 	}
 
-	c.handleMessage(context.Background(), mustMarshal(t, payload))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 
 	assert.Equal(t, 1, sender.sentCount())
 	last, ok := sender.lastCall()
@@ -69,7 +69,7 @@ func TestEmailConsumer_HandleMessage_TestAddressSkipsSend(t *testing.T) {
 		Data:      map[string]string{"first_name": "Alice"},
 	}
 
-	c.handleMessage(context.Background(), mustMarshal(t, payload))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 
 	// Test addresses MUST NOT trigger an SMTP send …
 	assert.Equal(t, 0, sender.sentCount())
@@ -80,7 +80,7 @@ func TestEmailConsumer_HandleMessage_TestAddressSkipsSend(t *testing.T) {
 	assert.True(t, confirm.Success)
 }
 
-func TestEmailConsumer_HandleMessage_SendFailurePublishesFailure(t *testing.T) {
+func TestEmailConsumer_HandleMessage_SendFailureReturnsErrForRetry(t *testing.T) {
 	wantErr := errors.New("smtp down")
 	sender := &stubEmailSender{sendErr: wantErr}
 	pub := &stubEmailSentPublisher{}
@@ -92,13 +92,15 @@ func TestEmailConsumer_HandleMessage_SendFailurePublishesFailure(t *testing.T) {
 		Data:      map[string]string{"link": "http://localhost:5173/reset?token=x"},
 	}
 
-	c.handleMessage(context.Background(), mustMarshal(t, payload))
+	err := c.handleMessage(context.Background(), mustMarshal(t, payload))
 
+	// A transient SMTP failure now RETURNS an error so the runner retries and,
+	// on exhaustion, dead-letters it — instead of swallowing it with a
+	// per-attempt failure confirmation (which would commit + drop the message).
+	require.Error(t, err)
 	assert.Equal(t, 1, sender.sentCount())
-	confirm, ok := pub.lastConfirm()
-	require.True(t, ok)
-	assert.False(t, confirm.Success)
-	assert.Contains(t, confirm.Error, "smtp down")
+	_, ok := pub.lastConfirm()
+	assert.False(t, ok, "no per-attempt confirmation should be published on a retryable send failure")
 }
 
 func TestEmailConsumer_HandleMessage_RenderFailurePublishesFailure(t *testing.T) {
@@ -112,7 +114,7 @@ func TestEmailConsumer_HandleMessage_RenderFailurePublishesFailure(t *testing.T)
 		Data:      map[string]string{"first_name": "Alice"},
 	}
 
-	c.handleMessage(context.Background(), mustMarshal(t, payload))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 
 	// Render failure MUST NOT trigger an SMTP send …
 	assert.Equal(t, 0, sender.sentCount())
@@ -129,7 +131,7 @@ func TestEmailConsumer_HandleMessage_MalformedJSONIsIgnored(t *testing.T) {
 	pub := &stubEmailSentPublisher{}
 	c := newEmailConsumerForTest(sender, pub, &stubRenderer{subject: "S", body: "B"})
 
-	c.handleMessage(context.Background(), []byte("{this is not json"))
+	_ = c.handleMessage(context.Background(), []byte("{this is not json"))
 
 	assert.Equal(t, 0, sender.sentCount())
 	assert.Equal(t, 0, pub.callCounter)
@@ -148,7 +150,7 @@ func TestEmailConsumer_HandleMessage_PublishFailureDoesNotPanic(t *testing.T) {
 
 	// Must not panic even when the kafka publish fails.
 	require.NotPanics(t, func() {
-		c.handleMessage(context.Background(), mustMarshal(t, payload))
+		_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 	})
 	assert.Equal(t, 1, sender.sentCount())
 	assert.Equal(t, 1, pub.callCounter)
@@ -166,7 +168,7 @@ func TestEmailConsumer_HandleMessage_TestAddressPublishFailureDoesNotPanic(t *te
 	}
 
 	require.NotPanics(t, func() {
-		c.handleMessage(context.Background(), mustMarshal(t, payload))
+		_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 	})
 	assert.Equal(t, 0, sender.sentCount())
 	assert.Equal(t, 1, pub.callCounter)

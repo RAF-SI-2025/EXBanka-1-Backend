@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net/http"
-	"strconv"
+	"log/slog"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -15,11 +13,13 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	adminpb "github.com/exbanka/contract/adminpb"
+	"github.com/exbanka/contract/cronreg"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/logger"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
-	stockpb "github.com/exbanka/contract/stockpb"
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/transaction-service/internal/config"
@@ -28,10 +28,10 @@ import (
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
 	"github.com/exbanka/transaction-service/internal/service"
-	"github.com/exbanka/transaction-service/internal/sitx"
 )
 
 func main() {
+	logger.Init("transaction-service")
 	cfg := config.Load()
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
@@ -59,12 +59,16 @@ func main() {
 		&model.PaymentRecipient{},
 		&model.TransferFee{},
 		&model.SagaLog{},
-		&model.PeerBank{},              // new (Phase 2 Task 8, SI-TX)
-		&model.PeerIdempotenceRecord{}, // new (Phase 2 Task 8, SI-TX)
-		&model.OutboundPeerTx{},        // new (Phase 3 Task 10, SI-TX)
+		// SI-TX peer tables (peer_banks / peer_idempotence_records /
+		// outbound_peer_txs) moved to interbank-service (2026-06-07 cutover).
+		// They are no longer migrated here; existing rows in transaction_db are
+		// orphaned and may be dropped manually once peer_banks is migrated to
+		// interbank_db (see docs/superpowers/plans/2026-06-06-interbank-cutover.md).
+		&cronreg.CronPauseState{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	cronRegistry := cronreg.NewRegistry("transaction-service", cronreg.NewGormPauseStore(db))
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -81,6 +85,7 @@ func main() {
 		"transaction.saga-dead-letter",
 		"notification.send-email",
 		"notification.general",
+		"admin.cron-action",
 	)
 
 	// Connect to account-service
@@ -116,24 +121,6 @@ func main() {
 	}
 	defer verificationConn.Close()
 	verificationClient := verificationpb.NewVerificationGRPCServiceClient(verificationConn)
-
-	// Connect to stock-service for the cross-bank option-recorder
-	// surface (PeerOTCService.RecordOptionContract). Optional — if
-	// unreachable, OTC accept TXs still flow but option contracts
-	// aren't materialised on COMMIT_TX (logged by handler).
-	stockConn, stockErr := grpc.NewClient(cfg.StockGRPCAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
-	)
-	if stockErr != nil {
-		log.Printf("warn: stock service connection failed; option-leg materialisation disabled: %v", stockErr)
-	} else {
-		defer stockConn.Close()
-	}
-	var optionRecorder handler.PeerOptionRecorder
-	if stockConn != nil {
-		optionRecorder = stockpb.NewPeerOTCServiceClient(stockConn)
-	}
 
 	paymentRepo := repository.NewPaymentRepository(db)
 	transferRepo := repository.NewTransferRepository(db)
@@ -181,7 +168,8 @@ func main() {
 	defer cancel()
 
 	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber, sagaLogRepo)
-	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, bankClient, feeSvc, producer, sagaLogRepo)
+	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, bankClient, feeSvc, producer, sagaLogRepo).
+		WithCronRegistry(cronRegistry)
 	transferSvc.StartCompensationRecovery(ctx)
 	recipientSvc := service.NewPaymentRecipientService(recipientRepo)
 
@@ -191,60 +179,15 @@ func main() {
 		recipientSvc,
 		verificationClient,
 		producer,
-	)
+	).WithSagaLogReader(sagaLogRepo)
 
 	feeHandler := handler.NewFeeGRPCHandler(feeSvc)
 
-	// Phase 2 Task 8 (SI-TX): peer-bank admin + peer-tx stubs.
-	peerBankRepo := repository.NewPeerBankRepository(db)
-	peerIdemRepo := repository.NewPeerIdempotenceRepository(db)
-
-	peerBankAdminHandler := handler.NewPeerBankAdminGRPCHandler(peerBankRepo)
-
-	// SI-TX Phase 3 sender-side wiring.
-	ownRouting, _ := strconv.ParseInt(cfg.OwnBankCode, 10, 64)
-	peerExecutor := sitx.NewPostingExecutor(accountClient, ownRouting)
-	// Wire the seller-side option-holdings pre-check (NEW_TX time).
-	// Reuses the same stock-service connection as the option recorder;
-	// optional for the same reason — degrades to COMMIT_TX-time
-	// best-effort lock when stock-service is unreachable.
-	if stockConn != nil {
-		peerExecutor.SetHoldingChecker(stockpb.NewPeerOTCServiceClient(stockConn))
-	}
-	outRepo := repository.NewOutboundPeerTxRepository(db)
-	peerHTTPClient := sitx.NewPeerHTTPClient(&http.Client{Timeout: 30 * time.Second})
-
-	// peerLookup resolves a peer-bank-code to a PeerHTTPTarget by reading
-	// from the local peer_banks table.
-	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
-		row, err := peerBankRepo.GetByBankCode(code)
-		if err != nil {
-			return nil, err
-		}
-		if !row.Active {
-			return nil, fmt.Errorf("peer bank %s inactive", code)
-		}
-		return &sitx.PeerHTTPTarget{
-			BankCode:        row.BankCode,
-			RoutingNumber:   row.RoutingNumber,
-			OwnBankCode:     cfg.OwnBankCode,
-			OwnRouting:      ownRouting,
-			BaseURL:         row.BaseURL,
-			APIToken:        row.APITokenPlaintext,
-			HMACOutboundKey: row.HMACOutboundKey,
-		}, nil
-	}
-
-	peerTxHandler := handler.NewPeerTxGRPCHandler(
-		peerIdemRepo, peerExecutor, accountClient,
-		outRepo, peerHTTPClient, handler.PeerLookupFunc(peerLookup), ownRouting,
-	)
-	if optionRecorder != nil {
-		peerTxHandler.SetOptionRecorder(optionRecorder)
-	}
-
-	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup))
-	replayCron.Start(ctx)
+	// Cross-bank SI-TX engine REMOVED (2026-06-07 cutover). The whole
+	// cross-bank surface — the 2PC engine (PeerTxService), the peer_banks
+	// registry (PeerBankAdminService), the outbound-replay + reconciler
+	// crons, and the outbound HTTP egress — now lives in interbank-service.
+	// transaction-service is pure local payments / transfers / fees.
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -267,15 +210,16 @@ func main() {
 		Register: func(s *grpc.Server) {
 			pb.RegisterTransactionServiceServer(s, grpcHandler)
 			pb.RegisterFeeServiceServer(s, feeHandler)
-			pb.RegisterPeerBankAdminServiceServer(s, peerBankAdminHandler)
-			pb.RegisterPeerTxServiceServer(s, peerTxHandler)
+			// PeerBankAdminService + PeerTxService moved to interbank-service
+			// (2026-06-07 cutover) — no longer registered here.
+			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "transaction-service")
 			metrics.InitializeGRPCMetrics(s)
 		},
 		Signals: shared.DefaultShutdownSignals,
 		OnReady: func() {
 			markReady()
-			fmt.Printf("transaction service listening on %s\n", cfg.GRPCAddr)
+			slog.Info("transaction service listening", "addr", cfg.GRPCAddr)
 		},
 	}); err != nil {
 		log.Fatalf("grpc: %v", err)

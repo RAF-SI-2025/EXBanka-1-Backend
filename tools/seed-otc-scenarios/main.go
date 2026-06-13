@@ -737,12 +737,12 @@ Celina 5 (cross-bank) setup — manual steps:
   4. To exercise cross-bank flows:
        - Bank A: testclient → GET /api/v3/otc/options?kind=remote
          shows Bank B's listings (also via peer /public-option-offers).
-       - Bank A: testclient → POST /api/v3/me/peer-otc/negotiations
-         with seller_bank_code=222 + seller_id=<peer client id> +
-         parent_offer_id={routingNumber, id} from discovery to set up
-         the Phase 10 cascade group.
+       - Bank A: testclient → POST /api/v3/otc/options/:id/bid
+         on the discovered Bank B listing id (with bidder_account_id,
+         quantity, strike_price, premium, settlement_date) to open a
+         cross-bank negotiation chain in the Phase 10 cascade group.
        - Have a second cross-bank bidder (e.g. testclient3 on Bank A)
-         place a competing bid against the SAME parent_offer_id.
+         place a competing bid against the SAME Bank B listing id.
        - Have the seller on Bank B accept one chain — the other
          sibling chain cascade-cancels on both banks AND each loser
          gets an OTC_OFFER_CASCADE_CANCELLED notification in

@@ -22,23 +22,25 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/cronreg"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
 
 // StaleReservationScanner walks the holding_reservations table once per
 // tick and emits a WARN line for every active reservation whose linked
-// entity (Order / OptionContract / PeerOptionContract) is in a terminal
-// status. Wire it via Run; honors ctx cancellation.
+// entity (Order / local OptionContract / remote OptionContract) is in a
+// terminal status. Wire it via Run; honors ctx cancellation.
 type StaleReservationScanner struct {
 	db            *gorm.DB
 	resRepo       *repository.HoldingReservationRepository
 	orderRepo     *repository.OrderRepository
 	contractsRepo *repository.OptionContractRepository
-	peerContracts *repository.PeerOptionContractRepository // optional
+	peerContracts *repository.OptionContractRepository // optional; remote contract reads (unified table)
 
 	interval  time.Duration
 	threshold time.Duration
+	entry     *cronreg.Entry
 }
 
 // NewStaleReservationScanner constructs the scanner. interval=24h and
@@ -50,6 +52,7 @@ func NewStaleReservationScanner(
 	orders *repository.OrderRepository,
 	contracts *repository.OptionContractRepository,
 	interval, threshold time.Duration,
+	registry *cronreg.Registry,
 ) *StaleReservationScanner {
 	if interval <= 0 {
 		interval = 24 * time.Hour
@@ -57,7 +60,7 @@ func NewStaleReservationScanner(
 	if threshold <= 0 {
 		threshold = 24 * time.Hour
 	}
-	return &StaleReservationScanner{
+	s := &StaleReservationScanner{
 		db:            db,
 		resRepo:       res,
 		orderRepo:     orders,
@@ -65,12 +68,14 @@ func NewStaleReservationScanner(
 		interval:      interval,
 		threshold:     threshold,
 	}
+	s.entry = registry.Register("stale-reservation-scan", "Detect holding_reservations stuck active past threshold", interval)
+	return s
 }
 
-// WithPeerContracts wires the cross-bank option-contract repo so the
-// scanner can also classify peer-OTC reservations. Optional — when
-// nil, only intra-bank order / OTC reservations are classified.
-func (s *StaleReservationScanner) WithPeerContracts(p *repository.PeerOptionContractRepository) *StaleReservationScanner {
+// WithPeerContracts wires the option-contract repo so the scanner can also
+// classify cross-bank (remote) OTC reservations via GetRemoteContractByID.
+// Optional — when nil, only intra-bank order / OTC reservations are classified.
+func (s *StaleReservationScanner) WithPeerContracts(p *repository.OptionContractRepository) *StaleReservationScanner {
 	s.peerContracts = p
 	return s
 }
@@ -78,7 +83,10 @@ func (s *StaleReservationScanner) WithPeerContracts(p *repository.PeerOptionCont
 // Run blocks until ctx is cancelled. First scan fires immediately so
 // ops see baseline state; subsequent scans tick on s.interval.
 func (s *StaleReservationScanner) Run(ctx context.Context) {
-	s.scanOnce(ctx)
+	if s.entry.BeginRun() {
+		s.scanOnce(ctx)
+		s.entry.EndRun(nil)
+	}
 	t := time.NewTicker(s.interval)
 	defer t.Stop()
 	for {
@@ -86,7 +94,17 @@ func (s *StaleReservationScanner) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !s.entry.BeginRun() {
+				continue
+			}
 			s.scanOnce(ctx)
+			s.entry.EndRun(nil)
+		case <-s.entry.TriggerChan():
+			if !s.entry.BeginRun() {
+				continue
+			}
+			s.scanOnce(ctx)
+			s.entry.EndRun(nil)
 		}
 	}
 }
@@ -158,7 +176,7 @@ func (s *StaleReservationScanner) classifyOTCBacked(r *model.HoldingReservation,
 }
 
 func (s *StaleReservationScanner) classifyPeerOTCBacked(r *model.HoldingReservation, stale *int) {
-	c, err := s.peerContracts.GetByID(*r.PeerOptionContractID)
+	c, err := s.peerContracts.GetRemoteContractByID(*r.PeerOptionContractID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Printf("WARN: stale holding_reservation id=%d peer_option_contract_id=%d: peer contract MISSING — needs manual release",

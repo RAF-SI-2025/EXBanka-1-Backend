@@ -1,4 +1,9 @@
-.PHONY: proto permissions proto-check clean build tidy docker-up docker-down docker-logs test swagger test-integration lint
+.PHONY: proto permissions proto-check clean build tidy docker-up docker-down docker-logs test swagger test-integration lint fmt fmt-check ci-build ci-test tidy-check ci
+
+# Go modules and buildable services exactly as enumerated by the CI matrices in
+# .github/workflows/ci.yml. Keep these in sync with that file.
+CI_MODULES := contract api-gateway auth-service user-service notification-service client-service account-service card-service transaction-service credit-service exchange-service stock-service verification-service interbank-service seeder
+CI_SERVICES := api-gateway auth-service user-service notification-service client-service account-service card-service transaction-service credit-service exchange-service stock-service verification-service interbank-service seeder
 
 permissions:
 	go run ./tools/perm-codegen
@@ -14,11 +19,12 @@ proto:
 		client/client.proto account/account.proto card/card.proto \
 		transaction/transaction.proto credit/credit.proto \
 		exchange/exchange.proto stock/stock.proto \
-		verification/verification.proto
+		verification/verification.proto \
+		admin/admin_cron.proto
 	mkdir -p contract/authpb contract/userpb contract/notificationpb \
 		contract/clientpb contract/accountpb contract/cardpb \
 		contract/transactionpb contract/creditpb contract/exchangepb \
-		contract/stockpb contract/verificationpb
+		contract/stockpb contract/verificationpb contract/adminpb
 	mv contract/auth/*.pb.go contract/authpb/ 2>/dev/null || true
 	mv contract/user/*.pb.go contract/userpb/ 2>/dev/null || true
 	mv contract/notification/*.pb.go contract/notificationpb/ 2>/dev/null || true
@@ -30,6 +36,7 @@ proto:
 	mv contract/exchange/*.pb.go contract/exchangepb/ 2>/dev/null || true
 	mv contract/stock/*.pb.go contract/stockpb/ 2>/dev/null || true
 	mv contract/verification/*.pb.go contract/verificationpb/ 2>/dev/null || true
+	mv contract/admin/*.pb.go contract/adminpb/ 2>/dev/null || true
 	rmdir contract/auth contract/user contract/notification 2>/dev/null || true
 	rmdir contract/client contract/account contract/card \
 		contract/transaction contract/credit contract/exchange \
@@ -82,6 +89,7 @@ clean:
 	rm -f contract/clientpb/*.go contract/accountpb/*.go contract/cardpb/*.go
 	rm -f contract/transactionpb/*.go contract/creditpb/*.go contract/exchangepb/*.go contract/stockpb/*.go
 	rm -f contract/verificationpb/*.go
+	rm -f contract/adminpb/*.go
 	rm -f user-service/bin/* auth-service/bin/* api-gateway/bin/* notification-service/bin/*
 	rm -f client-service/bin/* account-service/bin/* card-service/bin/*
 	rm -f transaction-service/bin/* credit-service/bin/* exchange-service/bin/* stock-service/bin/*
@@ -131,3 +139,53 @@ test-integration:
 # Honors env: GATEWAY_URL, ADMIN_EMAIL, ADMIN_PASSWORD.
 seed-otc-scenarios:
 	cd tools/seed-otc-scenarios && go run .
+
+# ---------------------------------------------------------------------------
+# CI: run the ENTIRE .github/workflows/ci.yml pipeline locally before finishing.
+# `make ci` must be green before any change is considered done (see CLAUDE.md
+# "Continuous Integration (CI) Requirement").
+# ---------------------------------------------------------------------------
+
+# Auto-format every Go file in the repo.
+fmt:
+	gofmt -w .
+
+# CI job "Format Check": gofmt -l . must print nothing (repo-wide).
+fmt-check:
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then \
+		echo "Not gofmt-clean (run 'make fmt'):"; echo "$$unformatted"; exit 1; \
+	fi; \
+	echo "gofmt: clean"
+
+# CI job "Build": every service compiles.
+ci-build:
+	@for dir in $(CI_SERVICES); do \
+		echo "=== build $$dir ==="; \
+		(cd $$dir && go build -o bin/$$dir ./cmd) || exit 1; \
+	done
+
+# CI job "Unit Tests": every module passes (cgo on for SQLite tests).
+ci-test:
+	@for dir in $(CI_MODULES); do \
+		echo "=== test $$dir ==="; \
+		(cd $$dir && CGO_ENABLED=1 go test ./... -count=1) || exit 1; \
+	done
+
+# CI job "Go Mod Tidy Check": go mod tidy must leave go.mod/go.sum unchanged.
+tidy-check:
+	@for dir in $(CI_MODULES); do \
+		echo "=== tidy $$dir ==="; \
+		(cd $$dir && go mod tidy) || exit 1; \
+	done
+	@changed=$$(git status --porcelain -- $$(git ls-files '*go.mod' '*go.sum')); \
+	if [ -n "$$changed" ]; then \
+		echo "go mod tidy changed go.mod/go.sum — commit the result:"; echo "$$changed"; exit 1; \
+	fi; \
+	echo "go mod tidy: clean"
+
+# Full local CI — mirrors every job in .github/workflows/ci.yml.
+ci: fmt-check ci-build ci-test lint tidy-check
+	@echo ""
+	@echo "===================================="
+	@echo "CI: all jobs passed (build/test/lint/gofmt/tidy)"

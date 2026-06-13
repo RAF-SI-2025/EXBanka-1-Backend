@@ -273,6 +273,25 @@ services:
       - "3001:3000"
     depends_on:
       - prometheus
+      - loki
+
+  loki:
+    image: grafana/loki:3.0.0
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.docker.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
 
   # ─── Services ─────────────────────────────────────────────────────────────
 
@@ -292,7 +311,6 @@ services:
       REDIS_ADDR: redis:6379
       USER_DB_SSLMODE: disable
       METRICS_PORT: "9102"
-      CLIENT_GRPC_ADDR: "client-service:50054"
     ports:
       - "50052:50052"
       - "9102:9102"
@@ -303,8 +321,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-#      client-service:
-#        condition: service_started
 
   auth-service:
     build:
@@ -321,6 +337,11 @@ services:
       USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
       JWT_SECRET: docker-test-secret-change-me
+      # Access tokens are signed with ES256. Set JWT_EC_PRIVATE_KEY to a PEM
+      # ECDSA P-256 key (with JWT_EC_KID) to keep tokens valid across restarts;
+      # left unset, auth-service generates an ephemeral key at startup (dev).
+      JWT_EC_PRIVATE_KEY: "${JWT_EC_PRIVATE_KEY:-}"
+      JWT_EC_KID: "${JWT_EC_KID:-}"
       JWT_ACCESS_EXPIRY: 15m
       JWT_REFRESH_EXPIRY: 168h
       REDIS_ADDR: redis:6379
@@ -418,6 +439,9 @@ services:
       REDIS_ADDR: redis:6379
       METRICS_PORT: "9105"
       OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      # Time-safety backstop for cross-bank money DEBIT holds: a reserve with no
+      # COMMIT/ROLLBACK from the peer is released after this TTL (Go duration).
+      OUTGOING_RESERVATION_TTL: "${OUTGOING_RESERVATION_TTL:-10m}"
     ports:
       - "50055:50055"
       - "9105:9105"
@@ -476,11 +500,12 @@ services:
       KAFKA_BROKERS: kafka:9092
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
-      STOCK_GRPC_ADDR: "stock-service:50060"
       METRICS_PORT: "9107"
-      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Cross-bank SI-TX env (STOCK_GRPC_ADDR, OWN_BANK_CODE,
+      # SITX_RECEIVE_SYNC_DEADLINE) + the peer-egress extra_hosts removed in the
+      # 2026-06-07 cutover: the SI-TX engine moved to interbank-service.
+      # transaction-service is pure local payments/transfers/fees and makes no
+      # outbound HTTP to peers.
     ports:
       - "50057:50057"
       - "9107:9107"
@@ -495,12 +520,6 @@ services:
         condition: service_started
       verification-service:
         condition: service_started
-      # stock-service intentionally NOT in depends_on: stock-service
-      # already depends on transaction-service (cross-bank dispatch path),
-      # so making it a hard dep here would cycle. The stock gRPC client
-      # is best-effort at startup — option-leg materialisation degrades
-      # gracefully (logs warning, transfer flows still work) when
-      # stock-service is unreachable.
 
   credit-service:
     build:
@@ -590,7 +609,7 @@ services:
       CLIENT_GRPC_ADDR: "client-service:50054"
       STATE_ACCOUNT_NUMBER: "0000000000000099"
       ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-48LZWZHF4RBSPT4W}
-      SECURITY_SYNC_INTERVAL_MINUTES: "15"
+      SECURITY_SYNC_INTERVAL_MINUTES: "1"
       EODHD_API_KEY: ${EODHD_API_KEY:-69ceead76aa151.58974488}
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
@@ -602,7 +621,13 @@ services:
       METRICS_PORT: "9110"
       OTC_EXPIRY_CRON_UTC: "02:00"
       OTC_EXPIRY_BATCH_SIZE: "500"
-      TRANSACTION_GRPC_ADDR: "transaction-service:50057"
+      OTC_EXPIRY_WARNING_DAYS: "3"
+      FUND_SNAPSHOT_CRON_UTC: "23:50"
+      FUND_METRICS_MIN_MONTHLY_RETURNS: "2"
+      # Cross-bank wiring (2026-06-07 cutover): the SI-TX engine, peer_banks
+      # registry, and outbound HTTP egress all live in interbank-service.
+      # stock-service no longer dials transaction-service.
+      INTERBANK_GRPC_ADDR: "interbank-service:50062"
       OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
     ports:
       - "50060:50060"
@@ -622,7 +647,7 @@ services:
         condition: service_started
       exchange-service:
         condition: service_started
-      transaction-service:
+      interbank-service:
         condition: service_started
       client-service:
         condition: service_started
@@ -676,10 +701,16 @@ services:
       STOCK_GRPC_ADDR: "stock-service:50060"
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
       NOTIFICATION_GRPC_ADDR: "notification-service:50053"
+      # 2026-06-07 cutover: the whole /cross-bank-protocol surface routes here.
+      INTERBANK_GRPC_ADDR: "interbank-service:50062"
       KAFKA_BROKERS: kafka:9092
       METRICS_PORT: "9100"
       REDIS_ADDR: "redis:6379"
       OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      OWN_BANK_NAME: "${OWN_BANK_NAME:-EXBanka}"
+      RATE_LIMIT_GLOBAL_PER_MIN: "${RATE_LIMIT_GLOBAL_PER_MIN:-3000}"
+      RATE_LIMIT_LOGIN_PER_5MIN: "${RATE_LIMIT_LOGIN_PER_5MIN:-20}"
+      RATE_LIMIT_RESET_PER_5MIN: "${RATE_LIMIT_RESET_PER_5MIN:-5}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -705,6 +736,8 @@ services:
       stock-service:
         condition: service_started
       verification-service:
+        condition: service_started
+      interbank-service:
         condition: service_started
       redis:
         condition: service_healthy
@@ -742,6 +775,72 @@ services:
         condition: service_started
     restart: on-failure
 
+  interbank-db:
+    image: postgres:17-alpine
+    environment:
+      TZ: UTC
+      POSTGRES_DB: interbankdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5443:5432"
+    volumes:
+      - interbank-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Cross-bank SI-TX settlement engine + peer_banks registry + outbound HTTP
+  # egress. LIVE as of the 2026-06-07 cutover: the api-gateway routes the whole
+  # /cross-bank-protocol surface here (step 1), and stock-service's OTC egress
+  # (negotiations + public-stock/option discovery) flows through ProxyToPeer
+  # here (step 2). transaction-service still hosts the engine until step 3
+  # removes it (see docs/superpowers/plans/2026-06-06-interbank-cutover.md).
+  interbank-service:
+    build:
+      context: .
+      dockerfile: interbank-service/Dockerfile
+    environment:
+      TZ: UTC
+      INTERBANK_DB_HOST: interbank-db
+      INTERBANK_DB_PORT: "5432"
+      INTERBANK_DB_USER: postgres
+      INTERBANK_DB_PASSWORD: postgres
+      INTERBANK_DB_NAME: interbankdb
+      INTERBANK_GRPC_ADDR: ":50062"
+      INTERBANK_METRICS_PORT: "9112"
+      ACCOUNT_GRPC_ADDR: "account-service:50055"
+      STOCK_GRPC_ADDR: "stock-service:50060"
+      EXCHANGE_GRPC_ADDR: "exchange-service:50059"
+      CLIENT_GRPC_ADDR: "client-service:50054"
+      USER_GRPC_ADDR: "user-service:50052"
+      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      OWN_BANK_DISPLAY_NAME: "${OWN_BANK_DISPLAY_NAME:-EXBanka}"
+      SITX_RECEIVE_SYNC_DEADLINE: "${SITX_RECEIVE_SYNC_DEADLINE:-5s}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "50062:50062"
+      - "9112:9112"
+    depends_on:
+      interbank-db:
+        condition: service_healthy
+      account-service:
+        condition: service_started
+      exchange-service:
+        condition: service_started
+      client-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      # stock-service intentionally NOT a hard dep: at integration stock-service
+      # depends on interbank-service (cross-bank egress via ProxyToPeer), so a
+      # hard dep here would cycle. The stock gRPC client (OTC forwarding + option
+      # legs) is lazy/best-effort at startup.
+    restart: on-failure
+
 volumes:
   user_db_data:
   auth_db_data:
@@ -756,5 +855,7 @@ volumes:
   influxdb_data:
   verification-db-data:
   notification-db-data:
+  interbank-db-data:
   prometheus_data:
   grafana_data:
+  loki_data:

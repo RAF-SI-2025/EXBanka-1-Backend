@@ -38,7 +38,7 @@ func (r *FuturesRepository) GetByTicker(ticker string) (*model.FuturesContract, 
 }
 
 func (r *FuturesRepository) Update(f *model.FuturesContract) error {
-	result := r.db.Save(f)
+	result := r.db.Select("*").Save(f)
 	if result.Error != nil {
 		return result.Error
 	}

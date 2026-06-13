@@ -8,6 +8,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **After implementing any feature or change, update `Specification.md` to reflect what was added or modified.** This includes: new API routes (Section 17), new or changed entities (Section 18), new Kafka topics or message types (Section 19), new enum values (Section 20), new business rules (Section 21), new gRPC service definitions (Section 11), new permissions (Section 6), and any changes to the gateway client wiring (Section 3). The spec must always match the current state of the codebase.
 
+## Versioning Requirement
+
+**Every change to the backend MUST bump the version in the repo-root `VERSION` file. Do this automatically — never ask whether to bump it.** This is a hard requirement — not optional.
+
+- The repo-root `VERSION` file is the single source of truth for the backend's semantic version (`MAJOR.MINOR.PATCH`). It is served to clients at `GET /api/v3/version` and baked into docker images both as the `:<version>` image tag (CD) and into the api-gateway binary via `-ldflags` (so the endpoint reports the exact built version).
+- On **every** commit that changes backend behavior, bump `VERSION` using semantic versioning, with no prompt to the user:
+  - **PATCH** (`x.y.Z+1`) — bug fixes, refactors, docs, tests, internal changes with no API contract change.
+  - **MINOR** (`x.Y+1.0`) — new backward-compatible routes, fields, or features.
+  - **MAJOR** (`X+1.0.0`) — breaking changes to existing routes/contracts (requires the same explicit user authorization as any other breaking change per the API Versioning Compatibility Requirement).
+- Keep the default in `api-gateway/internal/version/version.go` (`var Version`) in sync with the `VERSION` file — both hold the same semver string. The `VERSION` file is authoritative; the Go default is the local-dev fallback when not built through the Dockerfile.
+- Bump `VERSION` as part of the same change that introduces the behavior — it is not a separate follow-up task, and it does not require asking.
+
 ## Repository Layout
 
 This is a Go workspace monorepo. Each service has its own self-contained directory at the repo root:
@@ -60,7 +72,7 @@ cd notification-service && go build -o bin/notification-service ./cmd
 ```bash
 docker compose --env-file .env.bank-b -f docker-compose.yml -f docker-compose.bank-b.yml up
 ```
-After both stacks are healthy, register each as a peer in the other via `POST /api/v3/peer-banks`. `base_url` is the FULL SI-TX path prefix that the peer exposes its `/interbank`, `/public-stock`, and `/negotiations` endpoints under — for this codebase that's `http://host.docker.internal:<gateway-port>/api/v3`. The outbound clients (`transaction-service/internal/sitx/peer_http_client.go`, `stock-service/internal/otccache/cache.go`, `api-gateway/internal/handler/peer_otc_initiate_handler.go`) only append the leaf names (`/interbank`, `/public-stock`, `/negotiations`) so cohort banks with different gateway path layouts all interop — each peer's prefix lives in its registration row, not in our client code. Requires docker compose v2.24+ for the `!override` tag.
+After both stacks are healthy, register each as a peer in the other via `POST /api/v3/peer-banks`. `base_url` is the FULL SI-TX path prefix that **the peer** exposes its `/interbank`, `/public-stock`, `/public-option-offers`, `/negotiations`, and `/user` endpoints under. It is **per-peer and arbitrary** — every cohort bank may host its protocol routes under a different prefix, which is exactly why it lives in the registration row: our outbound egress client (`interbank-service/internal/handler/peer_egress_grpc_handler.go` via `interbank-service/internal/sitx/peer_http_client.go`) only appends the leaf names to whatever `base_url` you registered, so banks with different path layouts all interop. **For peers running THIS codebase the prefix is `/cross-bank-protocol`**, so register one of our own banks as `http://host.docker.internal:<gateway-port>/api/v3/cross-bank-protocol` (our routes live there since the 2026-05-29 cutover; a bare `/api/v3` is the common mistake — it makes outbound NEW_TX hit a 404 "route not found" and the tx hangs in `prepared`). A *different* cohort bank may publish any other prefix — use whatever they give you. Peer auth: send a shared `api_token` (X-Api-Key) on each side (HMAC keys optional); the same token on both registrations is sufficient. Requires docker compose v2.24+ for the `!override` tag.
 
 ## Environment
 
@@ -78,7 +90,7 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `CARD_GRPC_ADDR` | localhost:50056 | card-service gRPC address |
 | `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
 | `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
-| `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service |
+| `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service and interbank-service (seller-side FX on cross-currency OTC credits) |
 | `VERIFICATION_GRPC_ADDR` | localhost:50061 | verification-service gRPC address; also required by transaction-service |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
 | `MOBILE_REFRESH_EXPIRY` | 2160h (90 days) | Mobile refresh token expiry (auth-service) |
@@ -191,7 +203,7 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - Middleware uses `system_type` to route to `AuthMiddleware` (employee) or `AnyAuthMiddleware` (client + employee).
 
 **Token types** (auth-service):
-- Access token: short-lived JWT (15 min), stateless validation. Claims include `user_id`, `roles []string`, `permissions []string`, and `system_type` (`employee` or `client`).
+- Access token: short-lived JWT (15 min), **ES256-signed (asymmetric)**. auth-service holds the private key and exposes the public keys via the `GetSigningKeys` gRPC (JWKS-style, with `kid` + rotation overlap). The **api-gateway verifies access tokens LOCALLY** (caching the public keys; no per-request `ValidateToken` hop) and consults two Redis denylists written by auth: `blacklist:sid:<sid>` (hard revocation — logout/revoke → gateway returns 401 `unauthorized`) and `user_revoked_at:<principal_id>` (per-user epoch vs the token's `iat` — claims changed/revoke-all → gateway returns 401 `token_expired` so the client silently refreshes). Redis key formats live in `contract/authredis`. Claims include `principal_id`, `principal_type`, `roles`, `permissions`, and `sid` (session id). `JWT_SECRET` is legacy (no longer signs); set `JWT_EC_PRIVATE_KEY`/`JWT_EC_KID` for a persistent key, else one is generated at startup.
 - Refresh token: long-lived (168h), stored in `auth_db` and revocable
 - Activation token: 24h, triggers email with activation link via Kafka → notification-service
 - Password reset token: 1h, triggers email with reset link via Kafka → notification-service
@@ -200,7 +212,9 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 
 **Employee creation flow:** API Gateway → User service (create employee) → Auth service (create activation token) → Kafka → Notification service (send activation email).
 
-**Client login flow:** API Gateway (`POST /api/auth/client-login`) → Auth service (`ClientLogin` RPC) → Client service (`ValidateCredentials` RPC) → Auth service generates JWT with `role="client"` and issues refresh token. The client JWT is validated by `AnyAuthMiddleware` in the API Gateway for `/api/me/*` routes.
+**Client login flow:** Clients and employees share one unified login: API Gateway (`POST /api/v3/auth/login`) → Auth service (`Login` RPC). **Auth-service owns all credentials** in its own `accounts` table — every row carries a `principal_type` of `employee` or `client`, and `Login` looks the account up by email and verifies the password against that row's hash. There is **no** client-service `ValidateCredentials` hop (client-service stores only the client *profile*). A client's auth Account is provisioned asynchronously: client-service publishes `client.client-created` to Kafka and auth-service's `client_consumer` creates the corresponding Account. On success `Login` mints an ES256 JWT whose `principal_type`/`system_type` is `client` and issues a refresh token; the gateway verifies it locally and `AnyAuthMiddleware` admits it on `/api/me/*` routes.
+
+**Client (and employee) deactivation → force-refresh:** Disabling an account via `SetAccountStatus(active=false)` revokes all of that account's refresh sessions **and** bumps the per-principal revocation epoch (`user_revoked_at:<principal_id>` in Redis), so the gateway rejects the still-valid access token immediately (401 `token_expired`). This is principal-type-agnostic — client deactivation is fully covered by the same path as employee deactivation; there is no separate client claims-invalidation channel.
 
 **JMBG (Jedinstveni Matični Broj Građana):**
 - Unique 13-digit national identification number required for all employees
@@ -320,6 +334,20 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - Fix any lint errors in code you touched before committing. You are not required to fix pre-existing lint issues in code you did not modify.
 - Requires `golangci-lint` installed (`go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`).
 
+## Continuous Integration (CI) Requirement
+
+**Before finishing any change, run the ENTIRE CI pipeline locally and make it green.** This is a hard requirement — not optional. Committing/declaring done without a full local CI pass is not acceptable.
+
+The CI pipeline is defined in `.github/workflows/ci.yml` and has five jobs that ALL must pass — run every one locally before finishing, not just the parts you think you touched:
+
+1. **Build** — every service builds: for each service dir, `go build -o bin/<svc> ./cmd` (or `make build`).
+2. **Unit Tests** — every module passes: for each (incl. `contract`), `CGO_ENABLED=1 go test ./... -count=1` (or `make test`). SQLite tests need cgo/gcc.
+3. **Lint** — every service: `cd <svc> && golangci-lint run --timeout=90s ./...` (or `make lint`).
+4. **Format Check** — `gofmt -l .` must print NOTHING. If it lists files, run `gofmt -w <files>` and re-check. This is repo-wide — a formatting violation in ANY file (even one you didn't touch) turns the whole pipeline red, so the format check only passes when the entire tree is gofmt-clean.
+5. **Go Mod Tidy Check** — for each module, `go mod tidy` must produce no diff in `go.mod`/`go.sum`.
+
+A convenience target `make ci` runs all five locally in one shot; use it (or run the five steps manually) and confirm a clean pass before considering the work done. Fix anything it surfaces — including repo-wide `gofmt` violations — before committing.
+
 ## Kafka Event Publishing Requirement
 
 **All services must publish Kafka events for every significant action they perform.** This is a hard requirement — not optional.
@@ -403,8 +431,9 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - gRPC addresses must use Docker service names, not `localhost` (e.g., `client-service:50054`, not `localhost:50054`).
 - If a service depends on another service at runtime (DB, Kafka, Redis, or another gRPC service), add a `depends_on:` entry for it.
 - When adding a new service, add its DB, its service definition, the volume, and wire it into the `api-gateway` environment and `depends_on`.
-- `docker-compose.yml` must be committed alongside service changes.
-- **`docker-compose-remote.yml` must be kept in sync with `docker-compose.yml`.** When adding/changing environment variables, ports, volumes, or services in `docker-compose.yml`, apply the same changes to `docker-compose-remote.yml` (which uses pre-built images from ghcr.io instead of building from source). The only difference between the two files is the `build:` vs `image:` directives — environment, ports, volumes, depends_on, and healthchecks must match.
+- `docker-compose.yml` must be committed alongside service changes. (There is a
+  single compose file — `docker-compose.yml`. The old `docker-compose-remote.yml`
+  was removed and is not coming back; do not recreate it or try to keep it in sync.)
 
 ## API Versioning Compatibility Requirement
 

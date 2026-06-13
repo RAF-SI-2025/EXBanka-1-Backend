@@ -5,8 +5,15 @@
 # operator can keep their own admin credentials and api-token values.
 .env.bank-*
 !.env.bank-*.example
+# bank1/ and bank2/ are the committed cross-bank test stacks (see
+# scripts/gen-bank-stacks.py). Their .env files hold only dev placeholder
+# secrets and are intentionally PUBLIC so anyone can `cd bank1 && docker compose
+# up -d` and test cross-bank out of the box.
+!bank1/.env
+!bank2/.env
 *.exe
 *.test
 vendor/
 */bin/
 .idea/
+.DS_Store

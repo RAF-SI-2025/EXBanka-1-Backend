@@ -84,15 +84,9 @@ func TestOTCExerciseContract_ExpiredSettlement(t *testing.T) {
 // emits OTC_CONTRACT_EXERCISED to both client parties (buyer + seller).
 func TestOTCExerciseContract_EmitsExercisedNotifications(t *testing.T) {
 	fx := newAcceptSagaFixture(t)
-	// Accept first to create a real contract with the seller's holding reserved.
-	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
-		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		AcceptorAccountID: 5001,
-	})
-	if err != nil {
-		t.Fatalf("accept: %v", err)
-	}
-	// Drop the notifications recorded during accept so the assertions below
+	// Mint a real contract with the seller's holding reserved.
+	contract := fx.mintActiveContract(t)
+	// Drop any notifications recorded during mint so the assertions below
 	// only see exercise-time notifications.
 	fx.notifier.notifs = nil
 
@@ -146,22 +140,15 @@ func TestOTCExerciseContract_RecordsSellerCapitalGain(t *testing.T) {
 	cgRepo := newMockCapitalGainRepo()
 	fx.svc = fx.svc.WithCapitalGain(cgRepo)
 
-	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
-		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		AcceptorAccountID: 5001,
-	})
-	if err != nil {
-		t.Fatalf("accept: %v", err)
-	}
+	contract := fx.mintActiveContract(t)
 	if _, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
 		ContractID: contract.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
 	}); err != nil {
 		t.Fatalf("exercise: %v", err)
 	}
 
-	// Filter to stock CG: Accept also wrote 2 SecurityType="option"
-	// premium rows (writer + buyer), which we ignore here. This test
-	// only asserts the EXERCISE-time stock realisation.
+	// Filter to stock CG. This test only asserts the EXERCISE-time stock
+	// realisation; any option-premium rows are ignored.
 	var stockGains []model.CapitalGain
 	for _, g := range cgRepo.gains {
 		if g.SecurityType == "stock" {
@@ -197,61 +184,58 @@ func TestOTCExerciseContract_RecordsSellerCapitalGain(t *testing.T) {
 	}
 }
 
-// TestAcceptSaga_RecordsOptionPremiumCapitalGains: a successful acceptance
-// realises the option premium as two SecurityType="option" capital gain
-// rows — +premium for the writer (seller), −premium for the buyer.
-// This is the accounting that makes "total P/L" work for any combination
-// of stock + option events: regardless of whether the option later
-// exercises or expires, the premium is already booked.
-func TestAcceptSaga_RecordsOptionPremiumCapitalGains(t *testing.T) {
+// fakeStockMeta returns a fixed listing price (the "market" price) for the
+// underlying so the exercise saga can compute the buyer's exercise gain.
+type fakeStockMeta struct {
+	listing *model.Listing
+}
+
+func (f *fakeStockMeta) GetStockByID(id uint64) (*model.Stock, error) { return nil, nil }
+func (f *fakeStockMeta) GetListingBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error) {
+	return f.listing, nil
+}
+
+// TestExerciseSaga_BuyerExerciseGain_AndBasisStepUp verifies the resolution-
+// month model: at exercise the buyer is taxed on (market-strike)*qty - premium
+// and the acquired-share cost basis steps up to market (not strike) so a later
+// sale does not re-tax (market-strike). Spec §3.1, §4 C2.
+func TestExerciseSaga_BuyerExerciseGain_AndBasisStepUp(t *testing.T) {
 	fx := newAcceptSagaFixture(t)
 	cgRepo := newMockCapitalGainRepo()
-	fx.svc = fx.svc.WithCapitalGain(cgRepo)
+	market := decimal.NewFromInt(12000) // > strike (5000); premium = 50000, qty = 10
+	fx.svc = fx.svc.WithCapitalGain(cgRepo).
+		WithStockMeta(&fakeStockMeta{listing: &model.Listing{ID: 9, Price: market}})
 
-	_, err := fx.svc.Accept(context.Background(), AcceptInput{
-		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		AcceptorAccountID: 5001,
-	})
-	if err != nil {
-		t.Fatalf("accept: %v", err)
+	contract := fx.mintActiveContract(t)
+	if _, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
+		ContractID: contract.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+	}); err != nil {
+		t.Fatalf("exercise: %v", err)
 	}
 
-	if len(cgRepo.gains) != 2 {
-		t.Fatalf("expected 2 capital gain rows (writer + buyer), got %d", len(cgRepo.gains))
-	}
-	sellerUID := uint64(fx.sellerID)
+	// Buyer exercise option gain: (12000-5000)*10 - 50000 = 20000.
 	buyerUID := uint64(fx.buyerID)
-	var writerCG, buyerCG *model.CapitalGain
+	var buyerGain *model.CapitalGain
 	for i := range cgRepo.gains {
 		g := &cgRepo.gains[i]
-		if g.OwnerID != nil && *g.OwnerID == sellerUID {
-			writerCG = g
-		} else if g.OwnerID != nil && *g.OwnerID == buyerUID {
-			buyerCG = g
+		if g.SecurityType == "option" && g.OTC && g.OwnerID != nil && *g.OwnerID == buyerUID {
+			buyerGain = g
 		}
 	}
-	if writerCG == nil {
-		t.Fatalf("missing writer CG row")
+	if buyerGain == nil {
+		t.Fatal("expected a buyer exercise option capital-gain row")
 	}
-	if buyerCG == nil {
-		t.Fatalf("missing buyer CG row")
+	if !buyerGain.TotalGain.Equal(decimal.NewFromInt(20000)) {
+		t.Fatalf("buyer exercise gain = %s, want 20000 ((market-strike)*qty - premium)", buyerGain.TotalGain)
 	}
-	// Premium in fixture = 50000.
-	wantPremium := decimal.NewFromInt(50000)
-	if writerCG.SecurityType != "option" {
-		t.Errorf("writer SecurityType = %q, want option", writerCG.SecurityType)
+
+	// Cost basis steps up to market (12000), not strike (5000).
+	h, err := fx.holdings.GetByOwnerAndSecurity(model.OwnerClient, &buyerUID, "stock", fx.stockID)
+	if err != nil {
+		t.Fatalf("buyer holding lookup: %v", err)
 	}
-	if !writerCG.TotalGain.Equal(wantPremium) {
-		t.Errorf("writer TotalGain = %s, want +%s", writerCG.TotalGain, wantPremium)
-	}
-	if buyerCG.SecurityType != "option" {
-		t.Errorf("buyer SecurityType = %q, want option", buyerCG.SecurityType)
-	}
-	if !buyerCG.TotalGain.Equal(wantPremium.Neg()) {
-		t.Errorf("buyer TotalGain = %s, want -%s", buyerCG.TotalGain, wantPremium)
-	}
-	if !writerCG.OTC || !buyerCG.OTC {
-		t.Error("both option CG rows must have OTC=true")
+	if !h.AveragePrice.Equal(market) {
+		t.Fatalf("buyer holding basis = %s, want 12000 (market step-up)", h.AveragePrice)
 	}
 }
 
@@ -260,13 +244,7 @@ func TestAcceptSaga_RecordsOptionPremiumCapitalGains(t *testing.T) {
 // work; the missing gain is a known degraded mode, not an error.
 func TestOTCExerciseContract_NoCapitalGainRepoWired(t *testing.T) {
 	fx := newAcceptSagaFixture(t)
-	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
-		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		AcceptorAccountID: 5001,
-	})
-	if err != nil {
-		t.Fatalf("accept: %v", err)
-	}
+	contract := fx.mintActiveContract(t)
 	exercised, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
 		ContractID: contract.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
 	})

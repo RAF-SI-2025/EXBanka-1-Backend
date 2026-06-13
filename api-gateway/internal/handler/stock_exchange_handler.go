@@ -16,6 +16,42 @@ func NewStockExchangeHandler(client stockpb.StockExchangeGRPCServiceClient) *Sto
 	return &StockExchangeHandler{client: client}
 }
 
+// exchangeResponse mirrors the proto Exchange fields (snake_case, same
+// omitempty behavior the proto JSON tags produce) and adds is_open. is_open is
+// NOT omitempty: a closed exchange must still report `"is_open": false` rather
+// than dropping the field, so the frontend can always read open/closed state.
+type exchangeResponse struct {
+	ID              uint64 `json:"id,omitempty"`
+	Name            string `json:"name,omitempty"`
+	Acronym         string `json:"acronym,omitempty"`
+	MicCode         string `json:"mic_code,omitempty"`
+	Polity          string `json:"polity,omitempty"`
+	Currency        string `json:"currency,omitempty"`
+	TimeZone        string `json:"time_zone,omitempty"`
+	OpenTime        string `json:"open_time,omitempty"`
+	CloseTime       string `json:"close_time,omitempty"`
+	PreMarketOpen   string `json:"pre_market_open,omitempty"`
+	PostMarketClose string `json:"post_market_close,omitempty"`
+	IsOpen          bool   `json:"is_open"`
+}
+
+func toExchangeResponse(o *stockpb.Exchange) exchangeResponse {
+	return exchangeResponse{
+		ID:              o.GetId(),
+		Name:            o.GetName(),
+		Acronym:         o.GetAcronym(),
+		MicCode:         o.GetMicCode(),
+		Polity:          o.GetPolity(),
+		Currency:        o.GetCurrency(),
+		TimeZone:        o.GetTimeZone(),
+		OpenTime:        o.GetOpenTime(),
+		CloseTime:       o.GetCloseTime(),
+		PreMarketOpen:   o.GetPreMarketOpen(),
+		PostMarketClose: o.GetPostMarketClose(),
+		IsOpen:          o.GetIsOpen(),
+	}
+}
+
 func (h *StockExchangeHandler) ListExchanges(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
@@ -30,8 +66,12 @@ func (h *StockExchangeHandler) ListExchanges(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	out := make([]exchangeResponse, 0, len(resp.Exchanges))
+	for _, ex := range resp.Exchanges {
+		out = append(out, toExchangeResponse(ex))
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"exchanges":   emptyIfNil(resp.Exchanges),
+		"exchanges":   out,
 		"total_count": resp.TotalCount,
 	})
 }
@@ -48,7 +88,7 @@ func (h *StockExchangeHandler) GetExchange(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, toExchangeResponse(resp))
 }
 
 func (h *StockExchangeHandler) SetTestingMode(c *gin.Context) {

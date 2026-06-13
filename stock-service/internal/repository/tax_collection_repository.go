@@ -147,6 +147,12 @@ func (r *TaxCollectionRepository) ListOwnersWithGains(year, month int, filter Ta
 		Joins("LEFT JOIN holdings h ON h.owner_type = cg.owner_type AND h.owner_id IS NOT DISTINCT FROM cg.owner_id AND h.id = (SELECT MIN(id) FROM holdings WHERE owner_type = cg.owner_type AND owner_id IS NOT DISTINCT FROM cg.owner_id)").
 		Where("cg.tax_year = ? AND cg.tax_month = ? AND cg.tax_collection_id IS NULL", year, month)
 
+	// Profit Banke exemption: bank-owned gains (actuary trading on behalf of
+	// the bank — premiums, option exercise, dividends, stock) are never taxed;
+	// the profit stays with the bank. Same rule dividends require.
+	// Spec: docs/superpowers/specs/2026-06-04-options-premium-tax-design.md §3.2
+	baseQuery = baseQuery.Where("cg.owner_type = ?", string(model.OwnerClient))
+
 	if filter.UserType != "" {
 		// "actuary" filter no longer maps to system_type=employee; instead it
 		// filters by acting_employee_id IS NOT NULL via post-processing.

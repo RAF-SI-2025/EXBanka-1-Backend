@@ -9,6 +9,7 @@ use (
 	./contract
 	./credit-service
 	./exchange-service
+	./interbank-service
 	./notification-service
 	./seeder
 	./stock-service

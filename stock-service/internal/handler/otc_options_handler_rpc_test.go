@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -43,12 +44,19 @@ func newOTCOptionsHandlerFixture(t *testing.T) *otcOptionsHandlerFixture {
 		&model.OTCOfferRevision{},
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
-		&model.PeerOptionContract{},
 		&model.Listing{},
 		&model.Stock{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	return newOTCOptionsHandlerFixtureFromDB(t, db)
+}
+
+// newOTCOptionsHandlerFixtureFromDB wires the fixture against a caller-supplied
+// (already-migrated) DB so tests that need extra tables (e.g. OTCNegotiation
+// for the SP-2b my_negotiation_id stamping) can pre-migrate them.
+func newOTCOptionsHandlerFixtureFromDB(t *testing.T, db *gorm.DB) *otcOptionsHandlerFixture {
+	t.Helper()
 	offerRepo := repository.NewOTCOfferRepository(db)
 	revRepo := repository.NewOTCOfferRevisionRepository(db)
 	contractRepo := repository.NewOptionContractRepository(db)
@@ -153,6 +161,56 @@ func TestOTCOptionsHandler_CreateOffer_BadDate(t *testing.T) {
 	}
 }
 
+func TestOTCOptionsHandler_CreateOffer_BankOffer_CapturesActingEmployee(t *testing.T) {
+	fx := newOTCOptionsHandlerFixture(t)
+	// Employee 17 acting AS the bank: gateway sends actor_system_type "bank",
+	// actor_user_id 0, acting_employee_id 17. Buy_initiated needs no holdings.
+	resp, err := fx.h.CreateOffer(context.Background(), &stockpb.CreateOTCOfferRequest{
+		ActorUserId: 0, ActorSystemType: "bank", ActingEmployeeId: 17,
+		Direction: model.OTCDirectionBuyInitiated, StockId: 42,
+		Quantity: "10", StrikePrice: "150", Premium: "20",
+		SettlementDate: time.Now().AddDate(0, 0, 30).Format("2006-01-02"),
+		AccountId:      9001,
+	})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	got, err := fx.offers.GetByID(resp.GetId())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got.InitiatorOwnerType != model.OwnerBank {
+		t.Errorf("initiator owner type = %v, want bank", got.InitiatorOwnerType)
+	}
+	if got.ActingEmployeeID == nil || *got.ActingEmployeeID != 17 {
+		t.Fatalf("persisted ActingEmployeeID = %v, want 17", got.ActingEmployeeID)
+	}
+}
+
+func TestOTCOptionsHandler_CreateOffer_ClientOffer_NoActingEmployee(t *testing.T) {
+	fx := newOTCOptionsHandlerFixture(t)
+	fx.seedSellerHolding(t, 7, 42, 100)
+	// Even if an acting_employee_id is present, a client-owned offer must not
+	// capture it (employee acting on behalf of a client).
+	resp, err := fx.h.CreateOffer(context.Background(), &stockpb.CreateOTCOfferRequest{
+		ActorUserId: 7, ActorSystemType: "client", ActingEmployeeId: 17,
+		Direction: model.OTCDirectionSellInitiated, StockId: 42,
+		Quantity: "10", StrikePrice: "150", Premium: "20",
+		SettlementDate: time.Now().AddDate(0, 0, 30).Format("2006-01-02"),
+		AccountId:      9001,
+	})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	got, err := fx.offers.GetByID(resp.GetId())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got.ActingEmployeeID != nil {
+		t.Errorf("persisted ActingEmployeeID = %v, want nil for client offer", *got.ActingEmployeeID)
+	}
+}
+
 func TestOTCOptionsHandler_CreateOffer_WithCounterparty(t *testing.T) {
 	fx := newOTCOptionsHandlerFixture(t)
 	fx.seedSellerHolding(t, 7, 42, 100)
@@ -238,103 +296,142 @@ func TestOTCOptionsHandler_GetOffer_NotFound(t *testing.T) {
 	}
 }
 
-// ---------------- CounterOffer ----------------
+// fakeRemoteOffers is a stub RemoteOfferGetter for GetOffer's remote-resolution
+// path. row==nil + err set simulates a mirror miss.
+type fakeRemoteOffers struct {
+	row *model.OTCOffer
+	err error
+}
 
-func TestOTCOptionsHandler_CounterOffer_HappyPath(t *testing.T) {
+func (f *fakeRemoteOffers) GetRemoteByID(uint64) (*model.OTCOffer, error) {
+	if f.row != nil {
+		return f.row, nil
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+// SP-1: a local offer carries provenance (kind/routing/bank_code) and me_owner
+// computed from the acting identity.
+func TestOTCOptionsHandler_GetOffer_LocalProvenanceAndMeOwner(t *testing.T) {
 	fx := newOTCOptionsHandlerFixture(t)
 	fx.seedSellerHolding(t, 7, 42, 100)
 	id := fx.createOffer(t, 7, 42)
-	// Different actor (the buyer counters)
-	resp, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		OfferId: id, ActorUserId: 8, ActorSystemType: "client",
-		Quantity: "5", StrikePrice: "160", Premium: "25",
-		SettlementDate: time.Now().AddDate(0, 0, 31).Format("2006-01-02"),
+	h := fx.h.WithPeerContracts(nil, 111).WithRemoteOffers(&fakeRemoteOffers{}, "111")
+
+	// Owner (client 7) sees me_owner=true.
+	resp, err := h.GetOffer(context.Background(), &stockpb.GetOTCOfferRequest{
+		OfferId: id, ActorUserId: 7, ActorSystemType: "client",
+		ActingOwnerType: "client", ActingOwnerId: 7,
 	})
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if resp.GetStatus() != model.OTCOfferStatusCountered {
-		t.Errorf("status=%s", resp.GetStatus())
+	o := resp.GetOffer()
+	if o.GetKind() != "local" {
+		t.Errorf("kind = %q, want local", o.GetKind())
 	}
-}
-
-func TestOTCOptionsHandler_CounterOffer_BadQuantity(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "x", StrikePrice: "1", Premium: "1", SettlementDate: "2030-01-01",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
+	if o.GetRoutingNumber() != 111 {
+		t.Errorf("routing = %d, want 111", o.GetRoutingNumber())
 	}
-}
-
-func TestOTCOptionsHandler_CounterOffer_BadStrike(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "1", StrikePrice: "x", Premium: "1", SettlementDate: "2030-01-01",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
+	if o.GetBankCode() != "111" {
+		t.Errorf("bank_code = %q, want 111", o.GetBankCode())
 	}
-}
-
-func TestOTCOptionsHandler_CounterOffer_BadPremium(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "1", StrikePrice: "1", Premium: "x", SettlementDate: "2030-01-01",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
+	if !o.GetMeOwner() {
+		t.Errorf("me_owner = false, want true for owner")
 	}
-}
 
-func TestOTCOptionsHandler_CounterOffer_BadDate(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.CounterOffer(context.Background(), &stockpb.CounterOTCOfferRequest{
-		Quantity: "1", StrikePrice: "1", Premium: "1", SettlementDate: "bad",
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
-	}
-}
-
-// ---------------- RejectOffer ----------------
-
-func TestOTCOptionsHandler_RejectOffer_HappyPath(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	fx.seedSellerHolding(t, 7, 42, 100)
-	id := fx.createOffer(t, 7, 42)
-	resp, err := fx.h.RejectOffer(context.Background(), &stockpb.RejectOTCOfferRequest{
-		OfferId: id, ActorUserId: 8, ActorSystemType: "client",
+	// A different client is a participant only if counterparty; here client 8
+	// is not on the offer, so GetOffer would reject. Instead assert that the
+	// owner-id mismatch flips me_owner off when computed directly: re-fetch as
+	// the offer's owner but with a non-matching acting identity is not a valid
+	// participant scenario, so cover the helper via me_owner=false through a
+	// bank caller (bank does not own a client-seller listing).
+	respBank, err := h.GetOffer(context.Background(), &stockpb.GetOTCOfferRequest{
+		OfferId: id, ActorUserId: 7, ActorSystemType: "client",
+		ActingOwnerType: "bank", ActingOwnerId: 0,
 	})
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if resp.GetStatus() != model.OTCOfferStatusRejected {
-		t.Errorf("status=%s", resp.GetStatus())
+	if respBank.GetOffer().GetMeOwner() {
+		t.Errorf("me_owner = true, want false for bank caller on client listing")
 	}
 }
 
-func TestOTCOptionsHandler_RejectOffer_MissingOffer(t *testing.T) {
+// SP-1: an id that is not a local offer resolves from the cross-bank mirror
+// with kind="remote" and me_owner=false.
+func TestOTCOptionsHandler_GetOffer_RemoteResolution(t *testing.T) {
 	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.RejectOffer(context.Background(), &stockpb.RejectOTCOfferRequest{
-		OfferId: 9999, ActorUserId: 8, ActorSystemType: "client",
+	foreignID := "abc"
+	bankCode := "222"
+	sellerID := "client-9"
+	remote := &model.OTCOffer{
+		ID: 555, RoutingNumber: 222, NativeID: &foreignID,
+		InitiatorBankCode: &bankCode, RemoteSellerID: &sellerID,
+		InitiatorOwnerType: model.OwnerBank,
+		Direction:          model.OTCDirectionSellInitiated,
+		Ticker:             "AAPL", Quantity: decimal.NewFromInt(10),
+		Status: "open",
+	}
+	h := fx.h.WithRemoteOffers(&fakeRemoteOffers{row: remote}, "111")
+
+	resp, err := h.GetOffer(context.Background(), &stockpb.GetOTCOfferRequest{
+		OfferId: 555, ActorUserId: 7, ActorSystemType: "client",
+		ActingOwnerType: "client", ActingOwnerId: 7,
 	})
-	if err == nil {
-		t.Fatal("expected error")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	o := resp.GetOffer()
+	if o.GetKind() != "remote" {
+		t.Errorf("kind = %q, want remote", o.GetKind())
+	}
+	if o.GetId() != 555 {
+		t.Errorf("id = %d, want 555", o.GetId())
+	}
+	if o.GetRoutingNumber() != 222 || o.GetBankCode() != "222" {
+		t.Errorf("routing/bank = %d/%q, want 222/222", o.GetRoutingNumber(), o.GetBankCode())
+	}
+	if o.GetStockTicker() != "AAPL" {
+		t.Errorf("ticker = %q, want AAPL", o.GetStockTicker())
+	}
+	if o.GetQuantity() != "10" {
+		t.Errorf("quantity = %q, want 10", o.GetQuantity())
+	}
+	if o.GetMeOwner() {
+		t.Errorf("me_owner = true, want false for remote")
+	}
+	if len(resp.GetRevisions()) != 0 {
+		t.Errorf("remote offer should carry no revisions")
 	}
 }
 
-// ---------------- AcceptOffer / ExerciseContract input validation ----------------
-
-func TestOTCOptionsHandler_AcceptOffer_BadInput(t *testing.T) {
+// SP-1: neither a local offer nor a mirror row exists -> NotFound.
+func TestOTCOptionsHandler_GetOffer_RemoteMissStillNotFound(t *testing.T) {
 	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.AcceptOffer(context.Background(), &stockpb.AcceptOTCOfferRequest{
-		OfferId: 1, ActorUserId: 7, ActorSystemType: "client",
-		// missing account_id
+	h := fx.h.WithRemoteOffers(&fakeRemoteOffers{err: gorm.ErrRecordNotFound}, "111")
+	_, err := h.GetOffer(context.Background(), &stockpb.GetOTCOfferRequest{
+		OfferId: 9999, ActorUserId: 7, ActorSystemType: "client",
 	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("code = %v, want NotFound", status.Code(err))
+	}
+}
+
+// SP-1 review: a non-NotFound error from the remote mirror must surface as
+// Internal, not as a false 404. Before the fix, the error was dropped and
+// the handler fell through to return the original local NotFound.
+func TestOTCOptionsHandler_GetOffer_RemoteInternalErrorSurfacedAsInternal(t *testing.T) {
+	fx := newOTCOptionsHandlerFixture(t)
+	h := fx.h.WithRemoteOffers(&fakeRemoteOffers{err: errors.New("db down")}, "111")
+	_, err := h.GetOffer(context.Background(), &stockpb.GetOTCOfferRequest{
+		OfferId: 9999, ActorUserId: 7, ActorSystemType: "client",
+	})
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("code = %v, want Internal (mirror DB error must not look like 404)", status.Code(err))
 	}
 }
 
@@ -369,9 +466,15 @@ func TestOTCOptionsHandler_ListMyContracts_HappyPath(t *testing.T) {
 	}
 }
 
+// TestOTCOptionsHandler_ListMyContracts_WithPeerContracts verifies that wiring
+// the peer-contracts repo (empty) results in no remote contracts in the unified
+// list. Remote contracts appear only in Contracts[] with kind=remote (SP-1
+// double-listing fix). The legacy PeerContracts/PeerTotal response fields were
+// removed in SP-2b, so there is nothing separate to assert empty — Contracts[]
+// is the single merged list.
 func TestOTCOptionsHandler_ListMyContracts_WithPeerContracts(t *testing.T) {
 	fx := newOTCOptionsHandlerFixture(t)
-	peerRepo := repository.NewPeerOptionContractRepository(fx.db)
+	peerRepo := repository.NewOptionContractRepository(fx.db)
 	h := fx.h.WithPeerContracts(peerRepo, 111)
 	resp, err := h.ListMyContracts(context.Background(), &stockpb.ListMyContractsRequest{
 		ActorUserId: 7, ActorSystemType: "client",
@@ -380,8 +483,10 @@ func TestOTCOptionsHandler_ListMyContracts_WithPeerContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if resp.GetPeerTotal() != 0 {
-		t.Errorf("expected 0 peer contracts initially")
+	// No local contracts seeded and the peer repo is empty → the unified list
+	// is empty. (No double-listing: remote rows would land in Contracts[].)
+	if resp.GetTotal() != 0 || len(resp.GetContracts()) != 0 {
+		t.Errorf("contracts must be empty; total=%d len=%d", resp.GetTotal(), len(resp.GetContracts()))
 	}
 }
 

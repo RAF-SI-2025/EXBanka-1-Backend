@@ -26,8 +26,8 @@ func TestGRPC_ListTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(resp.Templates) != 13 {
-		t.Errorf("got %d templates, want 13", len(resp.Templates))
+	if len(resp.Templates) != 14 {
+		t.Errorf("got %d templates, want 14", len(resp.Templates))
 	}
 	if len(resp.Templates[0].Variables) == 0 {
 		t.Error("expected variables on each template")

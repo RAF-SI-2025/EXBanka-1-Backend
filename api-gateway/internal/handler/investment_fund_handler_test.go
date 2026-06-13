@@ -30,6 +30,10 @@ type stubInvestmentFundClient struct {
 	myPositionsFn  func(*stockpb.ListMyPositionsRequest) (*stockpb.ListPositionsResponse, error)
 	bnkPositionsFn func(*stockpb.ListBankPositionsRequest) (*stockpb.ListPositionsResponse, error)
 	actuaryFn      func(*stockpb.GetActuaryPerformanceRequest) (*stockpb.GetActuaryPerformanceResponse, error)
+	declareDivFn   func(*stockpb.DeclareDividendRequest) (*stockpb.DividendPaymentResponse, error)
+	payoutDivFn    func(*stockpb.PayoutDividendRequest) (*stockpb.PayoutDividendResponse, error)
+	myDivFn        func(*stockpb.ListMyDividendsRequest) (*stockpb.ListDividendPayoutsResponse, error)
+	fundDivFn      func(*stockpb.ListFundDividendsRequest) (*stockpb.ListFundDividendPaymentsResponse, error)
 }
 
 func (s *stubInvestmentFundClient) CreateFund(_ context.Context, in *stockpb.CreateFundRequest, _ ...grpc.CallOption) (*stockpb.FundResponse, error) {
@@ -85,6 +89,34 @@ func (s *stubInvestmentFundClient) GetActuaryPerformance(_ context.Context, in *
 		return s.actuaryFn(in)
 	}
 	return &stockpb.GetActuaryPerformanceResponse{}, nil
+}
+
+// E4 dividend stubs — return empty responses by default so existing tests
+// continue to compile and pass; per-method function fields let dividend tests
+// shape the canned response / error.
+func (s *stubInvestmentFundClient) DeclareDividend(_ context.Context, in *stockpb.DeclareDividendRequest, _ ...grpc.CallOption) (*stockpb.DividendPaymentResponse, error) {
+	if s.declareDivFn != nil {
+		return s.declareDivFn(in)
+	}
+	return &stockpb.DividendPaymentResponse{}, nil
+}
+func (s *stubInvestmentFundClient) PayoutDividend(_ context.Context, in *stockpb.PayoutDividendRequest, _ ...grpc.CallOption) (*stockpb.PayoutDividendResponse, error) {
+	if s.payoutDivFn != nil {
+		return s.payoutDivFn(in)
+	}
+	return &stockpb.PayoutDividendResponse{}, nil
+}
+func (s *stubInvestmentFundClient) ListMyDividends(_ context.Context, in *stockpb.ListMyDividendsRequest, _ ...grpc.CallOption) (*stockpb.ListDividendPayoutsResponse, error) {
+	if s.myDivFn != nil {
+		return s.myDivFn(in)
+	}
+	return &stockpb.ListDividendPayoutsResponse{}, nil
+}
+func (s *stubInvestmentFundClient) ListFundDividends(_ context.Context, in *stockpb.ListFundDividendsRequest, _ ...grpc.CallOption) (*stockpb.ListFundDividendPaymentsResponse, error) {
+	if s.fundDivFn != nil {
+		return s.fundDivFn(in)
+	}
+	return &stockpb.ListFundDividendPaymentsResponse{}, nil
 }
 
 var _ stockpb.InvestmentFundServiceClient = (*stubInvestmentFundClient)(nil)
@@ -166,6 +198,32 @@ func TestFund_ListFunds_DefaultsAndOptions(t *testing.T) {
 	require.True(t, captured.ActiveOnly)
 }
 
+func TestFund_ListFunds_RendersFundRows(t *testing.T) {
+	cl := &stubInvestmentFundClient{
+		listFn: func(*stockpb.ListFundsRequest) (*stockpb.ListFundsResponse, error) {
+			return &stockpb.ListFundsResponse{
+				Total: 1,
+				Funds: []*stockpb.FundResponse{
+					{
+						Id: 4, Name: "Growth", MetricsAvailable: true,
+						DividendMode: "reinvest", ValueRsd: "10000",
+					},
+				},
+			}, nil
+		},
+	}
+	r := investmentFundRouter(handler.NewInvestmentFundHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/funds", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	// fundRespToJSON renders every field, including the always-present flags.
+	require.Contains(t, body, `"id":4`)
+	require.Contains(t, body, `"name":"Growth"`)
+	require.Contains(t, body, `"metrics_available":true`)
+	require.Contains(t, body, `"dividend_mode":"reinvest"`)
+}
+
 func TestFund_ListFunds_GRPCError(t *testing.T) {
 	cl := &stubInvestmentFundClient{
 		listFn: func(*stockpb.ListFundsRequest) (*stockpb.ListFundsResponse, error) {
@@ -189,6 +247,24 @@ func TestFund_GetFund_Success(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("GET", "/funds/11", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestFund_GetFund_EmptyHoldingsIsArray guards the null-holdings bug: a proto
+// `repeated` field with no elements decodes as a nil slice on the gateway side,
+// which encoding/json would render as `null`. The handler must emit `[]`.
+func TestFund_GetFund_EmptyHoldingsIsArray(t *testing.T) {
+	cl := &stubInvestmentFundClient{
+		getFn: func(in *stockpb.GetFundRequest) (*stockpb.FundDetailResponse, error) {
+			// Holdings deliberately left nil — mirrors a fund with no positions.
+			return &stockpb.FundDetailResponse{Fund: &stockpb.FundResponse{Id: in.FundId}}, nil
+		},
+	}
+	r := investmentFundRouter(handler.NewInvestmentFundHandler(cl))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/funds/11", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"holdings":[]`)
+	require.NotContains(t, rec.Body.String(), `"holdings":null`)
 }
 
 func TestFund_GetFund_BadID(t *testing.T) {

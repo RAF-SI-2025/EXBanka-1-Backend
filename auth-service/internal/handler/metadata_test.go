@@ -81,22 +81,5 @@ func TestExtractRequestMeta_RealTCPAddr(t *testing.T) {
 	assert.Equal(t, "192.168.1.50", rm.IPAddress)
 }
 
-func TestDetectDeviceType(t *testing.T) {
-	tests := []struct {
-		name      string
-		userAgent string
-		expected  string
-	}{
-		{"browser", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "browser"},
-		{"mobile android", "Mozilla/5.0 (Linux; Android 11; Pixel 5)", "mobile"},
-		{"mobile iphone", "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0)", "mobile"},
-		{"postman", "PostmanRuntime/7.29.0", "api"},
-		{"curl", "curl/7.68.0", "api"},
-		{"empty", "", "browser"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, detectDeviceType(tt.userAgent))
-		})
-	}
-}
+// detectDeviceType moved to service.DetectDeviceType (deduplicated); its test
+// now lives in the service package (TestDetectDeviceType_Service).

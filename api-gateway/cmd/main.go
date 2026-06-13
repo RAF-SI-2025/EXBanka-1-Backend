@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,8 +16,11 @@ import (
 	"github.com/exbanka/api-gateway/internal/cache"
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
-	"github.com/exbanka/api-gateway/internal/handler"
+	"github.com/exbanka/api-gateway/internal/jwks"
+	gatewaykafka "github.com/exbanka/api-gateway/internal/kafka"
+	"github.com/exbanka/api-gateway/internal/middleware"
 	"github.com/exbanka/api-gateway/internal/router"
+	"github.com/exbanka/contract/logger"
 	"github.com/exbanka/contract/metrics"
 )
 
@@ -31,6 +34,7 @@ import (
 // @name                        Authorization
 // @description                 Enter "Bearer <token>"
 func main() {
+	logger.Init("api-gateway")
 	cfg := config.Load()
 
 	authClient, authConn, err := grpcclients.NewAuthClient(cfg.AuthGRPCAddr)
@@ -177,12 +181,6 @@ func main() {
 	}
 	defer otcOptionsConn.Close()
 
-	otcStockMarketClient, otcStockMarketConn, err := grpcclients.NewOTCStockMarketClient(cfg.StockGRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to connect to OTC stock market service: %v", err)
-	}
-	defer otcStockMarketConn.Close()
-
 	watchlistClient, watchlistConn, err := grpcclients.NewWatchlistClient(cfg.StockGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to watchlist service: %v", err)
@@ -233,10 +231,8 @@ func main() {
 	}
 	defer notificationConn.Close()
 
-	wsHandler := handler.NewWebSocketHandler(authClient)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	wsHandler.StartKafkaConsumer(ctx, cfg.KafkaBrokers)
 
 	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -249,32 +245,82 @@ func main() {
 	// poll URL. See docs/superpowers/specs/2026-04-29-celina5-sitx-
 	// refactor-design.md.
 
-	// SI-TX peer-bank gRPC clients + nonce store + resolver (Phase 2 Task 14).
-	peerTxClient, peerTxConn, err := grpcclients.NewPeerTxServiceClient(cfg.TransactionGRPCAddr)
+	// Cross-bank SI-TX clients (2026-06-07 cutover): interbank-service is now
+	// THE backend for the whole /cross-bank-protocol surface. PeerTx (2PC),
+	// PeerBankAdmin (registry + inbound-auth resolution), and PeerOTC (which
+	// interbank forwards to stock-service) all dial interbank-service instead
+	// of transaction-service/stock-service.
+	peerTxClient, peerTxConn, err := grpcclients.NewPeerTxServiceClient(cfg.InterbankGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to PeerTxService: %v", err)
 	}
 	defer peerTxConn.Close()
 
-	// PeerOTCService lives on stock-service and backs the
-	// /api/v3/public-stock + /api/v3/negotiations/* peer endpoints
-	// (Phase 4 Task 8 of the SI-TX refactor).
-	peerOTCClient, peerOTCConn, err := grpcclients.NewPeerOTCServiceClient(cfg.StockGRPCAddr)
+	peerOTCClient, peerOTCConn, err := grpcclients.NewPeerOTCServiceClient(cfg.InterbankGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to PeerOTCService: %v", err)
 	}
 	defer peerOTCConn.Close()
 
-	peerBankAdminClient, peerBankAdminConn, err := grpcclients.NewPeerBankAdminServiceClient(cfg.TransactionGRPCAddr)
+	peerBankAdminClient, peerBankAdminConn, err := grpcclients.NewPeerBankAdminServiceClient(cfg.InterbankGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to PeerBankAdminService: %v", err)
 	}
 	defer peerBankAdminConn.Close()
 
+	// PeerUserService (friendly-name /user) is served by interbank-service,
+	// which forwards to client/user-service. (2026-06-07 cutover.)
+	peerUserClient, peerUserConn, err := grpcclients.NewPeerUserServiceClient(cfg.InterbankGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to PeerUserService: %v", err)
+	}
+	defer peerUserConn.Close()
+
 	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 	defer redisClient.Close()
+
+	// Local ES256 token verification: fetch + cache auth-service's public
+	// signing keys (JWKS) so AuthMiddleware/AnyAuthMiddleware verify tokens
+	// locally and consult the Redis denylists, instead of a per-request
+	// ValidateToken gRPC hop. Falls back to gRPC ValidateToken until keys load.
+	jwksCache := jwks.New(authClient, 10*time.Minute)
+	jwksCache.Start(ctx)
+	tokenVerifier := middleware.NewTokenVerifier(jwksCache, redisClient, authClient)
+
 	peerNonceStore := cache.NewPeerNonceStore(redisClient, 10*time.Minute)
 	peerBankResolver := &grpcclients.PeerBankResolverAdapter{Client: peerBankAdminClient}
+
+	// ── Admin cron client pool (C9 — 2026-05-28) ──────────────────────────────
+	// One AdminCron gRPC client per service that exposes the AdminCron interface.
+	// Dial failures are non-fatal: the gateway starts, and the affected service
+	// shows up as status "unreachable" in GET /api/v3/admin/crons.
+	adminCronServiceAddrs := []struct {
+		Name string
+		Addr string
+	}{
+		{"stock-service", cfg.StockGRPCAddr},
+		{"credit-service", cfg.CreditGRPCAddr},
+		{"account-service", cfg.AccountGRPCAddr},
+		{"card-service", cfg.CardGRPCAddr},
+		{"transaction-service", cfg.TransactionGRPCAddr},
+		{"notification-service", cfg.NotificationGRPCAddr},
+		{"user-service", cfg.UserGRPCAddr},
+	}
+	adminCronClients := make([]*grpcclients.AdminCronClient, 0, len(adminCronServiceAddrs))
+	for _, svc := range adminCronServiceAddrs {
+		cl, err := grpcclients.NewAdminCronClient(svc.Name, svc.Addr)
+		if err != nil {
+			log.Printf("admin cron: failed to connect to %s (%s): %v — service will show as unreachable", svc.Name, svc.Addr, err)
+			adminCronClients = append(adminCronClients, nil)
+			continue
+		}
+		defer cl.Conn.Close()
+		adminCronClients = append(adminCronClients, cl)
+	}
+
+	// ── Audit Kafka producer (C10 — 2026-05-28) ────────────────────────────
+	auditProducer := gatewaykafka.NewAuditProducer(cfg.KafkaBrokers)
+	defer auditProducer.Close()
 
 	r := router.NewRouter()
 
@@ -310,17 +356,27 @@ func main() {
 		SourceAdminClient:    sourceAdminClient,
 		FundClient:           fundClient,
 		OTCOptionsClient:     otcOptionsClient,
-		OTCStockMarketClient: otcStockMarketClient,
 		WatchlistClient:      watchlistClient,
 		PriceAlertClient:     priceAlertClient,
 		RecurringOrderClient: recurringOrderClient,
 		RecurringFundClient:  recurringFundClient,
 		PeerTxClient:         peerTxClient,
 		PeerBankAdminClient:  peerBankAdminClient,
+		PeerUserClient:       peerUserClient,
 		PeerNonces:           peerNonceStore,
 		PeerBanks:            peerBankResolver,
 		OwnBankCode:          cfg.OwnBankCode,
+		OwnBankName:          cfg.OwnBankName,
 		PeerOTCClient:        peerOTCClient,
+		AdminCronClients:     adminCronClients,
+		AuditProducer:        auditProducer,
+		RateLimit: router.RateLimitConfig{
+			Redis:        redisClient,
+			GlobalPerMin: cfg.RateLimitGlobalPerMin,
+			LoginPer5Min: cfg.RateLimitLoginPer5Min,
+			ResetPer5Min: cfg.RateLimitResetPer5Min,
+		},
+		TokenVerifier: tokenVerifier,
 	}
 	h := router.NewHandlers(deps)
 	router.SetupV3(r, h)
@@ -335,7 +391,7 @@ func main() {
 	// Start HTTP server in goroutine
 	markReady()
 	go func() {
-		fmt.Printf("API Gateway listening on %s\n", cfg.HTTPAddr)
+		slog.Info("API Gateway listening", "addr", cfg.HTTPAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("failed to start server: %v", err)
 		}
@@ -347,7 +403,7 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down API Gateway gracefully...")
-	cancel() // stop WebSocket Kafka consumer
+	cancel() // cancel background context (JWKS refresher, etc.)
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

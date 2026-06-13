@@ -55,10 +55,21 @@ func TestWF_StockBuy_CancelReleasesReservation(t *testing.T) {
 	helpers.RequireStatus(t, resp, 201)
 	orderID := int(helpers.GetNumberField(t, resp, "id"))
 
-	// Give placement saga a moment to settle the ReserveFunds step.
-	time.Sleep(2 * time.Second)
-
-	afterPlace := getAccountBalancesByNumber(t, adminC, acctNum)
+	// Poll until the placement saga's ReserveFunds step is visible (account
+	// debit/reserve commits in account-service, a separate service from the
+	// order row) rather than reading once after a fixed sleep.
+	afterPlace := before
+	placeDeadline := time.Now().Add(15 * time.Second)
+	for {
+		afterPlace = getAccountBalancesByNumber(t, adminC, acctNum)
+		if afterPlace.Reserved > before.Reserved+0.0001 {
+			break
+		}
+		if time.Now().After(placeDeadline) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 	t.Logf("after place: balance=%.4f available=%.4f reserved=%.4f",
 		afterPlace.Balance, afterPlace.Available, afterPlace.Reserved)
 
@@ -86,10 +97,20 @@ func TestWF_StockBuy_CancelReleasesReservation(t *testing.T) {
 			cancelResp.StatusCode, string(cancelResp.RawBody))
 	}
 
-	// Give release-saga a moment.
-	time.Sleep(2 * time.Second)
-
-	afterCancel := getAccountBalancesByNumber(t, adminC, acctNum)
+	// Poll until the release-saga restores the reservation to its pre-placement
+	// value (cross-service visibility lag, as above).
+	afterCancel := afterPlace
+	cancelDeadline := time.Now().Add(15 * time.Second)
+	for {
+		afterCancel = getAccountBalancesByNumber(t, adminC, acctNum)
+		if fDiff(afterCancel.Reserved, before.Reserved) <= 0.01 {
+			break
+		}
+		if time.Now().After(cancelDeadline) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 	t.Logf("after cancel: balance=%.4f available=%.4f reserved=%.4f",
 		afterCancel.Balance, afterCancel.Available, afterCancel.Reserved)
 

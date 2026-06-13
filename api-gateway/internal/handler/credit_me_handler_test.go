@@ -81,8 +81,9 @@ func TestCreditMe_GetMyLoan_Success(t *testing.T) {
 func TestCreditMe_GetMyLoan_OwnershipMismatch_Returns404(t *testing.T) {
 	st := &stubCreditClient{
 		getLoanFn: func(*creditpb.GetLoanReq) (*creditpb.LoanResponse, error) {
-			// Resource belongs to client 99, not the caller (7)
-			return &creditpb.LoanResponse{Id: 1, ClientId: 99}, nil
+			// OWN-1: credit-service enforces ownership and returns 404 for a foreign
+			// loan (the gateway forwards the caller identity). Gateway surfaces it.
+			return nil, status.Error(codes.NotFound, "loan not found")
 		},
 	}
 	h := handler.NewCreditHandler(st)

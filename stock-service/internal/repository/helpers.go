@@ -1,14 +1,37 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/grpc/codes"
 	"gorm.io/gorm"
 
 	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/stock-service/internal/model"
 )
+
+// IsUniqueViolation reports whether err is a unique-/primary-key constraint
+// violation, across both production (Postgres/pgx) and the sqlite test harness.
+// Postgres surfaces SQLSTATE 23505 via *pgconn.PgError; sqlite surfaces a
+// textual "UNIQUE constraint failed" message. Used to make a DB partial unique
+// index the authoritative backstop for an invariant a racy non-transactional
+// pre-check cannot guarantee (e.g. one-open-OTC-offer-per owner/ticker/dir).
+func IsUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && pg.Code == "23505" {
+		return true
+	}
+	s := err.Error()
+	return strings.Contains(s, "UNIQUE constraint failed") ||
+		strings.Contains(s, "constraint failed: UNIQUE") ||
+		strings.Contains(s, "duplicate key value")
+}
 
 // scopeOwner adds a (owner_type, owner_id) predicate. ownerID is *uint64
 // because bank-owner rows have owner_id = NULL — we MUST emit IS NULL

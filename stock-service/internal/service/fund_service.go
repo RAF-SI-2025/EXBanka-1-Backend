@@ -67,6 +67,10 @@ type FundService struct {
 	// position-reads deps (optional; wired via WithPositionReads).
 	listingRepo *repository.ListingRepository
 
+	// dividend repo (optional; wired via WithDividendRepo).
+	// When nil, Statistics returns total_dividends_paid_rsd = 0.
+	fundDividendRepo *repository.FundDividendPaymentRepository
+
 	// liquidation dep (optional; wired via WithLiquidation). When nil,
 	// Redeem's insufficient-cash path returns ErrInsufficientFundCash directly.
 	orderPlacer FundOrderPlacer
@@ -81,6 +85,11 @@ type FundService struct {
 	// work.
 	outbox   *outbox.Outbox
 	outboxDB *gorm.DB
+
+	// SP3 statistics (optional; wired via WithSnapshots). When nil, fund
+	// metrics/history are unavailable and discovery metric-sorts no-op.
+	snapshots         *repository.FundValueSnapshotRepository
+	metricsMinMonthly int
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga
@@ -135,11 +144,21 @@ func (s *FundService) WithPositionReads(listingRepo *repository.ListingRepositor
 	return &cp
 }
 
+// WithDividendRepo wires the fund_dividend_payments repository so
+// Statistics can report the real total_dividends_paid_rsd.
+// Without this, Statistics returns "0.00" (E4 placeholder).
+func (s *FundService) WithDividendRepo(repo *repository.FundDividendPaymentRepository) *FundService {
+	cp := *s
+	cp.fundDividendRepo = repo
+	return &cp
+}
+
 type CreateFundInput struct {
 	ActorEmployeeID        int64
 	Name                   string
 	Description            string
 	MinimumContributionRSD decimal.Decimal
+	DividendMode           model.DividendMode // "" defaults to payout (SP4)
 }
 
 func (s *FundService) Create(ctx context.Context, in CreateFundInput) (*model.InvestmentFund, error) {
@@ -157,11 +176,21 @@ func (s *FundService) Create(ctx context.Context, in CreateFundInput) (*model.In
 		CurrencyCode: "RSD",
 		AccountKind:  "current",
 		AccountName:  fmt.Sprintf("Fund: %s", in.Name),
+		// Tag the account as an investment-fund RSD account so transaction-service
+		// can reject generic debit attempts without a cross-service lookup (E0).
+		AccountCategory: "investment_fund",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create RSD account: %w", err)
 	}
 
+	mode := in.DividendMode
+	if mode == "" {
+		mode = model.DividendModePayout
+	}
+	if mode != model.DividendModePayout && mode != model.DividendModeReinvest {
+		return nil, fmt.Errorf("dividend_mode must be payout or reinvest: %w", ErrFundInvalidInput)
+	}
 	f := &model.InvestmentFund{
 		Name:                   in.Name,
 		Description:            in.Description,
@@ -169,6 +198,7 @@ func (s *FundService) Create(ctx context.Context, in CreateFundInput) (*model.In
 		MinimumContributionRSD: in.MinimumContributionRSD,
 		RSDAccountID:           acct.Id,
 		Active:                 true,
+		DividendMode:           mode,
 	}
 	if err := s.repo.Create(f); err != nil {
 		// Compensation: log only — manual cleanup of the orphan bank account
@@ -201,6 +231,7 @@ type UpdateFundInput struct {
 	Description            *string
 	MinimumContributionRSD *decimal.Decimal
 	Active                 *bool
+	DividendMode           *model.DividendMode // SP4
 }
 
 func (s *FundService) Update(ctx context.Context, in UpdateFundInput) (*model.InvestmentFund, error) {
@@ -227,6 +258,13 @@ func (s *FundService) Update(ctx context.Context, in UpdateFundInput) (*model.In
 	if in.Active != nil && *in.Active != f.Active {
 		f.Active = *in.Active
 		changed = append(changed, "active")
+	}
+	if in.DividendMode != nil && *in.DividendMode != f.DividendMode {
+		if *in.DividendMode != model.DividendModePayout && *in.DividendMode != model.DividendModeReinvest {
+			return nil, fmt.Errorf("dividend_mode must be payout or reinvest: %w", ErrFundInvalidInput)
+		}
+		f.DividendMode = *in.DividendMode
+		changed = append(changed, "dividend_mode")
 	}
 	if len(changed) == 0 {
 		return f, nil

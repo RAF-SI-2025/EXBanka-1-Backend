@@ -26,6 +26,9 @@ func (m *listingSvcDailyMock) Create(_ *model.ListingDailyPriceInfo) error { ret
 func (m *listingSvcDailyMock) UpsertByListingAndDate(_ *model.ListingDailyPriceInfo) error {
 	return nil
 }
+func (m *listingSvcDailyMock) UpsertManyByListingAndDate(_ []model.ListingDailyPriceInfo) error {
+	return nil
+}
 func (m *listingSvcDailyMock) GetHistory(listingID uint64, from, to time.Time, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error) {
 	m.gotListingID = listingID
 	m.gotFrom = from
@@ -36,6 +39,15 @@ func (m *listingSvcDailyMock) GetHistory(listingID uint64, from, to time.Time, p
 		return nil, 0, m.err
 	}
 	return m.rows, int64(len(m.rows)), nil
+}
+func (m *listingSvcDailyMock) GetHistoryBucketed(listingID uint64, from, to time.Time, _ int) ([]model.ListingDailyPriceInfo, error) {
+	m.gotListingID = listingID
+	m.gotFrom = from
+	m.gotTo = to
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.rows, nil
 }
 
 func TestListingService_FindByStock_Found(t *testing.T) {
@@ -123,8 +135,10 @@ func TestListingService_GetPriceHistory_PeriodMonth(t *testing.T) {
 	if total != 1 || len(rows) != 1 {
 		t.Errorf("expected 1 row, got %d/%d", total, len(rows))
 	}
-	if dailyRepo.gotListingID != 99 || dailyRepo.gotPageSize != 50 {
-		t.Errorf("daily repo received wrong params: %+v", dailyRepo)
+	// GetPriceHistory now bucket-aggregates server-side, so pagination is
+	// not forwarded; we only assert the listing id and the period window.
+	if dailyRepo.gotListingID != 99 {
+		t.Errorf("daily repo received wrong listing id: %+v", dailyRepo)
 	}
 	// month period: from should be roughly 30 days before now
 	if dailyRepo.gotFrom.IsZero() {

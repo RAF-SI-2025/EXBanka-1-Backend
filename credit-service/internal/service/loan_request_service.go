@@ -16,6 +16,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// employeeLimitReader is the local read-model consulted before the gRPC fallback (SP-2).
+type employeeLimitReader interface {
+	GetByEmployeeID(ctx context.Context, id uint64) (model.EmployeeLimitReplica, error)
+	Upsert(ctx context.Context, in model.EmployeeLimitReplica) error
+}
+
 var validLoanTypes = map[string]bool{
 	"cash": true, "housing": true, "auto": true, "refinancing": true, "student": true,
 }
@@ -51,10 +57,12 @@ type LoanRequestService struct {
 	loanRepo          *repository.LoanRepository
 	installRepo       *repository.InstallmentRepository
 	limitClient       userpb.EmployeeLimitServiceClient
+	limitReplica      employeeLimitReader
 	accountClient     accountpb.AccountServiceClient
 	bankAccountClient accountpb.BankAccountServiceClient
 	rateConfigSvc     *RateConfigService
 	changelogRepo     *repository.ChangelogRepository
+	disbursementSaga  *LoanDisbursementSaga
 	db                *gorm.DB
 }
 
@@ -66,13 +74,22 @@ func NewLoanRequestService(
 	accountClient accountpb.AccountServiceClient,
 	rateConfigSvc *RateConfigService,
 	db *gorm.DB,
+	limitReplica employeeLimitReader,
 	changelogRepo ...*repository.ChangelogRepository,
 ) *LoanRequestService {
-	svc := &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, accountClient: accountClient, rateConfigSvc: rateConfigSvc, db: db}
+	svc := &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, limitReplica: limitReplica, accountClient: accountClient, rateConfigSvc: rateConfigSvc, db: db}
 	if len(changelogRepo) > 0 {
 		svc.changelogRepo = changelogRepo[0]
 	}
 	return svc
+}
+
+// SetDisbursementSaga injects the saga used to disburse approved loans.
+// Optional: if nil, disbursement falls back to the legacy inline path
+// (used in tests that don't exercise the saga and in legacy wiring that
+// hasn't set up the saga repo yet).
+func (s *LoanRequestService) SetDisbursementSaga(saga *LoanDisbursementSaga) {
+	s.disbursementSaga = saga
 }
 
 // SetBankAccountClient injects the BankAccountService gRPC client used by
@@ -82,6 +99,51 @@ func NewLoanRequestService(
 // the saga).
 func (s *LoanRequestService) SetBankAccountClient(client accountpb.BankAccountServiceClient) {
 	s.bankAccountClient = client
+}
+
+// resolveMaxLoanApproval returns the employee's MaxLoanApprovalAmount from the local
+// replica, falling back to a single GetEmployeeLimits gRPC call on a miss and backfilling
+// the replica (SP-2 hybrid lazy fallback). Returns (decimal.Zero, false) if no limit is
+// available from either source (caller treats false / non-positive as "no approval gate").
+func (s *LoanRequestService) resolveMaxLoanApproval(ctx context.Context, employeeID uint64) (decimal.Decimal, bool) {
+	if s.limitReplica != nil {
+		if rep, err := s.limitReplica.GetByEmployeeID(ctx, employeeID); err == nil {
+			return rep.MaxLoanApprovalAmount, true
+		}
+	}
+	if s.limitClient == nil {
+		return decimal.Zero, false
+	}
+	resp, err := s.limitClient.GetEmployeeLimits(ctx, &userpb.EmployeeLimitRequest{EmployeeId: int64(employeeID)})
+	if err != nil {
+		log.Printf("LoanRequestService: employee-limit resolve fallback failed for %d: %v", employeeID, err)
+		return decimal.Zero, false
+	}
+	maxLoan := parseDecimalOrZeroLR(resp.MaxLoanApprovalAmount)
+	if s.limitReplica != nil {
+		// EmployeeLimitResponse has no Version; backfill at 0 so a later versioned event overwrites it.
+		_ = s.limitReplica.Upsert(ctx, model.EmployeeLimitReplica{
+			EmployeeID:            employeeID,
+			MaxLoanApprovalAmount: maxLoan,
+			MaxSingleTransaction:  parseDecimalOrZeroLR(resp.MaxSingleTransaction),
+			MaxDailyTransaction:   parseDecimalOrZeroLR(resp.MaxDailyTransaction),
+			MaxClientDailyLimit:   parseDecimalOrZeroLR(resp.MaxClientDailyLimit),
+			MaxClientMonthlyLimit: parseDecimalOrZeroLR(resp.MaxClientMonthlyLimit),
+		})
+	}
+	return maxLoan, true
+}
+
+func parseDecimalOrZeroLR(s string) decimal.Decimal {
+	if s == "" {
+		return decimal.Zero
+	}
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		log.Printf("LoanRequestService: unparseable employee-limit decimal %q, treating as zero: %v", s, err)
+		return decimal.Zero
+	}
+	return d
 }
 
 func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
@@ -155,15 +217,11 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 			requestID, req.Status, ErrLoanRequestNotPending)
 	}
 
-	// Check employee MaxLoanApprovalAmount limit (advisory — gRPC call cannot be held inside a DB TX).
-	if employeeID > 0 && s.limitClient != nil {
-		limits, limErr := s.limitClient.GetEmployeeLimits(ctx, &userpb.EmployeeLimitRequest{EmployeeId: int64(employeeID)})
-		if limErr == nil && limits.MaxLoanApprovalAmount != "" && limits.MaxLoanApprovalAmount != "0" {
-			maxAmount, parseErr := decimal.NewFromString(limits.MaxLoanApprovalAmount)
-			if parseErr == nil && maxAmount.IsPositive() && req.Amount.GreaterThan(maxAmount) {
-				return nil, fmt.Errorf("ApproveLoanRequest(id=%d, employee=%d, amount=%s, limit=%s): %w",
-					requestID, employeeID, req.Amount.StringFixed(2), maxAmount.StringFixed(2), ErrAmountExceedsApprovalLimit)
-			}
+	// Check employee MaxLoanApprovalAmount limit (advisory; replica-first, gRPC fallback — SP-2).
+	if employeeID > 0 {
+		if maxAmount, ok := s.resolveMaxLoanApproval(ctx, employeeID); ok && maxAmount.IsPositive() && req.Amount.GreaterThan(maxAmount) {
+			return nil, fmt.Errorf("ApproveLoanRequest(id=%d, employee=%d, amount=%s, limit=%s): %w",
+				requestID, employeeID, req.Amount.StringFixed(2), maxAmount.StringFixed(2), ErrAmountExceedsApprovalLimit)
 		}
 	}
 
@@ -253,69 +311,31 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		_ = s.changelogRepo.Create(entry)
 	}
 
-	// Disbursement saga: bank debit → borrower credit. If either step fails the
-	// loan becomes disbursement_failed and the error propagates to the caller.
-	// When bank debit succeeds but borrower credit fails, the bank debit is
-	// compensated via CreditBankAccount with the same idempotency reference.
-
-	// Nil-client fallback (used by tests that don't exercise disbursement and
-	// by any legacy wiring that hasn't set up the clients): leave the loan in
-	// the "approved" state with no disbursement and no error.
-	if s.accountClient == nil || s.bankAccountClient == nil {
+	// No-saga fallback: used by tests and legacy wiring that haven't wired the
+	// disbursement saga. Leave the loan in "approved" state without disbursing.
+	if s.disbursementSaga == nil {
 		CreditLoanRequestTotal.WithLabelValues("approved").Inc()
 		return loan, nil
 	}
 
-	reference := fmt.Sprintf("loan-disbursement:%d", loan.ID)
-	reason := fmt.Sprintf("loan %d disbursement to account %s", loan.ID, loan.AccountNumber)
-	amountStr := loan.Amount.StringFixed(4)
-
-	// Step A: debit the bank sentinel for the loan currency.
-	_, debitErr := s.bankAccountClient.DebitBankAccount(ctx, &accountpb.BankAccountOpRequest{
-		Currency:  loan.CurrencyCode,
-		Amount:    amountStr,
-		Reference: reference,
-		Reason:    reason,
-	})
-	if debitErr != nil {
-		loan.Status = "disbursement_failed"
-		if updateErr := s.loanRepo.Update(loan); updateErr != nil {
-			log.Printf("ApproveLoanRequest: failed to flag loan %d disbursement_failed after bank debit error: %v", loan.ID, updateErr)
+	// Disburse via saga. Compensation runs automatically on any step failure.
+	// If compensation also fails, the saga_log rows stay in "compensating" and
+	// the recovery worker picks them up. The borrower's account state is
+	// always consistent after Disburse returns.
+	if err := s.disbursementSaga.Disburse(ctx, loan); err != nil {
+		// Saga has already attempted compensation. Set status here as a safety
+		// net in case mark_loan_active's Backward didn't run (e.g., the saga
+		// failed before reaching that step).
+		if loan.Status != "disbursement_failed" {
+			loan.Status = "disbursement_failed"
+			if updateErr := s.loanRepo.Update(loan); updateErr != nil {
+				log.Printf("ApproveLoanRequest: failed to flag loan %d disbursement_failed: %v", loan.ID, updateErr)
+			}
 		}
 		CreditLoanRequestTotal.WithLabelValues("disbursement_failed").Inc()
-		return nil, debitErr
+		return nil, fmt.Errorf("loan disbursement failed: %w", err)
 	}
 
-	// Step B: credit the borrower's account.
-	_, creditErr := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-		AccountNumber:   loan.AccountNumber,
-		Amount:          amountStr,
-		UpdateAvailable: true,
-		IdempotencyKey:  reference + ":credit",
-	})
-	if creditErr != nil {
-		// Compensate: return the money to the bank (idempotent by reference).
-		if _, compErr := s.bankAccountClient.CreditBankAccount(ctx, &accountpb.BankAccountOpRequest{
-			Currency:  loan.CurrencyCode,
-			Amount:    amountStr,
-			Reference: reference,
-			Reason:    "compensation for " + reason,
-		}); compErr != nil {
-			log.Printf("ApproveLoanRequest: COMPENSATION FAILED for loan %d reference %s: %v — bank is short by %s %s",
-				loan.ID, reference, compErr, amountStr, loan.CurrencyCode)
-		}
-		loan.Status = "disbursement_failed"
-		if updateErr := s.loanRepo.Update(loan); updateErr != nil {
-			log.Printf("ApproveLoanRequest: failed to flag loan %d disbursement_failed after borrower credit error: %v", loan.ID, updateErr)
-		}
-		CreditLoanRequestTotal.WithLabelValues("disbursement_failed").Inc()
-		return nil, creditErr
-	}
-
-	loan.Status = "active"
-	if updateErr := s.loanRepo.Update(loan); updateErr != nil {
-		log.Printf("ApproveLoanRequest: failed to update loan %d status to active: %v", loan.ID, updateErr)
-	}
 	CreditLoanRequestTotal.WithLabelValues("approved").Inc()
 	return loan, nil
 }

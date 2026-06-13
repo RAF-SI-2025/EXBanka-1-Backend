@@ -100,3 +100,43 @@ func TestParseTimezoneLocation_InvalidIANA(t *testing.T) {
 		t.Fatal("expected error for invalid IANA timezone")
 	}
 }
+
+// TestParseTimezoneLocation_NamedUTC pins the fix for the latent always-closed bug:
+// generated_source.go stamps the literal "UTC" on unmapped exchanges, but "UTC" is
+// neither an IANA path (no "/") nor a numeric offset, so it used to fail Atoi →
+// error → isWithinTradingHours false → the exchange was reported permanently
+// CLOSED. "UTC"/"GMT"/"Z" (any case) must now resolve to time.UTC.
+func TestParseTimezoneLocation_NamedUTC(t *testing.T) {
+	for _, tz := range []string{"UTC", "utc", "GMT", "gmt", "Z", " UTC "} {
+		loc, err := parseTimezoneLocation(tz)
+		if err != nil {
+			t.Errorf("parseTimezoneLocation(%q): unexpected error %v", tz, err)
+			continue
+		}
+		if loc != time.UTC {
+			t.Errorf("parseTimezoneLocation(%q): got %v, want time.UTC", tz, loc)
+		}
+	}
+}
+
+// TestIsWithinTradingHours_NamedUTCNeverClosed proves an exchange carrying the
+// "UTC" fallback timezone with a full-day window is reported OPEN (it was always
+// CLOSED before the fix). Skips the single boundary minute 23:59.
+func TestIsWithinTradingHours_NamedUTCNeverClosed(t *testing.T) {
+	ex := &model.StockExchange{TimeZone: "UTC", OpenTime: "00:00", CloseTime: "23:59"}
+	now := time.Now().UTC()
+	want := !(now.Hour() == 23 && now.Minute() == 59)
+	if got := isWithinTradingHours(ex); got != want {
+		t.Errorf("UTC-tz full-day window at %02d:%02d UTC: want %v, got %v", now.Hour(), now.Minute(), want, got)
+	}
+}
+
+// TestIsWithinTradingHours_IANAResolves guards the tzdata dependency: a real IANA
+// zone must resolve so trading hours are evaluated (not fail-closed). The binary
+// embeds the tz database via `_ "time/tzdata"` in main; this test fails if
+// LoadLocation can't find the zone at all.
+func TestIsWithinTradingHours_IANAResolves(t *testing.T) {
+	if _, err := parseTimezoneLocation("Australia/Sydney"); err != nil {
+		t.Fatalf("Australia/Sydney must resolve (tzdata): %v", err)
+	}
+}

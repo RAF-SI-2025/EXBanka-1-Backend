@@ -52,108 +52,32 @@ type mockNotifRepo struct {
 	markAllReadFn func(userID uint64) (int64, error)
 }
 
-func (m *mockNotifRepo) ListByUser(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error) {
+func (m *mockNotifRepo) ListByUser(userID uint64, _ string, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error) {
 	if m.listFn != nil {
 		return m.listFn(userID, readFilter, page, pageSize)
 	}
 	return nil, 0, nil
 }
 
-func (m *mockNotifRepo) UnreadCount(userID uint64) (int64, error) {
+func (m *mockNotifRepo) UnreadCount(userID uint64, _ string) (int64, error) {
 	if m.unreadFn != nil {
 		return m.unreadFn(userID)
 	}
 	return 0, nil
 }
 
-func (m *mockNotifRepo) MarkRead(id, userID uint64) error {
+func (m *mockNotifRepo) MarkRead(id, userID uint64, _ string) error {
 	if m.markReadFn != nil {
 		return m.markReadFn(id, userID)
 	}
 	return nil
 }
 
-func (m *mockNotifRepo) MarkAllRead(userID uint64) (int64, error) {
+func (m *mockNotifRepo) MarkAllRead(userID uint64, _ string) (int64, error) {
 	if m.markAllReadFn != nil {
 		return m.markAllReadFn(userID)
 	}
 	return 0, nil
-}
-
-// ---------------------------------------------------------------------------
-// SendEmail
-// ---------------------------------------------------------------------------
-
-func TestGRPCHandler_SendEmail_Success(t *testing.T) {
-	sender := &mockEmailSender{}
-	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
-	resp, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{
-		To: "user@example.com", EmailType: "verification", Data: map[string]string{"code": "123456"},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !resp.Success {
-		t.Errorf("expected Success=true, got %s", resp.Message)
-	}
-	if len(sender.calls) != 1 || sender.calls[0].to != "user@example.com" {
-		t.Errorf("expected sender called once for user@example.com, got %+v", sender.calls)
-	}
-}
-
-func TestGRPCHandler_SendEmail_MissingRecipient(t *testing.T) {
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
-	_, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{To: ""})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", status.Code(err))
-	}
-}
-
-func TestGRPCHandler_SendEmail_SenderError(t *testing.T) {
-	sender := &mockEmailSender{
-		sendFn: func(_, _, _ string) error { return errors.New("smtp down") },
-	}
-	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
-	resp, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{To: "user@example.com"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Success {
-		t.Error("expected Success=false on send error")
-	}
-	if resp.Message == "" {
-		t.Error("expected error message in response")
-	}
-}
-
-func TestGRPCHandler_SendEmail_RenderError(t *testing.T) {
-	sender := &mockEmailSender{}
-	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderErr: errors.New("unknown type")})
-	resp, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{To: "user@example.com"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Success {
-		t.Error("expected Success=false on render error")
-	}
-	if resp.Message == "" {
-		t.Error("expected error message in response")
-	}
-	if len(sender.calls) != 0 {
-		t.Errorf("expected sender not called on render error, got %+v", sender.calls)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// GetDeliveryStatus
-// ---------------------------------------------------------------------------
-
-func TestGRPCHandler_GetDeliveryStatus_Unimplemented(t *testing.T) {
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
-	_, err := h.GetDeliveryStatus(context.Background(), &notifpb.GetDeliveryStatusRequest{})
-	if status.Code(err) != codes.Unimplemented {
-		t.Errorf("expected Unimplemented, got %v", status.Code(err))
-	}
 }
 
 // ---------------------------------------------------------------------------

@@ -1,12 +1,28 @@
 // contract/kafka/messages.go
 package kafka
 
+import "time"
+
 const (
 	TopicSendEmail = "notification.send-email"
 	TopicEmailSent = "notification.email-sent"
 	TopicSendPush  = "notification.send-push"
 	TopicPushSent  = "notification.push-sent"
+
+	// TopicNotificationDeadLetter receives messages that exhausted their
+	// in-consumer retries, so a poison message never silently disappears or
+	// stalls a partition. Carries the original payload + failure context.
+	TopicNotificationDeadLetter = "notification.dead-letter"
 )
+
+// NotificationDeadLetterMessage wraps a message that a notification-service
+// consumer could not process after its bounded retries.
+type NotificationDeadLetterMessage struct {
+	Source   string `json:"source"`    // consumer name (e.g. "email", "admin_audit")
+	Payload  string `json:"payload"`   // original message bytes (UTF-8/JSON)
+	Error    string `json:"error"`     // last processing error
+	FailedAt int64  `json:"failed_at"` // unix seconds
+}
 
 type EmailType string
 
@@ -52,6 +68,8 @@ const (
 	TopicTransferCompleted    = "transaction.transfer-completed"
 	TopicTransferFailed       = "transaction.transfer-failed"
 	TopicSagaDeadLetter       = "transaction.saga-dead-letter"
+	TopicCreditSagaDeadLetter = "credit.saga-dead-letter"
+	TopicStockSagaDeadLetter  = "stock.saga-dead-letter"
 	TopicLoanRequested        = "credit.loan-requested"
 	TopicLoanApproved         = "credit.loan-approved"
 	TopicLoanRejected         = "credit.loan-rejected"
@@ -91,6 +109,8 @@ type ClientCreatedMessage struct {
 	Email     string `json:"email"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
+	JMBG      string `json:"jmbg,omitempty"`
+	Version   int64  `json:"version,omitempty"`
 }
 
 type AccountCreatedMessage struct {
@@ -228,9 +248,18 @@ type RolePermissionsChangedMessage struct {
 }
 
 // EmployeeLimitsUpdatedMessage is published when an employee's limits are set or updated.
+// Enriched (SP-2) to carry the FULL limit snapshot + monotonic Version so consumers
+// can maintain a local EmployeeLimitReplica without a synchronous GetEmployeeLimits read.
+// Decimal values are formatted strings (StringFixed(4)) to avoid float drift.
 type EmployeeLimitsUpdatedMessage struct {
-	EmployeeID int64  `json:"employee_id"`
-	Action     string `json:"action"` // "set" or "template_applied"
+	EmployeeID            int64  `json:"employee_id"`
+	Action                string `json:"action"` // "set" or "template_applied"
+	MaxLoanApprovalAmount string `json:"max_loan_approval_amount,omitempty"`
+	MaxSingleTransaction  string `json:"max_single_transaction,omitempty"`
+	MaxDailyTransaction   string `json:"max_daily_transaction,omitempty"`
+	MaxClientDailyLimit   string `json:"max_client_daily_limit,omitempty"`
+	MaxClientMonthlyLimit string `json:"max_client_monthly_limit,omitempty"`
+	Version               int64  `json:"version"`
 }
 
 // LimitTemplateMessage is published when a limit template is created, updated, or deleted.
@@ -241,10 +270,17 @@ type LimitTemplateMessage struct {
 }
 
 // ClientLimitsUpdatedMessage is published when a client's limits are updated.
+// DailyLimit, MonthlyLimit, TransferLimit and Version carry the full post-write
+// snapshot so SP-5 account-service replica consumers can apply the event
+// idempotently without a round-trip back to client-service.
 type ClientLimitsUpdatedMessage struct {
 	ClientID      int64  `json:"client_id"`
 	SetByEmployee int64  `json:"set_by_employee"`
 	Action        string `json:"action"` // "set"
+	DailyLimit    string `json:"daily_limit,omitempty"`
+	MonthlyLimit  string `json:"monthly_limit,omitempty"`
+	TransferLimit string `json:"transfer_limit,omitempty"`
+	Version       int64  `json:"version"`
 }
 
 type CardTemporaryBlockedMessage struct {
@@ -471,13 +507,19 @@ const (
 //     registry (push channel) with Data, producing Title+Message.
 //   - Data empty (legacy): Title and Message are used as-is.
 type GeneralNotificationMessage struct {
-	UserID  uint64            `json:"user_id"`
-	Type    string            `json:"type"`               // registry template type, e.g. "ORDER_FILLED"
-	Title   string            `json:"title,omitempty"`    // legacy: pre-rendered title
-	Message string            `json:"message,omitempty"`  // legacy: pre-rendered body
-	Data    map[string]string `json:"data,omitempty"`     // render Type via the registry when set
-	RefType string            `json:"ref_type,omitempty"` // optional: "payment", "transfer", "loan", "card", "account"
-	RefID   uint64            `json:"ref_id,omitempty"`   // optional: ID of the referenced entity
+	UserID uint64 `json:"user_id"`
+	// SystemType is the recipient namespace: "client" (default when empty) or
+	// "employee" (the shared bank inbox). The notification-service scopes reads by
+	// it so a client's notifications never reach an employee/admin with the same
+	// numeric id. Producers targeting a client may leave it empty; producers
+	// targeting the bank/employees MUST set "employee".
+	SystemType string            `json:"system_type,omitempty"`
+	Type       string            `json:"type"`               // registry template type, e.g. "ORDER_FILLED"
+	Title      string            `json:"title,omitempty"`    // legacy: pre-rendered title
+	Message    string            `json:"message,omitempty"`  // legacy: pre-rendered body
+	Data       map[string]string `json:"data,omitempty"`     // render Type via the registry when set
+	RefType    string            `json:"ref_type,omitempty"` // optional: "payment", "transfer", "loan", "card", "account"
+	RefID      uint64            `json:"ref_id,omitempty"`   // optional: ID of the referenced entity
 }
 
 // Verification service topic constants
@@ -485,7 +527,6 @@ const (
 	TopicVerificationChallengeCreated  = "verification.challenge-created"
 	TopicVerificationChallengeVerified = "verification.challenge-verified"
 	TopicVerificationChallengeFailed   = "verification.challenge-failed"
-	TopicMobilePush                    = "notification.mobile-push"
 )
 
 // VerificationChallengeCreatedMessage is published when a new verification challenge is created.
@@ -518,14 +559,6 @@ type VerificationChallengeFailedMessage struct {
 	SourceService string `json:"source_service"`
 	SourceID      uint64 `json:"source_id"`
 	Reason        string `json:"reason"` // "max_attempts_exceeded", "expired"
-}
-
-// MobilePushMessage is published by notification-service when a mobile inbox item is stored.
-// api-gateway consumes this to push via WebSocket to connected mobile devices.
-type MobilePushMessage struct {
-	UserID  uint64 `json:"user_id"`
-	Type    string `json:"type"`    // "verification_challenge"
-	Payload string `json:"payload"` // JSON string
 }
 
 // Changelog event topic constants -- one per service for downstream consumption.
@@ -773,6 +806,61 @@ type OTCContractExpiredMessage struct {
 	Buyer      OTCParty `json:"buyer"`
 	Seller     OTCParty `json:"seller"`
 	ExpiredAt  string   `json:"expired_at"`
+}
+
+// ==================== Admin Cron Viewer (C6 — 2026-05-28) ====================
+
+// TopicAdminCronAction is published by the api-gateway on every
+// Trigger/Pause/Resume admin action. Notification-service consumes this to
+// write an audit log row.
+const TopicAdminCronAction = "admin.cron-action"
+
+// AdminCronActionMessage carries the audit event for an admin cron control action.
+type AdminCronActionMessage struct {
+	Action     string    `json:"action"`    // "trigger" | "pause" | "resume"
+	Service    string    `json:"service"`   // e.g. "stock-service"
+	CronName   string    `json:"cron_name"` // e.g. "tax-collection"
+	EmployeeID int64     `json:"employee_id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Reason     string    `json:"reason,omitempty"`
+}
+
+// TopicBusinessAuditAction carries who-did-what audit events for high-value
+// business actions (limit changes, usedLimit resets, order approve/reject,
+// permission changes, manual tax collection). Published by the api-gateway
+// (actor known from the JWT) and recorded by notification-service into the
+// business_audit_logs table. Mirrors the admin.cron-action audit loop.
+const TopicBusinessAuditAction = "admin.business-action"
+
+// BusinessAuditActionMessage is one audited business action.
+type BusinessAuditActionMessage struct {
+	Action          string    `json:"action"`            // limit.set | limit.used_reset | order.approve | order.decline | permissions.set | tax.collect
+	ActorEmployeeID int64     `json:"actor_employee_id"` // JWT user_id of the actor
+	TargetType      string    `json:"target_type"`       // employee | order | role | tax
+	TargetID        string    `json:"target_id"`
+	Detail          string    `json:"detail"`
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+// ==================== Watchlist Notifications (2026-05-29) ====================
+
+// TopicWatchlistAlert is published by stock-service's daily watchlist
+// notification cron when a ticker on a user's watchlist moves more than ±5%
+// in a single day. notification-service consumes this to write a persistent
+// general notification for the user.
+const TopicWatchlistAlert = "notification.watchlist-alert"
+
+// WatchlistPriceMoveMessage is published once per (user_id, ticker) pair per
+// calendar day when the daily price change exceeds ±5%. The IdempotencyKey
+// field carries a canonical "watchlist-alert-<user_id>-<ticker>-<YYYYMMDD>"
+// key so consumers can detect and discard duplicate deliveries.
+type WatchlistPriceMoveMessage struct {
+	UserID         uint64    `json:"user_id"`
+	Ticker         string    `json:"ticker"`
+	PercentMove    string    `json:"percent_move"`  // signed decimal string, e.g. "-6.4200"
+	CurrentPrice   string    `json:"current_price"` // decimal string
+	Timestamp      time.Time `json:"timestamp"`
+	IdempotencyKey string    `json:"idempotency_key"` // "watchlist-alert-<uid>-<ticker>-<YYYYMMDD>"
 }
 
 type OTCContractFailedMessage struct {

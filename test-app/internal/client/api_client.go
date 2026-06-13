@@ -69,7 +69,17 @@ func (c *APIClient) DELETE(path string) (*Response, error) {
 	return c.do("DELETE", path, nil)
 }
 
+// POSTWithHeaders performs a POST with extra request headers. Used by the SG
+// saga tests to send X-Saga-* fault-injection directives.
+func (c *APIClient) POSTWithHeaders(path string, body interface{}, headers map[string]string) (*Response, error) {
+	return c.doWithHeaders("POST", path, body, headers)
+}
+
 func (c *APIClient) do(method, path string, body interface{}) (*Response, error) {
+	return c.doWithHeaders(method, path, body, nil)
+}
+
+func (c *APIClient) doWithHeaders(method, path string, body interface{}, headers map[string]string) (*Response, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBytes, err := json.Marshal(body)
@@ -86,6 +96,9 @@ func (c *APIClient) do(method, path string, body interface{}) (*Response, error)
 	req.Header.Set("Content-Type", "application/json")
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := c.httpClient.Do(req)

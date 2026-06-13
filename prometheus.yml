@@ -50,3 +50,7 @@ scrape_configs:
   - job_name: "verification-service"
     static_configs:
       - targets: ["verification-service:9111"]
+
+  - job_name: "interbank-service"
+    static_configs:
+      - targets: ["interbank-service:9112"]

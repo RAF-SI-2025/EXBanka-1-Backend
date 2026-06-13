@@ -13,8 +13,13 @@ import (
 )
 
 var (
-	// ErrCardNotFound — the card does not exist.
+	// ErrCardNotFound — the card does not exist. Also returned to a client that
+	// asks for a card it does not own (OWN-1: 404, no cross-tenant existence leak).
 	ErrCardNotFound = svcerr.New(codes.NotFound, "card not found")
+
+	// ErrForbidden — caller may not access the requested resource set (OWN-1:
+	// e.g. a client listing another client's cards / card-requests).
+	ErrForbidden = svcerr.New(codes.PermissionDenied, "forbidden")
 
 	// ErrCardAlreadyApproved — operation rejected because the card is
 	// already in the approved state.

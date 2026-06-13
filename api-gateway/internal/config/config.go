@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -17,8 +18,14 @@ type Config struct {
 	StockGRPCAddr        string
 	VerificationGRPCAddr string
 	NotificationGRPCAddr string
-	KafkaBrokers         string
-	MetricsPort          string
+	// InterbankGRPCAddr is the cross-bank SI-TX settlement service. As of the
+	// 2026-06-07 cutover it is THE backend for the entire /cross-bank-protocol
+	// surface: PeerTx (2PC), PeerBankAdmin (registry), PeerOTC (forwarded to
+	// stock-service), PeerEgress, and PeerUser. The gateway dials all of these
+	// here instead of transaction-service/stock-service.
+	InterbankGRPCAddr string
+	KafkaBrokers      string
+	MetricsPort       string
 
 	// RedisAddr is the address of the Redis instance used by the gateway.
 	// Currently used by the SI-TX PeerNonceStore (HMAC nonce dedup window;
@@ -26,6 +33,21 @@ type Config struct {
 	RedisAddr string
 
 	OwnBankCode string
+
+	// OwnBankName is the human-readable display name returned by the
+	// peer-facing GET /user/{rid}/{id} endpoint (SI-TX §3.7
+	// bankDisplayName). Falls back to OwnBankCode when OWN_BANK_NAME is
+	// unset.
+	OwnBankName string
+
+	// Rate limiting (Phase A). A value of 0 disables that bucket.
+	// Global is a generous per-IP safety ceiling across ALL routes — sized
+	// well above the frontend's ~1s multi-route polling so normal traffic is
+	// never throttled. Login/Reset are strict per-IP buckets on the two
+	// brute-force-prone auth routes.
+	RateLimitGlobalPerMin int
+	RateLimitLoginPer5Min int
+	RateLimitResetPer5Min int
 }
 
 func Load() *Config {
@@ -42,18 +64,34 @@ func Load() *Config {
 		StockGRPCAddr:        getEnv("STOCK_GRPC_ADDR", "localhost:50060"),
 		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50061"),
 		NotificationGRPCAddr: getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50053"),
+		InterbankGRPCAddr:    getEnv("INTERBANK_GRPC_ADDR", "localhost:50062"),
 		KafkaBrokers:         getEnv("KAFKA_BROKERS", "localhost:9092"),
 		MetricsPort:          getEnv("METRICS_PORT", "9100"),
 
 		RedisAddr: getEnv("REDIS_ADDR", "localhost:6379"),
 
 		OwnBankCode: getEnv("OWN_BANK_CODE", "111"),
+		// Default to the bank code when no display name is configured.
+		OwnBankName: getEnv("OWN_BANK_NAME", getEnv("OWN_BANK_CODE", "111")),
+
+		RateLimitGlobalPerMin: getEnvInt("RATE_LIMIT_GLOBAL_PER_MIN", 3000),
+		RateLimitLoginPer5Min: getEnvInt("RATE_LIMIT_LOGIN_PER_5MIN", 20),
+		RateLimitResetPer5Min: getEnvInt("RATE_LIMIT_RESET_PER_5MIN", 5),
 	}
 }
 
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return fallback
 }

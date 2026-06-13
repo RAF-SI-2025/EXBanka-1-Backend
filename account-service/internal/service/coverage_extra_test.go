@@ -275,6 +275,23 @@ func TestCompanyService_CreateGetUpdate(t *testing.T) {
 	assert.Equal(t, "Acme Renamed", again.CompanyName)
 }
 
+func TestCompanyService_CreateDuplicate_Returns409NoPII(t *testing.T) {
+	svc := newCompanyService(t)
+
+	require.NoError(t, svc.Create(&model.Company{
+		CompanyName: "Acme", RegistrationNumber: "12345678", TaxNumber: "123456789", OwnerID: 5,
+	}))
+
+	// Same registration number → 409 sentinel, and the message must NOT echo the
+	// colliding registration/tax number (PII) the way a raw PG error would.
+	err := svc.Create(&model.Company{
+		CompanyName: "Acme2", RegistrationNumber: "12345678", TaxNumber: "999999999", OwnerID: 6,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrCompanyDuplicate)
+	assert.NotContains(t, err.Error(), "12345678")
+}
+
 func TestCompanyService_GetByOwnerID(t *testing.T) {
 	svc := newCompanyService(t)
 	require.NoError(t, svc.Create(&model.Company{
@@ -508,19 +525,49 @@ func TestIncomingReservationService_ReserveAndCommit(t *testing.T) {
 	assert.Equal(t, res.ID, res2.ID)
 
 	// Commit credits the account.
-	updated, err := svc.CommitIncoming(ctx, "k1")
+	updated, err := svc.CommitIncoming(ctx, "k1", "")
 	require.NoError(t, err)
 	assert.True(t, updated.Balance.Equal(decimal.NewFromInt(750)))
 
 	// Commit again is idempotent — returns current account state.
-	updated2, err := svc.CommitIncoming(ctx, "k1")
+	updated2, err := svc.CommitIncoming(ctx, "k1", "")
 	require.NoError(t, err)
 	assert.True(t, updated2.Balance.Equal(decimal.NewFromInt(750)))
 }
 
+// TestIncomingReservationService_Commit_MemoToLedger verifies that a non-empty
+// memo passed to CommitIncoming becomes the ledger entry Description (the SI-TX
+// NEW_TX message surfaced on the receiver's ledger).
+func TestIncomingReservationService_Commit_MemoToLedger(t *testing.T) {
+	db := newTestDB(t)
+	accountRepo := repository.NewAccountRepository(db)
+	resRepo := repository.NewIncomingReservationRepository(db)
+	svc := NewIncomingReservationService(db, accountRepo, resRepo)
+	acct := seedAccount(t, db, "111000100000400099", decimal.NewFromInt(0), decimal.NewFromInt(1_000_000))
+	ctx := context.Background()
+
+	_, err := svc.ReserveIncoming(ctx, acct.AccountNumber, decimal.NewFromInt(500), "RSD", "memo-key")
+	require.NoError(t, err)
+	_, err = svc.CommitIncoming(ctx, "memo-key", "invoice #42")
+	require.NoError(t, err)
+
+	var entry model.LedgerEntry
+	require.NoError(t, db.Where("reference_id = ?", "memo-key").First(&entry).Error)
+	assert.Equal(t, "invoice #42", entry.Description)
+
+	// Empty memo falls back to the default inter-bank description.
+	_, err = svc.ReserveIncoming(ctx, acct.AccountNumber, decimal.NewFromInt(10), "RSD", "nomemo-key")
+	require.NoError(t, err)
+	_, err = svc.CommitIncoming(ctx, "nomemo-key", "")
+	require.NoError(t, err)
+	var entry2 model.LedgerEntry
+	require.NoError(t, db.Where("reference_id = ?", "nomemo-key").First(&entry2).Error)
+	assert.Contains(t, entry2.Description, "Inter-bank credit")
+}
+
 func TestIncomingReservationService_Commit_NotFound(t *testing.T) {
 	svc, _ := newIncomingFixture(t)
-	_, err := svc.CommitIncoming(context.Background(), "missing-key")
+	_, err := svc.CommitIncoming(context.Background(), "missing-key", "")
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.NotFound, st.Code())
@@ -554,7 +601,7 @@ func TestIncomingReservationService_Release_NotFound(t *testing.T) {
 func TestSpendingCronService_StartAndCancel(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
-	svc := NewSpendingCronService(repo)
+	svc := NewSpendingCronService(repo, nilRegistry())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.Start(ctx)
@@ -568,7 +615,7 @@ func TestMaintenanceCronService_StartAndCancel(t *testing.T) {
 	repo := repository.NewAccountRepository(db)
 	ledgerRepo := repository.NewLedgerRepository(db)
 	ledgerSvc := NewLedgerService(ledgerRepo, db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil, nilRegistry())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.Start(ctx)
@@ -583,7 +630,7 @@ func TestMaintenanceCronService_ChargeMaintenanceFees_NoBankAccount(t *testing.T
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil, nilRegistry())
 
 	// Seed a client account that is eligible for maintenance fees but no bank
 	// RSD account exists — should warn-and-skip without erroring.
@@ -598,7 +645,7 @@ func TestMaintenanceCronService_ChargeMaintenanceFees_InsufficientBalance(t *tes
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil, nilRegistry())
 
 	// Bank account exists.
 	require.NoError(t, db.Create(&model.Account{
@@ -625,7 +672,7 @@ func TestMaintenanceCronService_ChargeMaintenanceFees_Happy(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil, nilRegistry())
 
 	// Bank RSD account.
 	require.NoError(t, db.Create(&model.Account{
@@ -655,7 +702,7 @@ func TestIncomingReservationService_CommitAfterRelease_FailsPrecondition(t *test
 	require.NoError(t, err)
 	require.NoError(t, svc.ReleaseIncoming(ctx, "k3"))
 
-	_, err = svc.CommitIncoming(ctx, "k3")
+	_, err = svc.CommitIncoming(ctx, "k3", "")
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.FailedPrecondition, st.Code())

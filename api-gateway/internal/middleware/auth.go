@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	authpb "github.com/exbanka/contract/authpb"
 	perms "github.com/exbanka/contract/permissions"
 )
 
@@ -15,83 +14,70 @@ func abortWithError(c *gin.Context, status int, code, message string) {
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message}})
 }
 
-func AuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
+// bearerToken extracts the raw token from the Authorization header, writing a
+// 401 and returning ok=false on a missing/malformed header.
+func bearerToken(c *gin.Context) (string, bool) {
+	header := c.GetHeader("Authorization")
+	if header == "" {
+		abortWithError(c, http.StatusUnauthorized, "unauthorized", "missing authorization header")
+		return "", false
+	}
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid authorization format")
+		return "", false
+	}
+	return parts[1], true
+}
+
+// writeVerifyFailure maps a non-OK verify outcome to the right 401:
+// token_expired (stale/expired → client refreshes) vs unauthorized (bad/
+// revoked → client logs out).
+func writeVerifyFailure(c *gin.Context, kind VerifyKind) {
+	if kind == VerifyTokenExpired {
+		abortWithError(c, http.StatusUnauthorized, "token_expired", "token expired")
+		return
+	}
+	abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid or revoked token")
+}
+
+// AuthMiddleware verifies the access token (locally via ES256, falling back to
+// gRPC) and admits employees only — client tokens are rejected here.
+func AuthMiddleware(v *TokenVerifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		if header == "" {
-			abortWithError(c, http.StatusUnauthorized, "unauthorized", "missing authorization header")
+		token, ok := bearerToken(c)
+		if !ok {
 			return
 		}
-
-		parts := strings.SplitN(header, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid authorization format")
+		p, kind := v.Verify(c.Request.Context(), token)
+		if kind != VerifyOK {
+			writeVerifyFailure(c, kind)
 			return
 		}
-
-		resp, err := authClient.ValidateToken(c.Request.Context(), &authpb.ValidateTokenRequest{
-			Token: parts[1],
-		})
-		if err != nil || !resp.Valid {
-			abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
-			return
-		}
-
-		// Block client tokens from accessing employee-only routes
-		if resp.PrincipalType == "client" {
+		// Block client tokens from accessing employee-only routes.
+		if p.PrincipalType == "client" {
 			abortWithError(c, http.StatusForbidden, "forbidden", "token not authorized for employee routes")
 			return
 		}
-
-		setTokenContext(c, resp)
+		setPrincipalContext(c, p)
 		c.Next()
 	}
 }
 
-// setTokenContext populates the gin context with all JWT claim fields.
-//
-// The keys "principal_id" and "principal_type" are the post-Spec-C names
-// (was: "user_id" and "system_type"). All downstream readers in api-gateway
-// use these keys; the legacy keys are no longer set anywhere.
-func setTokenContext(c *gin.Context, resp *authpb.ValidateTokenResponse) {
-	c.Set("principal_id", resp.PrincipalId)
-	c.Set("email", resp.Email)
-	c.Set("role", resp.Role)
-	c.Set("roles", resp.Roles)
-	c.Set("principal_type", resp.PrincipalType)
-	c.Set("permissions", resp.Permissions)
-	c.Set("device_id", resp.DeviceId)
-	c.Set("first_name", resp.FirstName)
-	c.Set("last_name", resp.LastName)
-	c.Set("account_active", resp.AccountActive)
-	c.Set("biometrics_enabled", resp.BiometricsEnabled)
-}
-
 // AnyAuthMiddleware accepts either an employee JWT or a client JWT.
 // Use this for routes that should be accessible by both roles.
-func AnyAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
+func AnyAuthMiddleware(v *TokenVerifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		if header == "" {
-			abortWithError(c, http.StatusUnauthorized, "unauthorized", "missing authorization header")
+		token, ok := bearerToken(c)
+		if !ok {
 			return
 		}
-
-		parts := strings.SplitN(header, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid authorization format")
+		p, kind := v.Verify(c.Request.Context(), token)
+		if kind != VerifyOK {
+			writeVerifyFailure(c, kind)
 			return
 		}
-
-		resp, err := authClient.ValidateToken(c.Request.Context(), &authpb.ValidateTokenRequest{
-			Token: parts[1],
-		})
-		if err != nil || !resp.Valid {
-			abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
-			return
-		}
-
-		setTokenContext(c, resp)
+		setPrincipalContext(c, p)
 		c.Next()
 	}
 }
@@ -103,6 +89,20 @@ func RequireClientToken() gin.HandlerFunc {
 		principalType, _ := c.Get("principal_type")
 		if principalType != "client" {
 			abortWithError(c, http.StatusForbidden, "forbidden", "client token required")
+			return
+		}
+		c.Next()
+	}
+}
+
+// DenyClientToken rejects requests carrying a client JWT (admits employees /
+// non-client principals only). Must be chained after AnyAuthMiddleware (which
+// sets "principal_type"). Used for market data that Celina 3 restricts to
+// actuaries — clients may trade only stocks and futures, never forex or options.
+func DenyClientToken() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if principalType, _ := c.Get("principal_type"); principalType == "client" {
+			abortWithError(c, http.StatusForbidden, "forbidden", "not available to client accounts")
 			return
 		}
 		c.Next()
@@ -282,4 +282,20 @@ func HasPermission(c *gin.Context, code string) bool {
 		}
 	}
 	return false
+}
+
+// GetCallerPermissions returns the caller's JWT permission list from the gin
+// context. Returns nil (empty) when the context has no permissions (unauthenticated
+// or client token). Useful in handlers that need the full permission set rather
+// than a single HasPermission check.
+func GetCallerPermissions(c *gin.Context) []string {
+	raw, exists := c.Get("permissions")
+	if !exists {
+		return nil
+	}
+	list, ok := raw.([]string)
+	if !ok {
+		return nil
+	}
+	return list
 }

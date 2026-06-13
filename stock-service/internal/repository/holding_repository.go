@@ -117,12 +117,83 @@ func (r *HoldingRepository) Upsert(ctx context.Context, holding *model.Holding) 
 	})
 }
 
+// UpsertIdempotent is Upsert guarded by a credit marker so a replay (saga
+// retry or crash-recovery re-run) credits the shares exactly once. In one
+// transaction it inserts a HoldingCreditMarker for idemKey ON CONFLICT DO
+// NOTHING; if the marker is newly inserted it applies the weighted-average
+// upsert, otherwise it returns without mutating (the credit already landed).
+// Paired with DecrementForOwnerIdempotent which deletes the marker as it
+// reverses the credit.
+func (r *HoldingRepository) UpsertIdempotent(ctx context.Context, holding *model.Holding, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		marker := &model.HoldingCreditMarker{IdempotencyKey: idemKey}
+		res := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(marker)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			// Marker already present — the credit was applied by a prior run.
+			return nil
+		}
+		return NewHoldingRepository(tx).Upsert(ctx, holding)
+	})
+}
+
+// DecrementForOwnerIdempotent reverses an UpsertIdempotent credit. In one
+// transaction it checks for the credit marker; if absent it is a no-op (the
+// credit was never applied or was already reversed). If present it decrements
+// the owner's holding and deletes the marker, so a subsequent re-credit under
+// the same key applies again. Safe to retry — the marker presence gates the
+// single decrement.
+func (r *HoldingRepository) DecrementForOwnerIdempotent(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64, idemKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var marker model.HoldingCreditMarker
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("idempotency_key = ?", idemKey).First(&marker).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if derr := NewHoldingRepository(tx).DecrementForOwner(ctx, ownerType, ownerID, securityType, securityID, qty); derr != nil {
+			return derr
+		}
+		return tx.Delete(&marker).Error
+	})
+}
+
 func (r *HoldingRepository) GetByID(id uint64) (*model.Holding, error) {
 	var holding model.Holding
 	if err := r.db.First(&holding, id).Error; err != nil {
 		return nil, err
 	}
 	return &holding, nil
+}
+
+// DecrementForOwner subtracts qty from an owner's holding for a security,
+// deleting the row when it reaches zero. Backward compensator for an
+// OTC-exercise buyer credit (pivot removal — 2026-05-29). Uses a FOR UPDATE
+// lock per the concurrency rules; no-op if the holding does not exist, so the
+// saga's backward pass is safe to retry.
+func (r *HoldingRepository) DecrementForOwner(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		h, err := r.LockByOwnerAndSecurityTx(tx, ownerType, ownerID, securityType, securityID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		h.Quantity -= qty
+		if h.Quantity <= 0 {
+			return tx.Delete(&model.Holding{}, h.ID).Error
+		}
+		return tx.Save(h).Error
+	})
 }
 
 // LockByIDTx does SELECT FOR UPDATE inside an active transaction. Used by
@@ -138,7 +209,7 @@ func (r *HoldingRepository) LockByIDTx(tx *gorm.DB, id uint64) (*model.Holding, 
 
 // SaveTx variant for use inside an existing transaction.
 func (r *HoldingRepository) SaveTx(tx *gorm.DB, holding *model.Holding) error {
-	result := tx.Save(holding)
+	result := tx.Select("*").Save(holding)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -149,7 +220,7 @@ func (r *HoldingRepository) SaveTx(tx *gorm.DB, holding *model.Holding) error {
 }
 
 func (r *HoldingRepository) Update(holding *model.Holding) error {
-	result := r.db.Save(holding)
+	result := r.db.Select("*").Save(holding)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -244,40 +315,12 @@ func (r *HoldingRepository) FindOldestLongOptionHolding(ownerType model.OwnerTyp
 	return &h, nil
 }
 
-// ListPublic returns all holdings flagged for OTC public trading
-// (public_quantity > 0). Used by PeerOTCGRPCHandler.GetPublicStocks
-// to satisfy SI-TX `GET /public-stock` from peer banks. Unlike
-// ListPublicOffers, this returns *all* matching rows without pagination
-// or ticker filtering — the SI-TX response shape is a flat list.
-func (r *HoldingRepository) ListPublic() ([]model.Holding, error) {
+// ListBySecurityID returns all holdings with quantity > 0 for a given security.
+// Used by DividendService.Payout to fan out dividend credits to every holder.
+func (r *HoldingRepository) ListBySecurityID(securityID uint64) ([]model.Holding, error) {
 	var rows []model.Holding
-	if err := r.db.Where("public_quantity > 0 AND security_type = 'stock'").Find(&rows).Error; err != nil {
+	if err := r.db.Where("security_id = ? AND quantity > 0", securityID).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
-}
-
-// ListPublicOffers returns holdings with public_quantity > 0 (for OTC).
-func (r *HoldingRepository) ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error) {
-	var holdings []model.Holding
-	var total int64
-
-	q := r.db.Model(&model.Holding{}).Where("public_quantity > 0 AND security_type = 'stock'")
-	if filter.SecurityType != "" {
-		q = q.Where("security_type = ?", filter.SecurityType)
-	}
-	if filter.Ticker != "" {
-		q = q.Where("ticker ILIKE ?", "%"+filter.Ticker+"%")
-	}
-
-	if err := q.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	q = applyPagination(q, filter.Page, filter.PageSize)
-
-	if err := q.Order("updated_at DESC").Find(&holdings).Error; err != nil {
-		return nil, 0, err
-	}
-	return holdings, total, nil
 }

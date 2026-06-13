@@ -2,13 +2,9 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"log"
-	"strings"
+	"strconv"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -29,21 +25,31 @@ type eventProducer interface {
 	Publish(ctx context.Context, topic string, msg any) error
 }
 
+// AuthService is the composition root. It embeds the three DI-separable
+// concern services (so the gRPC handler can depend on one type whose method set
+// is their union) and owns Login + 2FA — the cross-concern orchestration that
+// coordinates the account, session, and token repos directly.
+//
+// Each concern service (TokenService / SessionService / AccountService) is
+// independently constructable and unit-testable in isolation; this struct just
+// wires them together for the handler.
 type AuthService struct {
-	tokenRepo        *repository.TokenRepository
-	sessionRepo      *repository.SessionRepository
+	*TokenService
+	*SessionService
+	*AccountService
+
+	// Login + 2FA orchestration deps (held directly so the embedded services'
+	// like-named fields are never ambiguous for these methods).
 	loginAttemptRepo *repository.LoginAttemptRepository
-	totpRepo         *repository.TOTPRepository
-	totpSvc          *TOTPService
-	jwtService       *JWTService
 	accountRepo      *repository.AccountRepository
+	sessionRepo      *repository.SessionRepository
+	tokenRepo        *repository.TokenRepository
+	jwtService       *JWTService
 	userClient       userpb.UserServiceClient
 	producer         eventProducer
-	cache            *cache.RedisCache
 	refreshExp       time.Duration
-	mobileRefreshExp time.Duration
-	frontendBaseURL  string
-	pepper           string
+	totpRepo         *repository.TOTPRepository
+	totpSvc          *TOTPService
 }
 
 func NewAuthService(
@@ -62,22 +68,9 @@ func NewAuthService(
 	frontendBaseURL string,
 	pepper string,
 ) *AuthService {
-	return &AuthService{
-		tokenRepo:        tokenRepo,
-		sessionRepo:      sessionRepo,
-		loginAttemptRepo: loginAttemptRepo,
-		totpRepo:         totpRepo,
-		totpSvc:          totpSvc,
-		jwtService:       jwtService,
-		accountRepo:      accountRepo,
-		userClient:       userClient,
-		producer:         producer,
-		cache:            cache,
-		refreshExp:       refreshExp,
-		mobileRefreshExp: mobileRefreshExp,
-		frontendBaseURL:  frontendBaseURL,
-		pepper:           pepper,
-	}
+	return assembleAuthService(tokenRepo, sessionRepo, loginAttemptRepo, totpRepo, totpSvc,
+		jwtService, accountRepo, userClient, producer, cache,
+		refreshExp, mobileRefreshExp, frontendBaseURL, pepper)
 }
 
 // newAuthServiceForTest constructs an AuthService with a pluggable event
@@ -98,21 +91,48 @@ func newAuthServiceForTest(
 	frontendBaseURL string,
 	pepper string,
 ) *AuthService {
+	return assembleAuthService(tokenRepo, sessionRepo, loginAttemptRepo, totpRepo, totpSvc,
+		jwtService, accountRepo, userClient, producer, cache,
+		refreshExp, mobileRefreshExp, frontendBaseURL, pepper)
+}
+
+// assembleAuthService builds the three concern services (sharing the injected
+// dependencies) and composes them into an AuthService. The session service is
+// built before the account service because account password-reset depends on it
+// (SessionRevoker). Used by both the production and test constructors.
+func assembleAuthService(
+	tokenRepo *repository.TokenRepository,
+	sessionRepo *repository.SessionRepository,
+	loginAttemptRepo *repository.LoginAttemptRepository,
+	totpRepo *repository.TOTPRepository,
+	totpSvc *TOTPService,
+	jwtService *JWTService,
+	accountRepo *repository.AccountRepository,
+	userClient userpb.UserServiceClient,
+	producer eventProducer,
+	c *cache.RedisCache,
+	refreshExp time.Duration,
+	mobileRefreshExp time.Duration,
+	frontendBaseURL string,
+	pepper string,
+) *AuthService {
+	tokenSvc := NewTokenService(tokenRepo, sessionRepo, accountRepo, userClient, jwtService, c, refreshExp, mobileRefreshExp)
+	sessionSvc := NewSessionService(sessionRepo, tokenRepo, loginAttemptRepo, producer, c, jwtService)
+	accountSvc := NewAccountService(accountRepo, tokenRepo, userClient, producer, c, jwtService, sessionSvc, loginAttemptRepo, frontendBaseURL, pepper)
 	return &AuthService{
-		tokenRepo:        tokenRepo,
-		sessionRepo:      sessionRepo,
+		TokenService:     tokenSvc,
+		SessionService:   sessionSvc,
+		AccountService:   accountSvc,
 		loginAttemptRepo: loginAttemptRepo,
-		totpRepo:         totpRepo,
-		totpSvc:          totpSvc,
-		jwtService:       jwtService,
 		accountRepo:      accountRepo,
+		sessionRepo:      sessionRepo,
+		tokenRepo:        tokenRepo,
+		jwtService:       jwtService,
 		userClient:       userClient,
 		producer:         producer,
-		cache:            cache,
 		refreshExp:       refreshExp,
-		mobileRefreshExp: mobileRefreshExp,
-		frontendBaseURL:  frontendBaseURL,
-		pepper:           pepper,
+		totpRepo:         totpRepo,
+		totpSvc:          totpSvc,
 	}
 }
 
@@ -171,16 +191,16 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 	const lockoutWindow = 15 * time.Minute
 	const lockoutDuration = 30 * time.Minute
 
-	deviceType := detectDeviceType(userAgent)
+	deviceType := DetectDeviceType(userAgent)
 
 	// Check if account is locked
 	lock, err := s.loginAttemptRepo.GetActiveLock(email)
 	if err != nil {
-		log.Printf("Login(%s) check active lock failed: %v", email, err)
-		return "", "", fmt.Errorf("Login(%s) check active lock: %w", email, ErrAccountLocked)
+		log.Printf("Login check active lock failed: %v", err)
+		return "", "", fmt.Errorf("Login check active lock: %w", ErrAccountLocked)
 	}
 	if lock != nil {
-		return "", "", fmt.Errorf("Login(%s) account already locked until %s: %w", email, lock.ExpiresAt.Format(time.RFC3339), ErrAccountLocked)
+		return "", "", fmt.Errorf("Login account already locked until %s: %w", lock.ExpiresAt.Format(time.RFC3339), ErrAccountLocked)
 	}
 
 	// Look up account by email
@@ -189,10 +209,10 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
+			return "", "", fmt.Errorf("Login locked after %d failed attempts: %w", maxFailedAttempts, ErrAccountLocked)
 		}
 		// Email-not-found COLLAPSES to invalid-credentials to prevent enumeration.
-		return "", "", fmt.Errorf("Login(%s) account not found: %w", email, ErrInvalidCredentials)
+		return "", "", fmt.Errorf("Login account not found: %w", ErrInvalidCredentials)
 	}
 
 	// Check account status
@@ -200,17 +220,17 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
+			return "", "", fmt.Errorf("Login locked after %d failed attempts: %w", maxFailedAttempts, ErrAccountLocked)
 		}
-		return "", "", fmt.Errorf("Login(%s) account not yet activated: %w", email, ErrAccountPending)
+		return "", "", fmt.Errorf("Login account not yet activated: %w", ErrAccountPending)
 	}
 	if account.Status != model.AccountStatusActive {
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
+			return "", "", fmt.Errorf("Login locked after %d failed attempts: %w", maxFailedAttempts, ErrAccountLocked)
 		}
-		return "", "", fmt.Errorf("Login(%s) account disabled: %w", email, ErrAccountDisabled)
+		return "", "", fmt.Errorf("Login account disabled: %w", ErrAccountDisabled)
 	}
 
 	// Verify password
@@ -218,56 +238,45 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
+			return "", "", fmt.Errorf("Login locked after %d failed attempts: %w", maxFailedAttempts, ErrAccountLocked)
 		}
 		// Wrong-password COLLAPSES to invalid-credentials to prevent enumeration.
-		return "", "", fmt.Errorf("Login(%s) bcrypt mismatch: %w", email, ErrInvalidCredentials)
+		return "", "", fmt.Errorf("Login bcrypt mismatch: %w", ErrInvalidCredentials)
 	}
 
 	_ = s.loginAttemptRepo.RecordAttempt(email, ipAddress, userAgent, deviceType, true)
 
-	var accessToken string
-	var loginRoles []string
 	systemType := "employee"
 	if account.PrincipalType != model.PrincipalTypeEmployee {
 		systemType = "client"
 	}
 
-	switch account.PrincipalType {
-	case model.PrincipalTypeEmployee:
-		userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: account.PrincipalID})
-		if err != nil {
-			log.Printf("Login(%s) get employee underlying: %v", email, err)
-			return "", "", fmt.Errorf("Login(%s) get employee: %w", email, ErrEmployeeRPCFailed)
+	// Gather token identity (roles/permissions/profile) WITHOUT signing yet —
+	// the access token is signed after the session row exists so it can carry
+	// that session's sid (enables targeted per-session revocation).
+	var loginRoles []string
+	var permissions []string
+	var firstName, lastName string
+	if account.PrincipalType == model.PrincipalTypeEmployee {
+		userResp, gerr := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: account.PrincipalID})
+		if gerr != nil {
+			log.Printf("Login get employee underlying: %v", gerr)
+			return "", "", fmt.Errorf("Login get employee: %w", ErrEmployeeRPCFailed)
 		}
 		loginRoles = userResp.Roles
 		if len(loginRoles) == 0 && userResp.Role != "" {
 			loginRoles = []string{userResp.Role}
 		}
-		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, loginRoles, userResp.Permissions, "employee", TokenProfile{
-			FirstName:     userResp.FirstName,
-			LastName:      userResp.LastName,
-			AccountActive: account.Status == model.AccountStatusActive,
-		})
-		if err != nil {
-			log.Printf("Login(%s) sign access token underlying: %v", email, err)
-			return "", "", fmt.Errorf("Login(%s) sign access token: %w", email, ErrTokenSignFailed)
-		}
-	default: // client
+		permissions = userResp.Permissions
+		firstName, lastName = userResp.FirstName, userResp.LastName
+	} else {
 		loginRoles = []string{"client"}
-		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, []string{"client"}, nil, "client", TokenProfile{
-			AccountActive: account.Status == model.AccountStatusActive,
-		})
-		if err != nil {
-			log.Printf("Login(%s) sign access token underlying: %v", email, err)
-			return "", "", fmt.Errorf("Login(%s) sign access token: %w", email, ErrTokenSignFailed)
-		}
 	}
 
 	refreshToken, err := generateToken()
 	if err != nil {
-		log.Printf("Login(%s) generate refresh token underlying: %v", email, err)
-		return "", "", fmt.Errorf("Login(%s) generate refresh token: %w", email, ErrTokenGenFailed)
+		log.Printf("Login generate refresh token underlying: %v", err)
+		return "", "", fmt.Errorf("Login generate refresh token: %w", ErrTokenGenFailed)
 	}
 
 	// Determine user role label for session
@@ -276,7 +285,7 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 		userRole = loginRoles[0]
 	}
 
-	// Create session
+	// Create session FIRST so the access token can embed its sid.
 	session := &model.ActiveSession{
 		UserID:       account.PrincipalID,
 		UserRole:     userRole,
@@ -288,7 +297,22 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 	}
 	if err := s.sessionRepo.Create(session); err != nil {
 		log.Printf("warn: failed to create session: %v", err)
-		// Non-fatal: proceed without session tracking
+		// Non-fatal: proceed without session tracking (token gets no sid).
+	}
+	sid := ""
+	if session.ID != 0 {
+		sid = strconv.FormatInt(session.ID, 10)
+	}
+
+	accessToken, err := s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, loginRoles, permissions, systemType, TokenProfile{
+		FirstName:     firstName,
+		LastName:      lastName,
+		AccountActive: account.Status == model.AccountStatusActive,
+		Sid:           sid,
+	})
+	if err != nil {
+		log.Printf("Login sign access token underlying: %v", err)
+		return "", "", fmt.Errorf("Login sign access token: %w", ErrTokenSignFailed)
 	}
 
 	rt := &model.RefreshToken{
@@ -323,769 +347,4 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 	AuthTokensIssuedTotal.WithLabelValues("refresh").Inc()
 
 	return accessToken, refreshToken, nil
-}
-
-func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
-	cacheKey := "token:" + hashToken(tokenString)
-
-	// Try cache first
-	if s.cache != nil {
-		var cached Claims
-		if err := s.cache.Get(context.Background(), cacheKey, &cached); err == nil {
-			// Check if token has been blacklisted by JTI
-			if cached.ID != "" {
-				blacklisted, _ := s.cache.Exists(context.Background(), "blacklist:"+cached.ID)
-				if blacklisted {
-					return nil, fmt.Errorf("access token has been revoked; please log in again")
-				}
-			}
-			if revoked, _ := s.checkRevokedByEpoch(&cached); revoked {
-				return nil, fmt.Errorf("access token has been revoked; please log in again")
-			}
-			return &cached, nil
-		}
-	}
-
-	claims, err := s.jwtService.ValidateToken(tokenString)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check blacklist by JTI
-	if claims.ID != "" && s.cache != nil {
-		blacklisted, _ := s.cache.Exists(context.Background(), "blacklist:"+claims.ID)
-		if blacklisted {
-			return nil, fmt.Errorf("access token has been revoked; please log in again")
-		}
-	}
-
-	if revoked, _ := s.checkRevokedByEpoch(claims); revoked {
-		return nil, fmt.Errorf("access token has been revoked; please log in again")
-	}
-
-	// Cache with TTL = remaining token lifetime
-	if s.cache != nil && claims.ExpiresAt != nil {
-		ttl := time.Until(claims.ExpiresAt.Time)
-		if ttl > 0 {
-			_ = s.cache.Set(context.Background(), cacheKey, claims, ttl)
-		}
-	}
-
-	return claims, nil
-}
-
-// RevokeAccessToken adds a JWT JTI to the Redis blacklist until it would naturally expire.
-func (s *AuthService) RevokeAccessToken(ctx context.Context, jti string, remainingTTL time.Duration) error {
-	if s.cache == nil {
-		return nil // gracefully skip if no Redis
-	}
-	return s.cache.Set(ctx, "blacklist:"+jti, "revoked", remainingTTL)
-}
-
-func hashToken(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
-}
-
-// checkRevokedByEpoch returns true when the given claims' IssuedAt is older
-// than the per-user revocation epoch in Redis. Redis errors are swallowed
-// (fail-open), matching the existing posture of the JTI blacklist lookup.
-// Returns (false, nil) when no epoch is set or the claim has no IssuedAt.
-func (s *AuthService) checkRevokedByEpoch(claims *Claims) (bool, error) {
-	if claims == nil || claims.IssuedAt == nil || s.cache == nil {
-		return false, nil
-	}
-	revokedAt, err := s.cache.GetUserRevokedAt(context.Background(), claims.PrincipalID)
-	if err != nil || revokedAt == 0 {
-		return false, err
-	}
-	return claims.IssuedAt.Unix() < revokedAt, nil
-}
-
-func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr, ipAddress, userAgent string) (string, string, error) {
-	rt, err := s.tokenRepo.GetRefreshToken(refreshTokenStr)
-	if err != nil {
-		return "", "", errors.New("refresh token has been revoked")
-	}
-	if time.Now().After(rt.ExpiresAt) {
-		return "", "", errors.New("refresh token expired; please log in again")
-	}
-
-	// Look up account by AccountID
-	var acct model.Account
-	if err := s.accountRepo.GetByID(rt.AccountID, &acct); err != nil {
-		return "", "", errors.New("account not found")
-	}
-	if acct.Status != model.AccountStatusActive {
-		return "", "", errors.New("account is disabled")
-	}
-
-	if err := s.tokenRepo.RevokeRefreshToken(refreshTokenStr); err != nil {
-		return "", "", fmt.Errorf("failed to revoke old refresh token: %w", err)
-	}
-
-	// Update session activity
-	if rt.SessionID != nil {
-		_ = s.sessionRepo.UpdateLastActive(*rt.SessionID)
-	}
-
-	systemType := rt.SystemType
-	if systemType == "" {
-		systemType = "employee" // backwards compat for existing tokens without system_type
-	}
-
-	var accessToken string
-
-	if systemType == "client" {
-		accessToken, err = s.jwtService.GenerateAccessToken(acct.PrincipalID, acct.Email, []string{"client"}, nil, "client", TokenProfile{
-			AccountActive: acct.Status == model.AccountStatusActive,
-		})
-		if err != nil {
-			return "", "", err
-		}
-	} else {
-		userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: acct.PrincipalID})
-		if err != nil {
-			return "", "", errors.New("user not found")
-		}
-		refreshRoles := userResp.Roles
-		if len(refreshRoles) == 0 && userResp.Role != "" {
-			refreshRoles = []string{userResp.Role}
-		}
-		accessToken, err = s.jwtService.GenerateAccessToken(
-			userResp.Id, userResp.Email, refreshRoles, userResp.Permissions, "employee", TokenProfile{
-				FirstName:     userResp.FirstName,
-				LastName:      userResp.LastName,
-				AccountActive: acct.Status == model.AccountStatusActive,
-			},
-		)
-		if err != nil {
-			return "", "", err
-		}
-	}
-
-	newRefreshToken, err := generateToken()
-	if err != nil {
-		return "", "", fmt.Errorf("generate refresh token: %w", err)
-	}
-	newRT := &model.RefreshToken{
-		AccountID:  acct.ID,
-		Token:      newRefreshToken,
-		ExpiresAt:  time.Now().Add(s.refreshExp),
-		SystemType: systemType,
-		SessionID:  rt.SessionID, // Inherit session from old token
-		IPAddress:  ipAddress,
-		UserAgent:  userAgent,
-	}
-	if err := s.tokenRepo.CreateRefreshToken(newRT); err != nil {
-		return "", "", err
-	}
-
-	AuthTokensIssuedTotal.WithLabelValues("access").Inc()
-	AuthTokensIssuedTotal.WithLabelValues("refresh").Inc()
-
-	return accessToken, newRefreshToken, nil
-}
-
-// ValidateRefreshToken returns the refresh token record if valid.
-func (s *AuthService) ValidateRefreshToken(token string) (*model.RefreshToken, error) {
-	rt, err := s.tokenRepo.GetRefreshToken(token)
-	if err != nil {
-		return nil, errors.New("invalid refresh token")
-	}
-	if rt.Revoked {
-		return nil, errors.New("refresh token revoked")
-	}
-	if time.Now().After(rt.ExpiresAt) {
-		return nil, errors.New("refresh token expired")
-	}
-	return rt, nil
-}
-
-// MobileDeviceLookup is the minimal subset of *MobileDeviceService needed by
-// RefreshTokenForMobile. Defined as an interface so handlers and tests can
-// inject a stub without depending on the concrete type.
-type MobileDeviceLookup interface {
-	GetDeviceInfo(userID int64) (*model.MobileDevice, error)
-}
-
-// RefreshTokenForMobile validates the refresh token, verifies the device is active and matches,
-// revokes the old token, and issues a new mobile token pair.
-func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc MobileDeviceLookup) (string, string, error) {
-	rt, err := s.tokenRepo.GetRefreshToken(oldRefreshToken)
-	if err != nil {
-		return "", "", fmt.Errorf("RefreshTokenForMobile: lookup token: %v: %w", err, ErrInvalidToken)
-	}
-	if rt.Revoked {
-		return "", "", fmt.Errorf("RefreshTokenForMobile: refresh token revoked: %w", ErrTokenRevoked)
-	}
-	if time.Now().After(rt.ExpiresAt) {
-		return "", "", fmt.Errorf("RefreshTokenForMobile: refresh token expired at %s: %w", rt.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
-	}
-
-	// Get account to resolve PrincipalID (the actual user ID used in MobileDevice)
-	var acct model.Account
-	if err := s.accountRepo.GetByID(rt.AccountID, &acct); err != nil {
-		return "", "", fmt.Errorf("RefreshTokenForMobile: lookup account %d: %v: %w", rt.AccountID, err, ErrAccountNotFound)
-	}
-	if acct.Status != model.AccountStatusActive {
-		return "", "", fmt.Errorf("RefreshTokenForMobile: account %d status=%s: %w", acct.ID, acct.Status, ErrAccountDisabled)
-	}
-
-	// Verify device is active and matches the provided deviceID
-	device, err := mobileSvc.GetDeviceInfo(acct.PrincipalID)
-	if err != nil {
-		return "", "", fmt.Errorf("RefreshTokenForMobile: device lookup for principal %d: %v: %w", acct.PrincipalID, err, ErrDeviceNotFound)
-	}
-	if device.DeviceID != deviceID {
-		return "", "", fmt.Errorf("RefreshTokenForMobile: device id %q does not match registered device for principal %d: %w", deviceID, acct.PrincipalID, ErrDeviceMismatch)
-	}
-
-	// Revoke old token
-	_ = s.tokenRepo.RevokeRefreshToken(oldRefreshToken)
-
-	// Fetch roles/permissions
-	var roles []string
-	var permissions []string
-	systemType := rt.SystemType
-	if systemType == "" {
-		systemType = "employee"
-	}
-
-	var firstName, lastName string
-	if systemType == "employee" {
-		emp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: acct.PrincipalID})
-		if err == nil {
-			roles = emp.Roles
-			permissions = emp.Permissions
-			firstName = emp.FirstName
-			lastName = emp.LastName
-		}
-	} else {
-		roles = []string{"client"}
-	}
-
-	// Generate new access token with device claims
-	access, err := s.jwtService.GenerateMobileAccessToken(
-		acct.PrincipalID, acct.Email, roles, permissions,
-		systemType, MobileProfile{
-			TokenProfile: TokenProfile{
-				FirstName:     firstName,
-				LastName:      lastName,
-				AccountActive: acct.Status == model.AccountStatusActive,
-			},
-			DeviceType:        "mobile",
-			DeviceID:          deviceID,
-			BiometricsEnabled: device.BiometricsEnabled,
-		},
-	)
-	if err != nil {
-		return "", "", err
-	}
-
-	// Update session activity
-	if rt.SessionID != nil {
-		_ = s.sessionRepo.UpdateLastActive(*rt.SessionID)
-	}
-
-	// Generate new refresh token
-	newRefreshStr, err := generateToken()
-	if err != nil {
-		return "", "", err
-	}
-	newRT := &model.RefreshToken{
-		AccountID:  acct.ID,
-		Token:      newRefreshStr,
-		ExpiresAt:  time.Now().Add(s.mobileRefreshExp),
-		SystemType: systemType,
-		SessionID:  rt.SessionID, // Inherit session
-	}
-	if err := s.tokenRepo.CreateRefreshToken(newRT); err != nil {
-		return "", "", err
-	}
-
-	return access, newRefreshStr, nil
-}
-
-func (s *AuthService) Logout(ctx context.Context, refreshTokenStr string) error {
-	// Look up the refresh token before revoking to get session info
-	rt, err := s.tokenRepo.GetRefreshTokenIncludingRevoked(refreshTokenStr)
-	if err != nil {
-		// Token not found — just revoke anyway
-		return s.tokenRepo.RevokeRefreshToken(refreshTokenStr)
-	}
-
-	if err := s.tokenRepo.RevokeRefreshToken(refreshTokenStr); err != nil {
-		return err
-	}
-
-	// Revoke associated session
-	if rt.SessionID != nil {
-		if err := s.sessionRepo.Revoke(*rt.SessionID); err != nil {
-			log.Printf("warn: failed to revoke session %d on logout: %v", *rt.SessionID, err)
-		}
-		// Look up session to get UserID for event
-		session, sErr := s.sessionRepo.GetByID(*rt.SessionID)
-		if sErr == nil {
-			_ = s.producer.Publish(ctx, kafkamsg.TopicAuthSessionRevoked, kafkamsg.AuthSessionRevokedMessage{
-				SessionID: session.ID,
-				UserID:    session.UserID,
-				Reason:    "logout",
-			})
-		}
-	}
-
-	return nil
-}
-
-// RevokeAllSessions revokes all sessions and refresh tokens for a user (by account).
-func (s *AuthService) RevokeAllSessions(ctx context.Context, accountID int64, userID int64, reason string) error {
-	// Revoke all refresh tokens
-	if err := s.tokenRepo.RevokeAllForAccount(accountID); err != nil {
-		return err
-	}
-	// Revoke all sessions
-	if err := s.sessionRepo.RevokeAllForUser(userID); err != nil {
-		return err
-	}
-	// Publish event
-	_ = s.producer.Publish(ctx, kafkamsg.TopicAuthSessionRevoked, kafkamsg.AuthSessionRevokedMessage{
-		SessionID: 0, // 0 indicates all sessions
-		UserID:    userID,
-		Reason:    reason,
-	})
-	return nil
-}
-
-// CreateAccountAndActivationToken creates an Account (if not already present) and sends an activation email.
-func (s *AuthService) CreateAccountAndActivationToken(ctx context.Context, principalID int64, email, firstName, principalType string) error {
-	// Idempotent: check if account already exists
-	account, err := s.accountRepo.GetByEmail(email)
-	if err != nil {
-		// Account does not exist — create it
-		account = &model.Account{
-			Email:         email,
-			Status:        model.AccountStatusPending,
-			PrincipalType: principalType,
-			PrincipalID:   principalID,
-		}
-		if err := s.accountRepo.Create(account); err != nil {
-			return fmt.Errorf("CreateAccountAndActivationToken: create account: %v: %w", err, ErrAccountCreationFailed)
-		}
-	}
-
-	token, err := generateToken()
-	if err != nil {
-		return err
-	}
-	if err := s.tokenRepo.CreateActivationToken(&model.ActivationToken{
-		AccountID: account.ID,
-		Token:     token,
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-	}); err != nil {
-		return err
-	}
-
-	AuthTokensIssuedTotal.WithLabelValues("activation").Inc()
-
-	return s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-		To:        email,
-		EmailType: kafkamsg.EmailTypeActivation,
-		Data: map[string]string{
-			"token":      token,
-			"first_name": firstName,
-			"link":       s.frontendBaseURL + "/activate?token=" + token,
-		},
-	})
-}
-
-// ResendActivationEmail re-sends the activation email for a pending account.
-// If the account is already active, it returns nil (no-op).
-func (s *AuthService) ResendActivationEmail(ctx context.Context, email string) error {
-	account, err := s.accountRepo.GetByEmail(email)
-	if err != nil {
-		return nil // don't reveal if email exists
-	}
-
-	if account.Status != model.AccountStatusPending {
-		return nil // already activated or disabled — no-op
-	}
-
-	token, err := generateToken()
-	if err != nil {
-		return err
-	}
-	if err := s.tokenRepo.CreateActivationToken(&model.ActivationToken{
-		AccountID: account.ID,
-		Token:     token,
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-	}); err != nil {
-		return err
-	}
-
-	AuthTokensIssuedTotal.WithLabelValues("activation").Inc()
-
-	var firstName string
-	if account.PrincipalType == model.PrincipalTypeEmployee {
-		user, uErr := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: account.PrincipalID})
-		if uErr == nil && user != nil {
-			firstName = user.FirstName
-		}
-	}
-
-	return s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-		To:        email,
-		EmailType: kafkamsg.EmailTypeActivation,
-		Data: map[string]string{
-			"token":      token,
-			"first_name": firstName,
-			"link":       s.frontendBaseURL + "/activate?token=" + token,
-		},
-	})
-}
-
-func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
-	AuthPasswordResetTotal.Inc()
-
-	account, err := s.accountRepo.GetByEmail(email)
-	if err != nil {
-		return nil // Don't reveal if email exists
-	}
-
-	token, err := generateToken()
-	if err != nil {
-		return err
-	}
-	if err := s.tokenRepo.CreatePasswordResetToken(&model.PasswordResetToken{
-		AccountID: account.ID,
-		Token:     token,
-		ExpiresAt: time.Now().Add(1 * time.Hour),
-	}); err != nil {
-		return err
-	}
-
-	return s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-		To:        email,
-		EmailType: kafkamsg.EmailTypePasswordReset,
-		Data: map[string]string{
-			"link": s.frontendBaseURL + "/reset-password?token=" + token,
-		},
-	})
-}
-
-func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, confirmPassword string) error {
-	if newPassword != confirmPassword {
-		return fmt.Errorf("ResetPassword: password and confirmation do not match: %w", ErrPasswordsDoNotMatch)
-	}
-	if err := validatePassword(newPassword); err != nil {
-		return fmt.Errorf("ResetPassword: %v: %w", err, ErrPasswordValidation)
-	}
-
-	prt, err := s.tokenRepo.GetPasswordResetToken(tokenStr)
-	if err != nil {
-		return fmt.Errorf("ResetPassword: lookup token: %v: %w", err, ErrInvalidToken)
-	}
-	if time.Now().After(prt.ExpiresAt) {
-		return fmt.Errorf("ResetPassword: token expired at %s: %w", prt.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, newPassword)), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	if err := s.accountRepo.SetPassword(prt.AccountID, string(hash)); err != nil {
-		return fmt.Errorf("failed to set password: %w", err)
-	}
-
-	if err := s.tokenRepo.MarkPasswordResetUsed(tokenStr); err != nil {
-		log.Printf("warn: failed to mark password reset token used (token may be replayable): %v", err)
-	}
-
-	// Resolve the user ID from the account
-	var acct model.Account
-	if acctErr := s.accountRepo.GetByID(prt.AccountID, &acct); acctErr == nil {
-		if err := s.RevokeAllSessions(ctx, prt.AccountID, acct.PrincipalID, "password_reset"); err != nil {
-			log.Printf("warn: failed to revoke all sessions after password reset: %v", err)
-		}
-		// General notification (no email)
-		_ = s.producer.Publish(ctx, kafkamsg.TopicGeneralNotification, kafkamsg.GeneralNotificationMessage{
-			UserID:  uint64(acct.PrincipalID),
-			Type:    "password_changed",
-			Title:   "Password Changed",
-			Message: "Your password was successfully changed. If you did not make this change, contact support immediately.",
-		})
-	} else {
-		// Fallback: at least revoke tokens
-		if err := s.tokenRepo.RevokeAllForAccount(prt.AccountID); err != nil {
-			log.Printf("warn: failed to revoke all tokens after password reset: %v", err)
-		}
-	}
-
-	return nil
-}
-
-func (s *AuthService) ActivateAccount(ctx context.Context, tokenStr, password, confirmPassword string) error {
-	if password != confirmPassword {
-		return fmt.Errorf("ActivateAccount: passwords do not match: %w", ErrPasswordsDoNotMatch)
-	}
-	if err := validatePassword(password); err != nil {
-		return fmt.Errorf("ActivateAccount: %v: %w", err, ErrPasswordValidation)
-	}
-
-	at, err := s.tokenRepo.GetActivationToken(tokenStr)
-	if err != nil {
-		return fmt.Errorf("ActivateAccount: lookup token: %v: %w", err, ErrInvalidToken)
-	}
-	if time.Now().After(at.ExpiresAt) {
-		return fmt.Errorf("ActivateAccount: token expired at %s: %w", at.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, password)), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	if err := s.accountRepo.SetPasswordAndActivate(at.AccountID, string(hash)); err != nil {
-		return fmt.Errorf("failed to activate account: %w", err)
-	}
-
-	if err := s.tokenRepo.MarkActivationUsed(tokenStr); err != nil {
-		log.Printf("warn: failed to mark activation token used (token may be replayable): %v", err)
-	}
-
-	// Send confirmation email
-	var acct model.Account
-	if err := s.accountRepo.GetByID(at.AccountID, &acct); err != nil {
-		return nil // account activated; confirmation email failure is non-fatal
-	}
-
-	var firstName string
-	if acct.PrincipalType == model.PrincipalTypeEmployee {
-		user, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: acct.PrincipalID})
-		if err == nil && user != nil {
-			firstName = user.FirstName
-		}
-	}
-
-	if acct.Email != "" {
-		_ = s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-			To:        acct.Email,
-			EmailType: kafkamsg.EmailTypeConfirmation,
-			Data:      map[string]string{"first_name": firstName},
-		})
-	}
-
-	return nil
-}
-
-// SetAccountStatus enables or disables an account identified by principalType + principalID.
-func (s *AuthService) SetAccountStatus(ctx context.Context, principalType string, principalID int64, active bool) error {
-	status := model.AccountStatusActive
-	if !active {
-		status = model.AccountStatusDisabled
-	}
-
-	if !active {
-		// Get account so we can revoke its tokens
-		acct, err := s.accountRepo.GetByPrincipal(principalType, principalID)
-		if err != nil {
-			return fmt.Errorf("account not found: %w", err)
-		}
-		if revokeErr := s.tokenRepo.RevokeAllForAccount(acct.ID); revokeErr != nil {
-			return fmt.Errorf("account disabled but failed to revoke sessions: %w", revokeErr)
-		}
-	}
-
-	if err := s.accountRepo.SetStatusByPrincipal(principalType, principalID, status); err != nil {
-		return err
-	}
-
-	if err := s.producer.Publish(ctx, kafkamsg.TopicAuthAccountStatusChanged, kafkamsg.AuthAccountStatusChangedMessage{
-		PrincipalType: principalType,
-		PrincipalID:   principalID,
-		Status:        string(status),
-	}); err != nil {
-		log.Printf("warn: failed to publish account status changed event for %s/%d: %v", principalType, principalID, err)
-	}
-	return nil
-}
-
-// GetAccountStatus returns the status string and active bool for a given principal.
-func (s *AuthService) GetAccountStatus(ctx context.Context, principalType string, principalID int64) (string, bool, error) {
-	acct, err := s.accountRepo.GetByPrincipal(principalType, principalID)
-	if err != nil {
-		return "", false, err
-	}
-	return acct.Status, acct.Status == model.AccountStatusActive, nil
-}
-
-// GetAccountStatusBatch returns a map of principalID → Account for batch status lookups.
-func (s *AuthService) GetAccountStatusBatch(ctx context.Context, principalType string, principalIDs []int64) (map[int64]model.Account, error) {
-	ptrs, err := s.accountRepo.GetByPrincipals(principalType, principalIDs)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[int64]model.Account, len(ptrs))
-	for k, v := range ptrs {
-		result[k] = *v
-	}
-	return result, nil
-}
-
-func validatePassword(password string) error {
-	if len(password) < 8 || len(password) > 32 {
-		return errors.New("password must be 8-32 characters")
-	}
-	digits := 0
-	hasUpper := false
-	hasLower := false
-	for _, c := range password {
-		switch {
-		case c >= '0' && c <= '9':
-			digits++
-		case c >= 'A' && c <= 'Z':
-			hasUpper = true
-		case c >= 'a' && c <= 'z':
-			hasLower = true
-		}
-	}
-	if digits < 2 || !hasUpper || !hasLower {
-		return errors.New("password must have at least 2 digits, 1 uppercase and 1 lowercase letter")
-	}
-	return nil
-}
-
-func generateToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("crypto/rand unavailable: %w", err)
-	}
-	return hex.EncodeToString(b), nil
-}
-
-// detectDeviceType infers device type from User-Agent string.
-func detectDeviceType(userAgent string) string {
-	ua := strings.ToLower(userAgent)
-	switch {
-	case strings.Contains(ua, "mobile") || strings.Contains(ua, "android") || strings.Contains(ua, "iphone"):
-		return "mobile"
-	case strings.Contains(ua, "postman") || strings.Contains(ua, "curl") || strings.Contains(ua, "httpie"):
-		return "api"
-	default:
-		return "browser"
-	}
-}
-
-// ListSessions returns all active sessions for a user.
-func (s *AuthService) ListSessions(ctx context.Context, userID int64) ([]model.ActiveSession, error) {
-	return s.sessionRepo.ListByUser(userID)
-}
-
-// RevokeSession revokes a specific session and all its linked refresh tokens.
-func (s *AuthService) RevokeSession(ctx context.Context, sessionID int64, callerUserID int64) error {
-	session, err := s.sessionRepo.GetByID(sessionID)
-	if err != nil {
-		return fmt.Errorf("RevokeSession: lookup session %d: %v: %w", sessionID, err, ErrSessionNotFound)
-	}
-	// Ensure the caller owns this session
-	if session.UserID != callerUserID {
-		return fmt.Errorf("RevokeSession: caller %d does not own session %d (owner=%d): %w", callerUserID, sessionID, session.UserID, ErrSessionForbidden)
-	}
-	if session.RevokedAt != nil {
-		return fmt.Errorf("RevokeSession: session %d already revoked at %s: %w", sessionID, session.RevokedAt.Format(time.RFC3339), ErrSessionAlreadyRevoked)
-	}
-
-	// Revoke all refresh tokens for this session
-	if err := s.tokenRepo.RevokeAllTokensForSession(sessionID); err != nil {
-		return fmt.Errorf("failed to revoke session tokens: %w", err)
-	}
-	// Revoke the session itself
-	if err := s.sessionRepo.Revoke(sessionID); err != nil {
-		return fmt.Errorf("failed to revoke session: %w", err)
-	}
-
-	_ = s.producer.Publish(ctx, kafkamsg.TopicAuthSessionRevoked, kafkamsg.AuthSessionRevokedMessage{
-		SessionID: sessionID,
-		UserID:    session.UserID,
-		Reason:    "force_revoke",
-	})
-	return nil
-}
-
-// RevokeAllSessionsExceptCurrent revokes all sessions except the one tied to the given refresh token.
-func (s *AuthService) RevokeAllSessionsExceptCurrent(ctx context.Context, userID int64, currentRefreshToken string) error {
-	rt, err := s.tokenRepo.GetRefreshToken(currentRefreshToken)
-	if err != nil {
-		return fmt.Errorf("RevokeAllSessionsExceptCurrent: current token lookup: %v: %w", err, ErrSessionNotFound)
-	}
-
-	keepSessionID := int64(0)
-	if rt.SessionID != nil {
-		keepSessionID = *rt.SessionID
-	}
-
-	// Get all sessions for user to publish events
-	sessions, _ := s.sessionRepo.ListByUser(userID)
-
-	// Revoke all sessions except current
-	if keepSessionID > 0 {
-		if err := s.sessionRepo.RevokeAllExcept(userID, keepSessionID); err != nil {
-			return err
-		}
-	} else {
-		if err := s.sessionRepo.RevokeAllForUser(userID); err != nil {
-			return err
-		}
-	}
-
-	// Revoke refresh tokens for those sessions (but not the current one)
-	for _, sess := range sessions {
-		if sess.ID == keepSessionID {
-			continue
-		}
-		_ = s.tokenRepo.RevokeAllTokensForSession(sess.ID)
-		_ = s.producer.Publish(ctx, kafkamsg.TopicAuthSessionRevoked, kafkamsg.AuthSessionRevokedMessage{
-			SessionID: sess.ID,
-			UserID:    userID,
-			Reason:    "force_revoke",
-		})
-	}
-
-	return nil
-}
-
-// LoginHistoryEntry is a view-model for login history returned to clients.
-type LoginHistoryEntry struct {
-	ID         int64
-	Email      string
-	IPAddress  string
-	UserAgent  string
-	DeviceType string
-	Success    bool
-	CreatedAt  time.Time
-}
-
-// GetLoginHistory returns recent login attempts for a user's email.
-func (s *AuthService) GetLoginHistory(ctx context.Context, email string, limit int) ([]LoginHistoryEntry, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	attempts, err := s.loginAttemptRepo.ListRecentByEmail(email, limit)
-	if err != nil {
-		return nil, err
-	}
-	entries := make([]LoginHistoryEntry, len(attempts))
-	for i, a := range attempts {
-		entries[i] = LoginHistoryEntry{
-			ID:         a.ID,
-			Email:      a.Email,
-			IPAddress:  a.IPAddress,
-			UserAgent:  a.UserAgent,
-			DeviceType: a.DeviceType,
-			Success:    a.Success,
-			CreatedAt:  a.CreatedAt,
-		}
-	}
-	return entries, nil
 }

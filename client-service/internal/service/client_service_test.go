@@ -6,12 +6,37 @@ import (
 	"testing"
 
 	"github.com/exbanka/client-service/internal/model"
+	"github.com/exbanka/client-service/internal/repository"
+	kafkamsg "github.com/exbanka/contract/kafka"
 	userpb "github.com/exbanka/contract/userpb"
+	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"gorm.io/gorm"
 )
+
+// ---------------------------------------------------------------------------
+// Mock clientEventProducer
+// ---------------------------------------------------------------------------
+
+type mockClientProducer struct {
+	lastCreated *kafkamsg.ClientCreatedMessage
+	lastUpdated *kafkamsg.ClientCreatedMessage
+}
+
+func (m *mockClientProducer) PublishClientCreated(_ context.Context, msg kafkamsg.ClientCreatedMessage) error {
+	cp := msg
+	m.lastCreated = &cp
+	return nil
+}
+
+func (m *mockClientProducer) PublishClientUpdated(_ context.Context, msg kafkamsg.ClientCreatedMessage) error {
+	cp := msg
+	m.lastUpdated = &cp
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // Validation tests (unchanged from original)
@@ -90,16 +115,12 @@ func (m *mockClientRepo) Create(client *model.Client) error {
 	if m.createFn != nil {
 		return m.createFn(client)
 	}
-	// Check email uniqueness
+	// Simulate the real repo under gorm's TranslateError: a unique-constraint
+	// violation surfaces as the portable gorm.ErrDuplicatedKey sentinel (NOT a
+	// driver string that echoes the colliding email/JMBG).
 	for _, c := range m.clients {
-		if c.Email == client.Email {
-			return errors.New("UNIQUE constraint failed: clients.email")
-		}
-	}
-	// Check JMBG uniqueness
-	for _, c := range m.clients {
-		if c.JMBG == client.JMBG {
-			return errors.New("UNIQUE constraint failed: clients.jmbg")
+		if c.Email == client.Email || c.JMBG == client.JMBG {
+			return gorm.ErrDuplicatedKey
 		}
 	}
 	client.ID = m.nextID
@@ -129,10 +150,10 @@ func (m *mockClientRepo) GetByEmail(email string) (*model.Client, error) {
 }
 
 func (m *mockClientRepo) Update(client *model.Client) error {
-	// Check email uniqueness against other clients
+	// Email collision with another client → gorm.ErrDuplicatedKey (see Create).
 	for _, c := range m.clients {
 		if c.Email == client.Email && c.ID != client.ID {
-			return errors.New("UNIQUE constraint failed: clients.email")
+			return gorm.ErrDuplicatedKey
 		}
 	}
 	stored := *client
@@ -231,6 +252,13 @@ func (m *mockClientLimitRepo) GetByClientID(clientID int64) (*model.ClientLimit,
 
 func (m *mockClientLimitRepo) Upsert(limit *model.ClientLimit) error {
 	stored := *limit
+	if _, exists := m.limits[limit.ClientID]; !exists {
+		// Simulate DB column default:1 on first insert.
+		stored.Version = 1
+	} else {
+		// Simulate ON CONFLICT DO UPDATE SET version = version + 1.
+		stored.Version = m.limits[limit.ClientID].Version + 1
+	}
 	m.limits[limit.ClientID] = &stored
 	return nil
 }
@@ -325,7 +353,9 @@ func TestCreateClient_DuplicateEmail(t *testing.T) {
 	c2.JMBG = "0201990710025" // different JMBG, same email
 	err := svc.CreateClient(context.Background(), c2)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "email")
+	// Maps to the 409 sentinel — and the clean message must NOT echo the email (PII).
+	assert.ErrorIs(t, err, ErrClientAlreadyExists)
+	assert.NotContains(t, err.Error(), "john@example.com")
 }
 
 func TestCreateClient_DuplicateJMBG(t *testing.T) {
@@ -339,7 +369,9 @@ func TestCreateClient_DuplicateJMBG(t *testing.T) {
 	c2.Email = "other@example.com" // different email, same JMBG
 	err := svc.CreateClient(context.Background(), c2)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "jmbg")
+	// Maps to the 409 sentinel — and the clean message must NOT echo the JMBG (PII).
+	assert.ErrorIs(t, err, ErrClientAlreadyExists)
+	assert.NotContains(t, err.Error(), "0101990710024")
 }
 
 func TestCreateClient_InvalidJMBG(t *testing.T) {
@@ -493,7 +525,9 @@ func TestUpdateClient_EmailUniquenessEnforced(t *testing.T) {
 		"email": "john@example.com",
 	}, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "email")
+	// Maps to the 409 sentinel — clean message, no email echoed back.
+	assert.ErrorIs(t, err, ErrClientAlreadyExists)
+	assert.NotContains(t, err.Error(), "john@example.com")
 }
 
 func TestUpdateClient_JMBGImmutable(t *testing.T) {
@@ -542,7 +576,7 @@ func TestUpdateClient_NotFound(t *testing.T) {
 
 func TestGetClientLimits_Defaults(t *testing.T) {
 	limitRepo := newMockClientLimitRepo()
-	svc := NewClientLimitService(limitRepo, nil, nil)
+	svc := NewClientLimitService(limitRepo, nil, nil, nil)
 
 	limits, err := svc.GetClientLimits(42)
 	require.NoError(t, err)
@@ -558,7 +592,7 @@ func TestSetClientLimits_PersistedAndRetrievable(t *testing.T) {
 		maxClientDaily:   "500000",
 		maxClientMonthly: "5000000",
 	}
-	svc := NewClientLimitService(limitRepo, empSvc, nil)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil)
 
 	limit := model.ClientLimit{
 		ClientID:      1,
@@ -587,7 +621,7 @@ func TestSetClientLimits_ExceedsEmployeeDailyLimit(t *testing.T) {
 		maxClientDaily:   "100000",
 		maxClientMonthly: "5000000",
 	}
-	svc := NewClientLimitService(limitRepo, empSvc, nil)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil)
 
 	limit := model.ClientLimit{
 		ClientID:      1,
@@ -609,7 +643,7 @@ func TestSetClientLimits_ExceedsEmployeeMonthlyLimit(t *testing.T) {
 		maxClientDaily:   "500000",
 		maxClientMonthly: "1000000",
 	}
-	svc := NewClientLimitService(limitRepo, empSvc, nil)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil)
 
 	limit := model.ClientLimit{
 		ClientID:      1,
@@ -628,7 +662,7 @@ func TestSetClientLimits_ExceedsEmployeeMonthlyLimit(t *testing.T) {
 func TestSetClientLimits_NoEmployeeSvc_SkipsCheck(t *testing.T) {
 	limitRepo := newMockClientLimitRepo()
 	// nil userLimitSvc — should skip employee limit verification
-	svc := NewClientLimitService(limitRepo, nil, nil)
+	svc := NewClientLimitService(limitRepo, nil, nil, nil)
 
 	limit := model.ClientLimit{
 		ClientID:      1,
@@ -648,7 +682,7 @@ func TestSetClientLimits_EmployeeSvcError(t *testing.T) {
 	empSvc := &mockEmployeeLimitSvc{
 		err: errors.New("gRPC connection refused"),
 	}
-	svc := NewClientLimitService(limitRepo, empSvc, nil)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil)
 
 	limit := model.ClientLimit{
 		ClientID:      1,
@@ -661,4 +695,124 @@ func TestSetClientLimits_EmployeeSvcError(t *testing.T) {
 	_, err := svc.SetClientLimits(context.Background(), limit, 0)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrEmployeeLookupFailed)
+}
+
+// ---------------------------------------------------------------------------
+// Client-limit publish snapshot tests (SP-5)
+// ---------------------------------------------------------------------------
+
+// TestSetClientLimits_PublishedSnapshotCarriesValuesAndVersion asserts that
+// SetClientLimits returns a result with non-zero Version and populated limit
+// values — the exact data that flows into the PublishClientLimitsUpdated call.
+// Uses the mock repo (which now simulates version=1 on first insert and
+// version+1 on subsequent upserts) so the Version assertion is non-vacuous.
+func TestSetClientLimits_PublishedSnapshotCarriesValuesAndVersion(t *testing.T) {
+	limitRepo := newMockClientLimitRepo()
+	svc := NewClientLimitService(limitRepo, nil, nil, nil) // nil producer, nil employee svc
+
+	limit := model.ClientLimit{
+		ClientID:      5,
+		DailyLimit:    decimal.NewFromInt(50000),
+		MonthlyLimit:  decimal.NewFromInt(500000),
+		TransferLimit: decimal.NewFromInt(20000),
+		SetByEmployee: 7,
+	}
+	result, err := svc.SetClientLimits(context.Background(), limit, 7)
+	require.NoError(t, err)
+
+	// The result is the value returned by GetByClientID after Upsert —
+	// exactly what is used to populate the published ClientLimitsUpdatedMessage.
+	assert.Equal(t, int64(1), result.Version,
+		"first upsert must yield Version=1 (non-vacuous: mock simulates DB default)")
+	assert.Equal(t, "50000.0000", result.DailyLimit.StringFixed(4))
+	assert.Equal(t, "500000.0000", result.MonthlyLimit.StringFixed(4))
+	assert.Equal(t, "20000.0000", result.TransferLimit.StringFixed(4))
+
+	// Second upsert must yield Version=2.
+	limit.DailyLimit = decimal.NewFromInt(60000)
+	result2, err := svc.SetClientLimits(context.Background(), limit, 7)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), result2.Version,
+		"second upsert must yield Version=2 (monotonic increment)")
+	assert.Equal(t, "60000.0000", result2.DailyLimit.StringFixed(4))
+}
+
+// ---------------------------------------------------------------------------
+// Kafka publish payload tests
+// ---------------------------------------------------------------------------
+
+func TestCreateClient_PublishesJMBGAndVersion(t *testing.T) {
+	repo := newMockClientRepo()
+	prod := &mockClientProducer{}
+	svc := NewClientService(repo, prod, nil)
+
+	c := validClient()
+	// The in-memory mock does not apply GORM's `default:1`, so we set Version
+	// explicitly to a non-zero value. This makes the assertion below
+	// non-vacuous: if Version were dropped from the publish payload the test
+	// would fail (0 != 7), proving the field is actually wired.
+	c.Version = 7
+	require.NoError(t, svc.CreateClient(context.Background(), c))
+
+	require.NotNil(t, prod.lastCreated, "ClientCreatedMessage must be published")
+	assert.Equal(t, c.JMBG, prod.lastCreated.JMBG, "JMBG must be in published message")
+	assert.Equal(t, int64(7), prod.lastCreated.Version, "Version must be in published message")
+}
+
+func TestUpdateClient_PublishesJMBGAndVersion(t *testing.T) {
+	repo := newMockClientRepo()
+	prod := &mockClientProducer{}
+	svc := NewClientService(repo, prod, nil)
+
+	c := validClient()
+	// Seed a non-zero Version so the assertion below is non-vacuous: if Version
+	// were dropped from the publish payload the test would fail (0 != 9).
+	c.Version = 9
+	require.NoError(t, svc.CreateClient(context.Background(), c))
+
+	updated, err := svc.UpdateClient(c.ID, map[string]interface{}{"first_name": "Jane"}, 0)
+	require.NoError(t, err)
+
+	require.NotNil(t, prod.lastUpdated, "ClientCreatedMessage (update) must be published")
+	assert.Equal(t, updated.JMBG, prod.lastUpdated.JMBG, "JMBG must be in updated message")
+	assert.Equal(t, int64(9), prod.lastUpdated.Version, "Version must be in updated message")
+}
+
+// ---------------------------------------------------------------------------
+// Real-DB version sequence test (guards replica ordering invariant)
+// ---------------------------------------------------------------------------
+
+// TestClient_VersionSequence_CreateThenUpdate_RealDB pins the load-bearing
+// invariant that SP-1 replica consumers depend on: a freshly-created client
+// row must carry Version=1 (driven by the GORM column default), and the first
+// update must carry Version=2 (driven by the BeforeUpdate hook increment).
+//
+// This test intentionally wires a real gorm.DB (in-memory SQLite) + a real
+// ClientRepository so the model's `default:1` tag and BeforeUpdate hook
+// actually fire — mock-repo tests cannot catch regressions here because they
+// bypass both mechanisms.
+func TestClient_VersionSequence_CreateThenUpdate_RealDB(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Client{}))
+
+	repo := repository.NewClientRepository(db)
+	prod := &mockClientProducer{}
+	svc := NewClientService(repo, prod, nil)
+
+	c := validClient()
+	// Do NOT set c.Version — let the DB column default drive it to 1.
+	c.Version = 0
+	require.NoError(t, svc.CreateClient(context.Background(), c))
+
+	require.NotNil(t, prod.lastCreated, "ClientCreatedMessage must be published on create")
+	assert.Equal(t, int64(1), prod.lastCreated.Version,
+		"create must publish Version=1 (model column default:1 must fire on real DB)")
+
+	_, err = svc.UpdateClient(c.ID, map[string]interface{}{"first_name": "Jane"}, 0)
+	require.NoError(t, err)
+
+	require.NotNil(t, prod.lastUpdated, "ClientCreatedMessage must be published on update")
+	assert.Equal(t, int64(2), prod.lastUpdated.Version,
+		"first update must publish Version=2 (BeforeUpdate hook must increment version on real DB)")
 }

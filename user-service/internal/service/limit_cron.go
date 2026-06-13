@@ -4,16 +4,21 @@ import (
 	"context"
 	"log"
 	"time"
+
+	"github.com/exbanka/contract/cronreg"
 )
 
 // LimitCronService runs scheduled jobs for employee limit management.
 type LimitCronService struct {
-	repo EmployeeLimitRepo
+	repo  EmployeeLimitRepo
+	entry *cronreg.Entry
 }
 
 // NewLimitCronService creates a new LimitCronService.
-func NewLimitCronService(repo EmployeeLimitRepo) *LimitCronService {
-	return &LimitCronService{repo: repo}
+func NewLimitCronService(repo EmployeeLimitRepo, registry *cronreg.Registry) *LimitCronService {
+	s := &LimitCronService{repo: repo}
+	s.entry = registry.Register("employee-daily-limit-reset", "Reset employee daily used-limit counters at 23:59 UTC", 0)
+	return s
 }
 
 // Start launches the daily reset goroutine. It exits when ctx is cancelled.
@@ -35,11 +40,30 @@ func (s *LimitCronService) runDailyReset(ctx context.Context) {
 			timer.Stop()
 			return
 		case <-timer.C:
-		}
-		if err := s.repo.ResetDailyUsedLimits(); err != nil {
-			log.Printf("error resetting employee daily limits: %v", err)
-		} else {
-			log.Println("employee daily limits reset completed")
+			timer.Stop()
+			if !s.entry.BeginRun() {
+				continue
+			}
+			var runErr error
+			if err := s.repo.ResetDailyUsedLimits(); err != nil {
+				log.Printf("error resetting employee daily limits: %v", err)
+				runErr = err
+			} else {
+				log.Println("employee daily limits reset completed")
+			}
+			s.entry.EndRun(runErr)
+		case <-s.entry.TriggerChan():
+			if !s.entry.BeginRun() {
+				continue
+			}
+			var runErr error
+			if err := s.repo.ResetDailyUsedLimits(); err != nil {
+				log.Printf("error resetting employee daily limits: %v", err)
+				runErr = err
+			} else {
+				log.Println("employee daily limits reset completed")
+			}
+			s.entry.EndRun(runErr)
 		}
 	}
 }

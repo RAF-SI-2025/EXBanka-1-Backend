@@ -31,6 +31,13 @@ type OTCNegotiationRevision struct {
 	ModifiedByPrincipalID   uint64  `gorm:"not null" json:"modified_by_principal_id"`
 	ActingEmployeeID        *uint64 `gorm:"index" json:"acting_employee_id,omitempty"`
 
+	// RemoteActorWireID is the opaque SI-TX wire id of the party who made this
+	// move on a REMOTE chain ("client-<N>" / "employee-<N>" / "bank"). Nil on
+	// LOCAL revisions (which identify the mover via ModifiedByPrincipalType/ID).
+	// For remote revisions ModifiedByPrincipalType carries the role ("buyer" /
+	// "seller") and ModifiedByPrincipalID is 0.
+	RemoteActorWireID *string `gorm:"size:128" json:"remote_actor_wire_id,omitempty"`
+
 	// Action is one of OTCNegotiationActionBid/Counter/Accept/Reject.
 	Action string `gorm:"size:16;not null" json:"action"`
 

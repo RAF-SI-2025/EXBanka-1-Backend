@@ -29,6 +29,16 @@ const (
 	FundStatusLiquidated  FundStatus = "liquidated"
 )
 
+// DividendMode controls what a fund does with dividends received on the
+// securities it holds (SP4 / Celina 4): credit them to the fund's cash
+// (payout) or automatically buy more of the dividend-paying stock (reinvest).
+type DividendMode string
+
+const (
+	DividendModePayout   DividendMode = "payout"
+	DividendModeReinvest DividendMode = "reinvest"
+)
+
 // InvestmentFund is a supervisor-managed pool of cash + securities held in a
 // single RSD account at account-service. Clients invest RSD (or any FX
 // currency converted to RSD) and receive a proportional share of the fund's
@@ -52,6 +62,10 @@ type InvestmentFund struct {
 	MinimumContributionRSD decimal.Decimal `gorm:"type:numeric(20,4);not null;default:0" json:"minimum_contribution_rsd"`
 	RSDAccountID           uint64          `gorm:"not null;uniqueIndex" json:"rsd_account_id"`
 	Active                 bool            `gorm:"not null;default:true;index" json:"active"`
+
+	// DividendMode (SP4): payout = credit dividends to fund cash (default);
+	// reinvest = auto-buy more of the dividend-paying stock (DRIP).
+	DividendMode DividendMode `gorm:"type:varchar(16);not null;default:'payout';index" json:"dividend_mode"`
 
 	// Closed-end fund fields. All optional for open-ended funds.
 	FundType         FundType        `gorm:"type:varchar(16);not null;default:'open';index" json:"fund_type"`

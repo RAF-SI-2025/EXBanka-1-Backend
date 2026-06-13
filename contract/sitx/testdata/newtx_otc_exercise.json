@@ -1,0 +1,79 @@
+{
+  "idempotenceKey": {
+    "routingNumber": 111,
+    "locallyGeneratedKey": "k-otc-exercise-1"
+  },
+  "messageType": "NEW_TX",
+  "message": {
+    "postings": [
+      {
+        "account": {
+          "type": "ACCOUNT",
+          "num": "111000117810858011"
+        },
+        "amount": -500,
+        "asset": {
+          "type": "MONAS",
+          "asset": {
+            "currency": "RSD"
+          }
+        }
+      },
+      {
+        "account": {
+          "type": "OPTION",
+          "id": {
+            "routingNumber": 111,
+            "id": "neg-1"
+          }
+        },
+        "amount": 500,
+        "asset": {
+          "type": "MONAS",
+          "asset": {
+            "currency": "RSD"
+          }
+        }
+      },
+      {
+        "account": {
+          "type": "OPTION",
+          "id": {
+            "routingNumber": 111,
+            "id": "neg-1"
+          }
+        },
+        "amount": -10,
+        "asset": {
+          "type": "STOCK",
+          "asset": {
+            "ticker": "WMT"
+          }
+        }
+      },
+      {
+        "account": {
+          "type": "PERSON",
+          "id": {
+            "routingNumber": 111,
+            "id": "client-1"
+          }
+        },
+        "amount": 10,
+        "asset": {
+          "type": "STOCK",
+          "asset": {
+            "ticker": "WMT"
+          }
+        }
+      }
+    ],
+    "transactionId": {
+      "routingNumber": 111,
+      "id": "k-otc-exercise-1"
+    },
+    "message": "Cross-bank OTC otc-exercise",
+    "paymentCode": "",
+    "paymentPurpose": ""
+  }
+}

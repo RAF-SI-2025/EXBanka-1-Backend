@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	notifpb "github.com/exbanka/contract/notificationpb"
@@ -29,10 +28,20 @@ type inboxRepoFacade interface {
 
 // notifRepoFacade is the narrow interface of *repository.GeneralNotificationRepository used by GRPCHandler.
 type notifRepoFacade interface {
-	ListByUser(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error)
-	UnreadCount(userID uint64) (int64, error)
-	MarkRead(id, userID uint64) error
-	MarkAllRead(userID uint64) (int64, error)
+	ListByUser(userID uint64, systemType string, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error)
+	UnreadCount(userID uint64, systemType string) (int64, error)
+	MarkRead(id, userID uint64, systemType string) error
+	MarkAllRead(userID uint64, systemType string) (int64, error)
+}
+
+// adminAuditRepoFacade is the narrow interface of *repository.AdminAuditLogRepository used by GRPCHandler.
+type adminAuditRepoFacade interface {
+	ListAll(filters repository.AdminAuditLogFilters, page, pageSize int) ([]model.AdminAuditLog, int64, error)
+}
+
+// businessAuditRepoFacade is the narrow interface of *repository.BusinessAuditLogRepository used by GRPCHandler.
+type businessAuditRepoFacade interface {
+	ListAll(filters repository.BusinessAuditLogFilters, page, pageSize int) ([]model.BusinessAuditLog, int64, error)
 }
 
 // templateServiceFacade is the narrow interface of *service.TemplateService used by GRPCHandler.
@@ -46,50 +55,22 @@ type templateServiceFacade interface {
 
 type GRPCHandler struct {
 	notifpb.UnimplementedNotificationServiceServer
-	emailSender emailSenderFacade
-	inboxRepo   inboxRepoFacade
-	notifRepo   notifRepoFacade
-	templateSvc templateServiceFacade
+	emailSender       emailSenderFacade
+	inboxRepo         inboxRepoFacade
+	notifRepo         notifRepoFacade
+	templateSvc       templateServiceFacade
+	adminAuditRepo    adminAuditRepoFacade
+	businessAuditRepo businessAuditRepoFacade
 }
 
-func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService) *GRPCHandler {
-	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo, templateSvc: templateSvc}
+func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService, adminAuditRepo *repository.AdminAuditLogRepository, businessAuditRepo *repository.BusinessAuditLogRepository) *GRPCHandler {
+	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo, templateSvc: templateSvc, adminAuditRepo: adminAuditRepo, businessAuditRepo: businessAuditRepo}
 }
 
 // newGRPCHandlerForTest constructs a GRPCHandler with interface-typed
 // dependencies for use in unit tests.
 func newGRPCHandlerForTest(emailSender emailSenderFacade, inboxRepo inboxRepoFacade, notifRepo notifRepoFacade, templateSvc templateServiceFacade) *GRPCHandler {
 	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo, templateSvc: templateSvc}
-}
-
-func (h *GRPCHandler) SendEmail(ctx context.Context, req *notifpb.SendEmailRequest) (*notifpb.SendEmailResponse, error) {
-	if req.To == "" {
-		return nil, fmt.Errorf("SendEmail: recipient required: %w", service.ErrInvalidEmailRequest)
-	}
-
-	subject, body, err := h.templateSvc.Render(req.EmailType, "email", req.Data)
-	if err != nil {
-		return &notifpb.SendEmailResponse{Success: false, Message: err.Error()}, nil
-	}
-
-	if err := h.emailSender.Send(req.To, subject, body); err != nil {
-		log.Printf("gRPC SendEmail failed for %s: %v", req.To, err)
-		return &notifpb.SendEmailResponse{
-			Success: false,
-			Message: err.Error(),
-		}, nil
-	}
-
-	log.Printf("gRPC SendEmail succeeded for %s", req.To)
-	return &notifpb.SendEmailResponse{
-		Success: true,
-		Message: "email sent",
-	}, nil
-}
-
-func (h *GRPCHandler) GetDeliveryStatus(ctx context.Context, req *notifpb.GetDeliveryStatusRequest) (*notifpb.GetDeliveryStatusResponse, error) {
-	// Placeholder — will be backed by a database or Redis in a future iteration
-	return nil, service.ErrDeliveryStatusUnimplemented
 }
 
 func (h *GRPCHandler) GetPendingMobileItems(ctx context.Context, req *notifpb.GetPendingMobileRequest) (*notifpb.PendingMobileResponse, error) {
@@ -140,7 +121,7 @@ func (h *GRPCHandler) ListNotifications(ctx context.Context, req *notifpb.ListNo
 		readFilter = &v
 	}
 
-	items, total, err := h.notifRepo.ListByUser(req.UserId, readFilter, page, pageSize)
+	items, total, err := h.notifRepo.ListByUser(req.UserId, req.GetSystemType(), readFilter, page, pageSize)
 	if err != nil {
 		return nil, fmt.Errorf("ListNotifications(user=%d): %v: %w", req.UserId, err, service.ErrNotificationLookupFailed)
 	}
@@ -162,7 +143,7 @@ func (h *GRPCHandler) ListNotifications(ctx context.Context, req *notifpb.ListNo
 }
 
 func (h *GRPCHandler) GetUnreadCount(ctx context.Context, req *notifpb.GetUnreadCountRequest) (*notifpb.GetUnreadCountResponse, error) {
-	count, err := h.notifRepo.UnreadCount(req.UserId)
+	count, err := h.notifRepo.UnreadCount(req.UserId, req.GetSystemType())
 	if err != nil {
 		return nil, fmt.Errorf("GetUnreadCount(user=%d): %v: %w", req.UserId, err, service.ErrNotificationLookupFailed)
 	}
@@ -170,14 +151,14 @@ func (h *GRPCHandler) GetUnreadCount(ctx context.Context, req *notifpb.GetUnread
 }
 
 func (h *GRPCHandler) MarkNotificationRead(ctx context.Context, req *notifpb.MarkNotificationReadRequest) (*notifpb.MarkNotificationReadResponse, error) {
-	if err := h.notifRepo.MarkRead(req.Id, req.UserId); err != nil {
+	if err := h.notifRepo.MarkRead(req.Id, req.UserId, req.GetSystemType()); err != nil {
 		return nil, fmt.Errorf("MarkNotificationRead(id=%d, user=%d): %v: %w", req.Id, req.UserId, err, service.ErrNotificationNotFound)
 	}
 	return &notifpb.MarkNotificationReadResponse{Success: true}, nil
 }
 
 func (h *GRPCHandler) MarkAllNotificationsRead(ctx context.Context, req *notifpb.MarkAllNotificationsReadRequest) (*notifpb.MarkAllNotificationsReadResponse, error) {
-	count, err := h.notifRepo.MarkAllRead(req.UserId)
+	count, err := h.notifRepo.MarkAllRead(req.UserId, req.GetSystemType())
 	if err != nil {
 		return nil, fmt.Errorf("MarkAllNotificationsRead(user=%d): %v: %w", req.UserId, err, service.ErrNotificationUpdateFailed)
 	}
@@ -245,4 +226,110 @@ func (h *GRPCHandler) ResetTemplate(ctx context.Context, req *notifpb.ResetTempl
 		return nil, templateErr(err)
 	}
 	return templateViewToProto(v), nil
+}
+
+// ── Admin audit logs ─────────────────────────────────────────────────────────
+
+// ListAdminAuditLogs returns paginated admin cron-action audit log entries
+// (global view, admin-only).
+func (h *GRPCHandler) ListAdminAuditLogs(ctx context.Context, req *notifpb.ListAdminAuditLogsRequest) (*notifpb.ListAdminAuditLogsResponse, error) {
+	if h.adminAuditRepo == nil {
+		return nil, status.Error(codes.Unimplemented, "admin audit log repository not wired")
+	}
+
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	filters := repository.AdminAuditLogFilters{
+		Since:   req.GetSince(),
+		Until:   req.GetUntil(),
+		ActorID: req.GetActorId(),
+		Action:  req.GetAction(),
+	}
+
+	entries, total, err := h.adminAuditRepo.ListAll(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+
+	protoEntries := make([]*notifpb.AdminAuditLogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &notifpb.AdminAuditLogEntry{
+			Id:         e.ID,
+			Action:     e.Action,
+			Service:    e.Service,
+			CronName:   e.CronName,
+			EmployeeId: e.EmployeeID,
+			Reason:     e.Reason,
+			Timestamp:  e.Timestamp.Unix(),
+		}
+	}
+	return &notifpb.ListAdminAuditLogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
+}
+
+// ListBusinessAuditLogs returns paginated business-action audit log entries
+// (limit changes, usedLimit resets, order approve/reject, permission changes,
+// manual tax collection). Global view; the gateway gates on admin.audit.view.
+func (h *GRPCHandler) ListBusinessAuditLogs(ctx context.Context, req *notifpb.ListBusinessAuditLogsRequest) (*notifpb.ListBusinessAuditLogsResponse, error) {
+	if h.businessAuditRepo == nil {
+		return nil, status.Error(codes.Unimplemented, "business audit log repository not wired")
+	}
+
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	filters := repository.BusinessAuditLogFilters{
+		Since:      req.GetSince(),
+		Until:      req.GetUntil(),
+		ActorID:    req.GetActorId(),
+		Action:     req.GetAction(),
+		TargetType: req.GetTargetType(),
+	}
+
+	entries, total, err := h.businessAuditRepo.ListAll(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+
+	protoEntries := make([]*notifpb.BusinessAuditLogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &notifpb.BusinessAuditLogEntry{
+			Id:         e.ID,
+			Action:     e.Action,
+			ActorId:    e.ActorID,
+			TargetType: e.TargetType,
+			TargetId:   e.TargetID,
+			Detail:     e.Detail,
+			Timestamp:  e.Timestamp.Unix(),
+		}
+	}
+	return &notifpb.ListBusinessAuditLogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
 }

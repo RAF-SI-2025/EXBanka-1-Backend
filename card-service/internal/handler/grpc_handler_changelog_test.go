@@ -80,7 +80,7 @@ func TestHandler_ListChangelog_InvalidArgumentMapped(t *testing.T) {
 
 // Constructor smoke tests — verify each NewXGRPCHandler returns non-nil.
 func TestNewCardGRPCHandler_Constructs(t *testing.T) {
-	h := NewCardGRPCHandler(nil, nil, nil, nil)
+	h := NewCardGRPCHandler(nil, nil, nil, nil, nil)
 	require.NotNil(t, h)
 }
 

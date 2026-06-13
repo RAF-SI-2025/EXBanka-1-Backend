@@ -393,6 +393,40 @@ func TestRoleService_UpdateRolePermissions_PublishesEvent(t *testing.T) {
 	}
 }
 
+// spyEvictor records the cache keys RoleService evicts on a role-perm change.
+type spyEvictor struct {
+	deleted []string
+}
+
+func (s *spyEvictor) Delete(_ context.Context, key string) error {
+	s.deleted = append(s.deleted, key)
+	return nil
+}
+
+// TestRoleService_UpdateRolePermissions_EvictsAffectedEmployeeCaches: changing a
+// role's permissions must evict the cached record of every employee holding it
+// (so GetEmployee no longer returns the stale resolved-permission set).
+func TestRoleService_UpdateRolePermissions_EvictsAffectedEmployeeCaches(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	role := &model.Role{Name: "EmployeeAgent"}
+	if err := roleRepo.Create(role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if err := permRepo.Create(&model.Permission{Code: "clients.read.all"}); err != nil {
+		t.Fatalf("create perm: %v", err)
+	}
+	roleRepo.employeesByRole[role.ID] = []int64{42, 43}
+
+	ev := &spyEvictor{}
+	svc := NewRoleService(roleRepo, permRepo).WithCache(ev)
+
+	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read.all"}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	assert.ElementsMatch(t, []string{"employee:id:42", "employee:id:43"}, ev.deleted)
+}
+
 func TestRoleService_UpdateRolePermissions_KafkaFailureDoesNotFailUpdate(t *testing.T) {
 	roleRepo := newMockRoleRepo()
 	permRepo := newMockPermRepo()
@@ -411,6 +445,69 @@ func TestRoleService_UpdateRolePermissions_KafkaFailureDoesNotFailUpdate(t *test
 	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read.all"}); err != nil {
 		t.Fatalf("update should not propagate kafka errors: %v", err)
 	}
+}
+
+// TestEnsureAgentOTCPermissions_AddsMissingAndPublishesOnce: the backfill must
+// union otc.read.all + otc.trade.expire onto an EmployeeAgent role that lacks
+// them, leave every pre-existing grant (incl. an admin customization) intact,
+// publish exactly one role-permissions-changed event, and be a no-op on a
+// second call.
+func TestEnsureAgentOTCPermissions_AddsMissingAndPublishesOnce(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+
+	// Catalog lookup rows exist (as after the seed's step-1 upsert).
+	for _, code := range []string{"securities.trade.any", "custom.admin.grant", "otc.read.all", "otc.trade.expire"} {
+		_ = permRepo.Create(&model.Permission{Code: code})
+	}
+	// EmployeeAgent already exists WITHOUT the OTC grants, plus an admin add.
+	agent := &model.Role{Name: "EmployeeAgent"}
+	_ = roleRepo.Create(agent)
+	sec, _ := permRepo.GetByCode("securities.trade.any")
+	custom, _ := permRepo.GetByCode("custom.admin.grant")
+	_ = roleRepo.SetPermissions(agent.ID, []model.Permission{*sec, *custom})
+	roleRepo.employeesByRole[agent.ID] = []int64{7}
+
+	pub := &fakeRolePermPublisher{}
+	svc := NewRoleService(roleRepo, permRepo).WithPublisher(pub)
+
+	if err := svc.EnsureAgentOTCPermissions(); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	got, _ := roleRepo.GetByID(agent.ID)
+	codes := make(map[string]bool, len(got.Permissions))
+	for _, p := range got.Permissions {
+		codes[p.Code] = true
+	}
+	assert.True(t, codes[string(permissions.Otc.Read.All)], "otc.read.all backfilled")
+	assert.True(t, codes[string(permissions.Otc.Trade.Expire)], "otc.trade.expire backfilled")
+	assert.True(t, codes[string(permissions.BankAccounts.Manage.Any)], "bank_accounts.manage.any backfilled")
+	assert.True(t, codes["securities.trade.any"], "pre-existing grant kept")
+	assert.True(t, codes["custom.admin.grant"], "admin customization kept (additive-only)")
+
+	assert.Len(t, pub.calls, 1, "exactly one event on change")
+	assert.Equal(t, "ensure_agent_otc_permissions", pub.calls[0].Source)
+
+	// Idempotent: both present now → no-op, no further publish.
+	if err := svc.EnsureAgentOTCPermissions(); err != nil {
+		t.Fatalf("ensure (second): %v", err)
+	}
+	assert.Len(t, pub.calls, 1, "no publish when nothing changes")
+}
+
+// TestEnsureAgentOTCPermissions_NoRoleIsNoOp: when EmployeeAgent does not exist
+// (custom deployment), the backfill is a silent no-op and publishes nothing.
+func TestEnsureAgentOTCPermissions_NoRoleIsNoOp(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	pub := &fakeRolePermPublisher{}
+	svc := NewRoleService(roleRepo, permRepo).WithPublisher(pub)
+
+	if err := svc.EnsureAgentOTCPermissions(); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	assert.Empty(t, pub.calls)
 }
 
 func TestRoleService_UpdateRolePermissions_NoPublisherIsAllowed(t *testing.T) {

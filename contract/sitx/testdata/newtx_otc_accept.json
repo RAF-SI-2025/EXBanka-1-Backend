@@ -1,0 +1,103 @@
+{
+  "idempotenceKey": {
+    "routingNumber": 111,
+    "locallyGeneratedKey": "k-otc-accept-1"
+  },
+  "messageType": "NEW_TX",
+  "message": {
+    "postings": [
+      {
+        "account": {
+          "type": "ACCOUNT",
+          "num": "111000117810858011"
+        },
+        "amount": -1000,
+        "asset": {
+          "type": "MONAS",
+          "asset": {
+            "currency": "RSD"
+          }
+        }
+      },
+      {
+        "account": {
+          "type": "PERSON",
+          "id": {
+            "routingNumber": 222,
+            "id": "client-1"
+          }
+        },
+        "amount": 1000,
+        "asset": {
+          "type": "MONAS",
+          "asset": {
+            "currency": "RSD"
+          }
+        }
+      },
+      {
+        "account": {
+          "type": "PERSON",
+          "id": {
+            "routingNumber": 222,
+            "id": "client-1"
+          }
+        },
+        "amount": -1,
+        "asset": {
+          "type": "OPTION",
+          "asset": {
+            "negotiationId": {
+              "routingNumber": 111,
+              "id": "neg-1"
+            },
+            "stock": {
+              "ticker": "WMT"
+            },
+            "pricePerUnit": {
+              "amount": 50,
+              "currency": "RSD"
+            },
+            "settlementDate": "2026-12-31T00:00:00+02:00",
+            "amount": 10
+          }
+        }
+      },
+      {
+        "account": {
+          "type": "PERSON",
+          "id": {
+            "routingNumber": 111,
+            "id": "client-1"
+          }
+        },
+        "amount": 1,
+        "asset": {
+          "type": "OPTION",
+          "asset": {
+            "negotiationId": {
+              "routingNumber": 111,
+              "id": "neg-1"
+            },
+            "stock": {
+              "ticker": "WMT"
+            },
+            "pricePerUnit": {
+              "amount": 50,
+              "currency": "RSD"
+            },
+            "settlementDate": "2026-12-31T00:00:00+02:00",
+            "amount": 10
+          }
+        }
+      }
+    ],
+    "transactionId": {
+      "routingNumber": 111,
+      "id": "k-otc-accept-1"
+    },
+    "message": "Cross-bank OTC otc-accept",
+    "paymentCode": "",
+    "paymentPurpose": ""
+  }
+}

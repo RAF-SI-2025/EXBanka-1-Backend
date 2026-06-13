@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateAndValidateAccessToken(t *testing.T) {
-	svc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	svc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	token, err := svc.GenerateAccessToken(1, "user@test.com", []string{"EmployeeBasic"}, []string{"clients.read.all"}, "employee", TokenProfile{AccountActive: true})
 	assert.NoError(t, err)
@@ -28,7 +28,7 @@ func TestGenerateAndValidateAccessToken(t *testing.T) {
 // preserving both fields under the new JSON tags ("principal_type",
 // "principal_id"). This is the smoke test for the Spec C Task 2 rename.
 func TestJWT_RoundTripPreservesPrincipalType(t *testing.T) {
-	svc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
+	svc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	tok, err := svc.GenerateAccessToken(42, "emp@x", []string{"EmployeeAgent"}, []string{"orders.place.own"}, "employee", TokenProfile{AccountActive: true})
 	assert.NoError(t, err)
@@ -41,15 +41,15 @@ func TestJWT_RoundTripPreservesPrincipalType(t *testing.T) {
 }
 
 func TestValidateToken_Invalid(t *testing.T) {
-	svc := NewJWTService("test-secret", 15*time.Minute)
+	svc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	_, err := svc.ValidateToken("invalid.token.string")
 	assert.Error(t, err)
 }
 
 func TestValidateToken_WrongSecret(t *testing.T) {
-	svc1 := NewJWTService("secret-one", 15*time.Minute)
-	svc2 := NewJWTService("secret-two", 15*time.Minute)
+	svc1 := NewJWTService(mustTestKeyManager(), 15*time.Minute)
+	svc2 := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	token, _ := svc1.GenerateAccessToken(1, "user@test.com", []string{"EmployeeBasic"}, nil, "employee", TokenProfile{AccountActive: true})
 	_, err := svc2.ValidateToken(token)
@@ -57,7 +57,7 @@ func TestValidateToken_WrongSecret(t *testing.T) {
 }
 
 func TestValidateToken_Expired(t *testing.T) {
-	svc := NewJWTService("test-secret", -1*time.Second)
+	svc := NewJWTService(mustTestKeyManager(), -1*time.Second)
 
 	token, err := svc.GenerateAccessToken(1, "user@test.com", []string{"EmployeeBasic"}, nil, "employee", TokenProfile{AccountActive: true})
 	assert.NoError(t, err)
@@ -67,7 +67,7 @@ func TestValidateToken_Expired(t *testing.T) {
 }
 
 func TestGenerateAccessToken_ClientRole(t *testing.T) {
-	svc := NewJWTService("test-secret", 15*time.Minute)
+	svc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	token, err := svc.GenerateAccessToken(42, "client@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	assert.NoError(t, err)

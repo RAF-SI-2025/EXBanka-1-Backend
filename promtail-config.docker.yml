@@ -1,0 +1,37 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Strip the leading slash from the container name to get a clean service label.
+      - source_labels: [__meta_docker_container_name]
+        regex: '/(.+)'
+        target_label: service
+      # Preserve stdout vs stderr as a stream label.
+      - source_labels: [__meta_docker_container_log_stream]
+        target_label: stream
+      # Add the compose project name as a label for multi-project disambiguation.
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        target_label: compose_project
+    pipeline_stages:
+      # Attempt to parse each line as JSON. Lines that are not JSON (e.g.
+      # pre-init log.Fatalf output) are kept as-is with only the raw log label.
+      - json:
+          expressions:
+            level: level
+            msg: msg
+            time: time
+      # Promote the parsed "level" field to a Loki label for fast filtering.
+      - labels:
+          level:

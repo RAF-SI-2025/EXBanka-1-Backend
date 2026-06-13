@@ -38,7 +38,7 @@ func (r *ForexPairRepository) GetByTicker(ticker string) (*model.ForexPair, erro
 }
 
 func (r *ForexPairRepository) Update(fp *model.ForexPair) error {
-	result := r.db.Save(fp)
+	result := r.db.Select("*").Save(fp)
 	if result.Error != nil {
 		return result.Error
 	}

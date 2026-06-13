@@ -1,6 +1,7 @@
 package sitx_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -32,14 +33,45 @@ func TestOtcOffer_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestOptionDescriptionSpecShape(t *testing.T) {
+	od := sitx.OptionDescription{
+		NegotiationID:  sitx.ForeignBankId{RoutingNumber: 111, ID: "neg-1"},
+		Stock:          sitx.StockDescription{Ticker: "WMT"},
+		PricePerUnit:   sitx.MonetaryValue{Amount: sitx.DecimalNumber{Decimal: decimal.RequireFromString("50")}, Currency: "RSD"},
+		SettlementDate: "2026-12-31T00:00:00+02:00",
+		Amount:         10,
+	}
+	got, err := json.Marshal(od)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	want := `{"negotiationId":{"routingNumber":111,"id":"neg-1"},"stock":{"ticker":"WMT"},"pricePerUnit":{"amount":50,"currency":"RSD"},"settlementDate":"2026-12-31T00:00:00+02:00","amount":10}`
+	var g, w bytes.Buffer
+	_ = json.Compact(&g, got)
+	_ = json.Compact(&w, []byte(want))
+	if g.String() != w.String() {
+		t.Errorf("shape mismatch:\n got: %s\nwant: %s", g.String(), w.String())
+	}
+	// Verify removed flat fields do not appear anywhere in the output.
+	// Note: "ticker" and "currency" are NOT checked here because they legitimately
+	// appear nested inside "stock":{"ticker":...} and "pricePerUnit":{"currency":...}
+	// respectively — a bytes.Contains check cannot distinguish top-level from nested
+	// occurrences. The shape equality check above (got vs want) is the authoritative
+	// assertion that no unexpected top-level flat fields are present.
+	for _, bad := range []string{`"strikePrice"`, `"intent"`} {
+		if bytes.Contains(got, []byte(bad)) {
+			t.Errorf("unexpected legacy field %s in %s", bad, got)
+		}
+	}
+}
+
 func TestOptionDescription_RoundTrip(t *testing.T) {
 	in := sitx.OptionDescription{
-		Ticker:         "AAPL",
-		Amount:         50,
-		StrikePrice:    decimal.NewFromFloat(200),
-		Currency:       "USD",
-		SettlementDate: "2026-12-31",
 		NegotiationID:  sitx.ForeignBankId{RoutingNumber: 222, ID: "neg-7"},
+		Stock:          sitx.StockDescription{Ticker: "AAPL"},
+		PricePerUnit:   sitx.MonetaryValue{Amount: sitx.DecimalNumber{Decimal: decimal.RequireFromString("200")}, Currency: "USD"},
+		SettlementDate: "2026-12-31",
+		Amount:         50,
 	}
 	raw, _ := json.Marshal(in)
 	var out sitx.OptionDescription
@@ -51,31 +83,33 @@ func TestOptionDescription_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestUserInformation_RoundTrip(t *testing.T) {
+func TestUserInformation_SpecShape(t *testing.T) {
 	in := sitx.UserInformation{
-		ID:        sitx.ForeignBankId{RoutingNumber: 222, ID: "u1"},
-		FirstName: "Marko",
-		LastName:  "Marković",
+		BankDisplayName: "EXBanka",
+		DisplayName:     "Marko Marković",
 	}
-	raw, _ := json.Marshal(in)
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(raw) != `{"bankDisplayName":"EXBanka","displayName":"Marko Marković"}` {
+		t.Fatalf("spec shape mismatch: %s", raw)
+	}
 	var out sitx.UserInformation
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if out.FirstName != "Marko" || out.ID.ID != "u1" {
+	if out.BankDisplayName != "EXBanka" || out.DisplayName != "Marko Marković" {
 		t.Errorf("got %+v", out)
 	}
 }
 
 func TestPublicStocksResponse_RoundTrip(t *testing.T) {
 	in := sitx.PublicStocksResponse{
-		Stocks: []sitx.PublicStock{
-			{
-				OwnerID:       sitx.ForeignBankId{RoutingNumber: 111, ID: "client-7"},
-				Ticker:        "MSFT",
-				Amount:        25,
-				PricePerStock: decimal.NewFromFloat(420.10),
-				Currency:      "USD",
+		{
+			Stock: sitx.StockDescription{Ticker: "MSFT"},
+			Sellers: []sitx.PublicSeller{
+				{Seller: sitx.ForeignBankId{RoutingNumber: 111, ID: "client-7"}, Amount: 25},
 			},
 		},
 	}
@@ -84,7 +118,10 @@ func TestPublicStocksResponse_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(out.Stocks) != 1 || out.Stocks[0].Ticker != "MSFT" {
+	if len(out) != 1 || out[0].Stock.Ticker != "MSFT" {
 		t.Errorf("got %+v", out)
+	}
+	if len(out[0].Sellers) != 1 || out[0].Sellers[0].Seller.ID != "client-7" {
+		t.Errorf("sellers: %+v", out[0].Sellers)
 	}
 }

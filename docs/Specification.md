@@ -148,10 +148,10 @@ Client (HTTP/JSON) → API Gateway (Gin, :8080)
 
 | Caller | Calls |
 |---|---|
-| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification, stock (StockExchange / Security / Order / Portfolio / OTC / Tax / SourceAdmin / **InvestmentFund** (Celina 4) / **OTCOptions** (Spec 2)) |
-| stock-service | account-service (debit/credit/reservations/bank-account), exchange-service (FX), user-service (employee names + actuary limits), client-service (client name resolution), **transaction-service (Spec 3 InterBankService for cross-bank Phase 3 + ReverseInterBankTransfer)** |
-| auth-service | user-service (employee lookup), client-service (client login) |
-| user-service | auth-service (activation tokens) |
+| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification, stock (StockExchange / Security / Order / Portfolio / OTC / Tax / SourceAdmin / **InvestmentFund** (Celina 4) / **OTCOptions** (Spec 2)), **interbank-service** (2026-06-07 cutover: the whole `/cross-bank-protocol` surface — `PeerTxService`, `PeerBankAdminService` registry, `PeerOTCService` forwarder, `PeerEgressService`, `PeerUserService`) |
+| stock-service | account-service (debit/credit/reservations/bank-account), exchange-service (FX), user-service (employee names + actuary limits), client-service (client name resolution), **interbank-service** (2026-06-07 cutover: `PeerTxService.InitiateOutboundTxWithPostings` for OTC settlement, `PeerBankAdminService.ListPeerBanks` for the discovery poll, and `PeerEgressService.ProxyToPeer` for all outbound OTC HTTP — peer resolution + signing live in interbank-service, not here) |
+| auth-service | user-service (employee lookup). NOTE: auth owns **all** credentials in its own `accounts` table (one row per principal, `principal_type` ∈ {employee, client}); it does **not** gRPC-call client-service for login. Client Accounts are provisioned by auth consuming the `client.client-created` Kafka event. |
+| user-service | auth-service (activation tokens). NOTE: user-service does **not** dial client-service — `CLIENT_GRPC_ADDR` was removed from user-service (SP-4 2026-06-08). Client-type limit blueprint application is orchestrated by the api-gateway directly (gateway → client-service). |
 | client-service | auth-service (activation tokens) |
 | card-service | account-service (account validation), client-service (client validation) |
 | transaction-service | account-service (balance ops), exchange-service (currency conversion), verification-service (challenge status) |
@@ -180,7 +180,7 @@ The API Gateway creates gRPC clients in `api-gateway/internal/grpc/` and passes 
 | `userClient` | UserService | `USER_GRPC_ADDR` |
 | `empLimitClient` | EmployeeLimitService | `USER_GRPC_ADDR` (shared) |
 | `clientClient` | ClientService | `CLIENT_GRPC_ADDR` |
-| `clientLimitClient` | ClientLimitService | `CLIENT_GRPC_ADDR` (shared) |
+| `clientLimitClient` | ClientLimitService | `CLIENT_GRPC_ADDR` (shared) — also injected into `BlueprintHandler` to apply client-type blueprints directly (SP-4: gateway→client-service, bypassing user-service) |
 | `accountClient` | AccountService | `ACCOUNT_GRPC_ADDR` |
 | `bankAccountClient` | BankAccountService | `ACCOUNT_GRPC_ADDR` (shared) |
 | `cardClient` | CardService | `CARD_GRPC_ADDR` |
@@ -491,7 +491,6 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | `/api/mobile/device/*` | `MobileAuthMiddleware` | Mobile device with valid JWT |
 | `/api/mobile/verifications/*` | `MobileAuthMiddleware` + `RequireDeviceSignature` | Mobile device with valid JWT + HMAC |
 | `/api/verify/*` | `MobileAuthMiddleware` + `RequireDeviceSignature` | Mobile device with valid JWT + HMAC |
-| `/ws/mobile` | WebSocket auth (JWT + X-Device-ID) | Mobile device |
 
 ### Permission Catalog (codegened, Plan D)
 
@@ -535,14 +534,17 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 | verification | `verification.skip`, `verification.manage` |
 | peer_banks | `peer_banks.manage.any` (Phase 2 SI-TX — admin CRUD on the `peer_banks` registry; `EmployeeAdmin` only via the wildcard `*` grant) |
 | notifications | `notifications.templates.manage` — allows `EmployeeAdmin` to customize notification template subject/body text |
+| portfolio | `portfolio.view.client` — allows an employee to read any client's portfolio via the unified portfolio routes; `portfolio.view.fund` — allows reading any investment-fund's portfolio. Both granted to `EmployeeSupervisor` (and via inheritance to `EmployeeAdmin`). |
+| admin | `admin.crons.view` — list/read all cron jobs across services; `admin.crons.trigger` — manually trigger a cron execution; `admin.crons.manage` — pause and resume crons. All three granted to `EmployeeAdmin` via the wildcard `*` grant. (C5 — 2026-05-28) |
+| admin | `admin.audit.view` — read the global changelog and cron-action audit tables without specifying an entity (D1 — 2026-05-28). Granted to `EmployeeAdmin` via the wildcard `*` grant. |
 
 ### Role Definitions
 
 | Role | Inherits Permissions |
 |---|---|
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
-| EmployeeAgent | EmployeeBasic + securities.*, otc.trade, orders.place-on-behalf, orders.place.on-behalf-client, orders.place.for-bank |
-| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, funds.bank-position-read, verification.skip, verification.manage |
+| EmployeeAgent | EmployeeBasic + securities.*, otc.read.all, otc.trade.*, otc.trade.expire, bank_accounts.manage.any, orders.place-on-behalf, orders.place.on-behalf-client, orders.place.for-bank |
+| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, funds.bank-position-read, verification.skip, verification.manage, portfolio.view.client, portfolio.view.fund |
 | EmployeeAdmin | All permissions (including `securities.manage`) |
 
 ### Context Values Set by Middleware
@@ -868,7 +870,7 @@ An agent extending an existing service needs to know which gRPC services already
 | `auth/auth.proto` | `AuthService` | 11 |
 | `user/user.proto` | `UserService`, `EmployeeLimitService` | 11 + 5 |
 | `client/client.proto` | `ClientService`, `ClientLimitService` | 5 + 2 |
-| `account/account.proto` | `AccountService`, `BankAccountService` | 14 + 6 |
+| `account/account.proto` | `AccountService`, `BankAccountService` | 27 + 6 |
 | `card/card.proto` | `CardService`, `VirtualCardService`, `CardRequestService` | 9 + 5 + 6 |
 | `transaction/transaction.proto` | `TransactionService`, `FeeService`, `InterBankService` (Spec 3 + Spec 4 `ReverseInterBankTransfer`) | 13 + 5 + 5 |
 | `credit/credit.proto` | `CreditService` | 16 |
@@ -891,6 +893,10 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 - `PartialSettleReservation(order_id, order_transaction_id, amount, memo, idempotency_key, order_kind) returns (settled_amount, remaining_reserved, balance_after, ledger_entry_id)` — settles part (or all) of a reservation against a specific fill. Writes a `LedgerEntry` so the fill appears in transaction history, debits `Balance`, decrements `ReservedBalance`, and when the reservation is fully consumed transitions status to `settled`. Idempotent on `order_transaction_id` via a unique index on `AccountReservationSettlement.order_transaction_id`.
 - `GetReservation(order_id, order_kind) returns (exists, status, amount, settled_total, settled_transaction_ids)` — read-only; used by stock-service saga recovery to determine which fill saga steps already committed on account-service.
 
+**account-service AccountService incoming/outgoing reservation RPCs (Celina-5 cross-bank, string-keyed):** distinct from the `order_id`-keyed reservation RPCs above — these back the SI-TX two-phase money legs and are keyed by a string `reservation_key`.
+- Incoming (credit side): `ReserveIncoming` (pending row, no balance change), `CommitIncoming` (Balance += amount), `ReleaseIncoming`.
+- Outgoing (debit side, reserve-then-settle): `ReserveOutgoing(account_number, amount, currency, reservation_key, idempotency_key) returns (reservation_key, available_after)` — HOLD: AvailableBalance -= amount, Balance untouched; `FailedPrecondition` on insufficient available / inactive / currency mismatch. `SettleOutgoing(reservation_key, idempotency_key) returns (balance_after)` — Balance -= amount + debit ledger entry; idempotent; refuses non-pending rows. `ReleaseOutgoing(reservation_key, idempotency_key) returns (released)` — AvailableBalance += amount, no Balance movement; idempotent no-op on non-pending. All three run in `SELECT FOR UPDATE` transactions and are wrapped in the saga-step idempotency contract.
+
 **`order_kind` discriminator (added 2026-05-16):** every reservation RPC carries an `order_kind` string that disambiguates which caller-namespace the `order_id` belongs to. Without it, two different callers using auto-increment IDs from different stock-service tables (e.g. `Order.ID` for stock placement vs `OptionContract.ID` for OTC accept, both starting at 1) would silently collide on the single-column `order_id` unique index, leading to the second arrival reusing the first's released reservation and seeing `reservation status=released` from the settle step. The unique index on `account_reservations` is now composite `(order_id, order_kind)`. Empty `order_kind` defaults to `"stock_order"` for one-version-behind callers. Current values (constants in `contract/shared/orderkind` and `account-service/internal/model`):
 - `stock_order` — stock placement / forex fill / portfolio fill (Order.ID)
 - `otc_premium` — OTC option accept saga, premium reservation (OptionContract.ID)
@@ -901,10 +907,15 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 
 `PortfolioGRPCService` — portfolio operations including option exercise:
 - `ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult)` — exercises an option by option ID instead of holding ID. Fields: `option_id uint64` (required), `user_id uint64` (required), `holding_id uint64` (optional; 0 means auto-resolve to the user's most recent unexpired holding for that option).
+- `GetUnifiedPortfolio(GetUnifiedPortfolioRequest) returns (UnifiedPortfolioResponse)` — returns all holdings and fund positions for a given owner, grouped by asset type, with per-position P/L (unrealised) and per-fund percentage-of-fund stats. Request fields: `owner_type string` (`client`|`bank`|`investment_fund`), `owner_id uint64` (0 for bank). Response: `repeated PortfolioGroup groups` where each `PortfolioGroup` has `asset_type string` and `repeated PortfolioPosition positions`. Each `PortfolioPosition` carries `symbol`, `quantity`, `avg_cost_rsd`, `current_price_rsd`, `current_value_rsd`, `p_l_rsd`, `p_l_pct`, plus option-specific fields (`strike_rsd`, `premium_paid_rsd`, `intrinsic_value_rsd`, `settlement_date`) and fund-specific fields (`fund_id`, `fund_name`, `amount_invested_rsd`, `pct_of_fund`). Fund NAV is computed as Σ(fund_holding.qty × current_listing_price) — does not include the fund's liquid RSD balance from account-service.
 
 `OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v3/orders` or `POST /api/v3/otc/offers/:id/buy-on-behalf` endpoints.
 
 `OTCOptionsService` — `CreateOTCOfferRequest` gained a `ticker` field (proto field 12): a human-readable underlying-stock ticker threaded from the api-gateway create-offer handler through to the persisted `OTCOffer.Ticker` (and onto the resulting `OptionContract.Ticker`), used for in-app notification rendering (Plan B1).
+
+`OTCOptionsService.GetOffer` — service-layer local↔remote convergence (SP-1, 2026-06-04). `GetOTCOfferRequest` gained `acting_owner_type` (field 4, `client`|`bank`) and `acting_owner_id` (field 5, `0` when bank). `OTCOfferResponse` gained `kind` (field 18, `local`|`remote`), `routing_number` (19), `bank_code` (20), and `me_owner` (21). The stock-service handler is now the first layer that distinguishes local from remote: a local `OTCOffer` is returned with `kind="local"`, this bank's routing/bank-code, and `me_owner` computed from the acting identity vs. the offer's initiator seller id (`"bank"` | `"client-<id>"`). When the id is not a local offer, GetOffer falls back to the folded-in remote `OTCOffer` rows (`OTCOfferRepository.GetRemoteByID`, SP-2a) and returns a `kind="remote"` projection (`me_owner=false`, no revisions). NotFound only when neither a local nor a remote row exists. The separate `GetRemoteOTCOffer` RPC (and its request/response messages) on `OTCGRPCService` was removed — `GetOffer` now resolves both. The api-gateway is a uniform pass-through; provenance + ownership are no longer computed gateway-side. **SP-2b (2026-06-05):** `OTCOfferResponse` additionally gained `my_negotiation_id` (field 22, uint64) + `my_negotiation_status` (field 23, string). When the authenticated caller has an own (as BIDDER) negotiation chain against the resolved offer, GetOffer stamps that chain's surrogate id + status so the FE can jump straight to its chain; `0`/`""` when the caller has no chain (a poster who never bid is `me_owner=true` but has no `my_negotiation_id` — the two are independent). LOCAL chains key on `parent_offer_id` == the local offer id; REMOTE chains key on `(RemoteParentRouting, RemoteParentNativeID)` == the remote offer's `(routing_number, native_id)`. When multiple chains exist on one offer the active one wins (accepted > live `open`/`countered`/`ongoing` > terminal; ties → most recently created). Chains sourced from `OTCNegotiationRepository.ListByBidder` (local) + `ListRemoteNegByClient` (remote), wired via `OTCOptionsHandler.WithMyNegotiations`.
+
+`OTCOptionsService.ListMyNegotiations` — service-layer local↔remote convergence for negotiation chains (SP-1 Task 7; remote source updated SP-2a 2026-06-05). `OTCNegotiationResponse` gained `kind` (field 18, `local`|`remote`), `routing_number` (19), `bank_code` (20), and `me_owner` (21). The stock-service handler merges the caller's LOCAL bidder chains (from `OTCNegotiationRepository.ListByBidder`) with the caller's REMOTE peer chains (from `OTCNegotiationRepository.ListRemoteNegByClient` — remote rows in the unified `OTCNegotiation` table, SP-2a; the retired `PeerOtcNegotiationRepository.ListByClient` no longer exists). LOCAL items are stamped `kind="local"`, this bank's routing/bank-code, and `me_owner=false` (the list returns only bidder chains, and a bidder is never the listing owner). REMOTE items are stamped `kind="remote"`, with `id` = the autoincrement `OTCNegotiation.id` of the remote row (the stable local surrogate), terms projected from the parsed `sitx.OtcOffer` in `RemoteOfferJSON` (amount→quantity, pricePerStock→strike_price, premium→premium, settlementDate→settlement_date), `status` = the remote row's `Status`, `routing_number`/`bank_code` = the COUNTERPARTY peer bank (the side we do not host), and `me_owner` = (`RemoteSellerRouting == own_routing`) — true iff we host the seller/poster side. The `?statuses=` filter applies to both sets. Paging applies to the LOCAL set; REMOTE chains are appended in full and never truncated; `total` reflects the local total only. Remote merge is only performed for client principals (cross-bank party ids are `client-<N>`); a bank/employee caller gets local chains only. The api-gateway is a uniform pass-through; the new fields flow through automatically.
 
 `SourceAdminService` — destructive data-source management:
 - `SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse)` — switches the active stock data source. Request field: `source string` (one of `external`, `generated`, `simulator`). Response wraps a `SourceStatus` message.
@@ -914,8 +925,23 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 - `ListOffers(ListOTCOffersRequest) returns (ListOTCOffersResponse)` — local-only OTC offers built from this bank's holdings (`security_type`, `ticker`, pagination filters).
 - `BuyOffer(BuyOTCOfferRequest) returns (OTCTransaction)` — buyer-side acceptance for a local OTC offer; settles via the standard OTC saga.
 - `ListUnifiedOffers(ListUnifiedOTCOffersRequest) returns (ListUnifiedOTCOffersResponse)` — unified local + cross-bank view, backed by an in-process ~5 s cache that fans out to every active peer bank's `GET /api/v3/public-stock`. Request fields: `security_type`, `ticker`, `kind` (`""` | `local` | `remote`), `bank_code`, `page`, `page_size`. The cache (and the peer fan-out goroutine) live entirely in stock-service; the api-gateway's `GET /api/v3/otc/offers` is a thin pass-through over this RPC.
+- `ListUnifiedOptionOffers(ListUnifiedOptionOffersRequest) returns (ListUnifiedOptionOffersResponse)` — Phase-6 unified cross-bank OTC **option** discovery. SP-1 (2026-06-04): the request gained `acting_owner_type` (field 8) + `acting_owner_id` (field 9), and each `UnifiedOptionOffer` gained `me_owner` (field 20), stamped in the stock-service handler from the acting identity vs. the row's `kind`+`seller_id` (always false for remote rows). The previously-added standalone `GetRemoteOTCOffer` RPC was removed; single-offer reads now go through `OTCOptionsService.GetOffer`, which resolves local→remote itself. **SP-2b (2026-06-05):** each `UnifiedOptionOffer` additionally gained `my_negotiation_id` (field 21, uint64) + `my_negotiation_status` (field 22, string) — the caller's own (as BIDDER) negotiation chain on that offer (`0`/`""` when none). Same source/keying/active-chain tie-break as `GetOffer` above; LOCAL offers key on `LocalID` == `parent_offer_id`, REMOTE offers key on `(routing_number, offer_id-native)` == the chain's `(RemoteParentRouting, RemoteParentNativeID)`. Wired via `OTCHandler.WithMyNegotiations`. Gateway hand-shapes the two fields into the offer rows (omitted when 0). **Viewer action hints (4.7.0):** each `UnifiedOptionOffer` (fields 23–30) and `OTCOfferResponse` (fields 25–32) additionally carry `viewer_role` / `last_action_mine` / `awaiting_viewer` / `can_bid` / `can_accept` / `can_counter` / `can_reject` / `can_withdraw`, computed per caller from their own bidder chain so the FE renders Bid/Counter/Accept/Reject/Withdraw buttons **directly off the marketplace row** (and the offer-detail). Semantics mirror the per-chain `OTCNegotiationResponse` flags (counter = chain-live, not turn-based; accept/reject = the receiver's turn `== awaiting_viewer`); `can_bid` = no live chain on an open listing. The listing's own poster (`me_owner`) gets only `viewer_role="poster"` (they act per-bid via `GET /otc/options/:id/negotiations`). `last_action_mine` is computed in `buildMyNegotiationIndex` (local: chain `LastActionByOwner` == caller; remote: wire `LastModifiedBy.routing` == own routing) and carried on `myNegStamp`. The gateway emits the eight flags **always** (explicit booleans) on the discovery rows so the FE never has to infer an absent flag as false.
 
 **Key pattern:** When a proto file has multiple services (e.g., `CardService` + `VirtualCardService` + `CardRequestService`), they all run in the same microservice process on the same port but are registered as separate gRPC services. The API Gateway creates separate client instances that share the same connection address.
+
+**`admin.AdminCron` — Cron registry gRPC interface (C5 — 2026-05-28):**
+
+Every service that runs background cron jobs registers those jobs in a `cronreg.Registry` and exposes the `admin.AdminCron` gRPC service on its existing service port. The proto is defined in `contract/proto/admin/admin_cron.proto` and generated to `contract/adminpb/`. The api-gateway fan-outs to all services via a pool of `AdminCronClient` instances (one per service).
+
+| RPC | Request | Response | Description |
+|---|---|---|---|
+| `ListCrons` | `ListCronsRequest` (empty) | `ListCronsResponse{crons: [CronInfoMsg]}` | Returns all registered crons |
+| `GetCron` | `GetCronRequest{name}` | `CronInfoMsg` | Returns one named cron |
+| `TriggerCron` | `TriggerRequest{name, force, triggered_by}` | `CronCtrlResponse{status}` | Fires cron immediately |
+| `PauseCron` | `PauseRequest{name, paused_by}` | `CronCtrlResponse{status}` | Pauses scheduling |
+| `ResumeCron` | `ResumeRequest{name, resumed_by}` | `CronCtrlResponse{status}` | Resumes paused cron |
+
+Services that currently expose `AdminCron`: `stock-service`, `credit-service`, `account-service`, `card-service`, `transaction-service`, `notification-service`, `user-service`.
 
 ---
 
@@ -1422,20 +1448,40 @@ api-gateway:
 | PUT | `/api/v3/notification-templates/:channel/:type` | notifications.templates.manage | NotificationHandler.SetNotificationTemplate | Customize a template's subject/body; placeholder referencing an unknown variable or empty subject/body → 400; unknown type → 404 |
 | DELETE | `/api/v3/notification-templates/:channel/:type` | notifications.templates.manage | NotificationHandler.ResetNotificationTemplate | Revert a template to its code-defined default; unknown type → 404 |
 
+### Securities Market Data (/api/v3/securities — AnyAuthMiddleware)
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/v3/securities/stocks` | SecuritiesHandler.ListStocks | List all stock listings |
+| GET | `/api/v3/securities/stocks/:id` | SecuritiesHandler.GetStock | Get one stock listing |
+| GET | `/api/v3/securities/stocks/:id/history` | SecuritiesHandler.GetStockHistory | Returns OHLC-bucketed price history. On a freshly-seeded DB the response is non-empty for every period — `stock-service` writes 5 years of deterministic synthetic daily OHLC per listing during `SeedAll`. Live intraday snapshots (1-minute interval) accumulate on top of synthetic history. |
+| GET | `/api/v3/securities/futures` | SecuritiesHandler.ListFutures | List all futures listings |
+| GET | `/api/v3/securities/futures/:id` | SecuritiesHandler.GetFutures | Get one futures listing |
+| GET | `/api/v3/securities/futures/:id/history` | SecuritiesHandler.GetFuturesHistory | OHLC-bucketed price history for a futures listing — same backfill and accumulation behaviour as `/stocks/:id/history`. |
+| GET | `/api/v3/securities/forex` | SecuritiesHandler.ListForexPairs | List all forex pair listings. Actuary-only (`DenyClientToken`) — clients get 403. |
+| GET | `/api/v3/securities/forex/:id` | SecuritiesHandler.GetForexPair | Get one forex pair listing. Actuary-only — clients get 403. |
+| GET | `/api/v3/securities/forex/:id/history` | SecuritiesHandler.GetForexPairHistory | OHLC-bucketed price history for a forex pair — same backfill and accumulation behaviour as `/stocks/:id/history`. Actuary-only — clients get 403. |
+| GET | `/api/v3/securities/options` | SecuritiesHandler.ListOptions | List all options listings. Actuary-only (`DenyClientToken`) — clients get 403. |
+| GET | `/api/v3/securities/options/:id` | SecuritiesHandler.GetOption | Get one options listing. Actuary-only — clients get 403. |
+| GET | `/api/v3/securities/candles` | SecuritiesHandler.GetCandles | Get intraday OHLC candles (1-minute snapshots); query params `listing_id`, `period` |
+
 ### Peer-Bank Protocol (Celina 5 SI-TX — PeerAuth)
 
 These routes are reached by other banks in the SI-TX cohort, not by employees or clients. Authentication is via `middleware.PeerAuth` (hybrid `X-Api-Key` or HMAC headers — see [§25](#25-inter-bank-cross-bank-communication-celina-5--si-tx)).
 
+**Cross-bank protocol routes are served exclusively at `/api/v3/cross-bank-protocol/...`. Cohort banks MUST register this bank's `base_url` ending in `/api/v3/cross-bank-protocol` to interoperate. Legacy paths (`/api/v3/interbank`, `/api/v3/public-stock`, `/api/v3/negotiations/*`, `/api/v3/user/*`) were removed on 2026-05-29.**
+
 | Method | Path | Middleware | Handler | Description |
 |---|---|---|---|---|
-| POST | `/api/v3/interbank` | PeerAuth | PeerTxHandler.PostInterbank | SI-TX `Message<Type>` envelope. Phase 3. |
-| GET | `/api/v3/public-stock` | PeerAuth | PeerOTCHandler.GetPublicStocks | Lists own bank's OTC-public holdings. Phase 4. |
-| POST | `/api/v3/negotiations` | PeerAuth | PeerOTCHandler.CreateNegotiation | Peer-initiated cross-bank OTC offer. Phase 4. |
-| PUT | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.UpdateNegotiation | Counter-offer. Phase 4. |
-| GET | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.GetNegotiation | Read negotiation state. Phase 4. |
-| DELETE | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.DeleteNegotiation | Cancel. Phase 4. |
-| GET | `/api/v3/negotiations/:rid/:id/accept` | PeerAuth | PeerOTCHandler.AcceptNegotiation | Triggers 4-posting TX via PeerTxService. Phase 4. |
-| GET | `/api/v3/user/:rid/:id` | PeerAuth | PeerUserHandler.GetUser | Counterparty user info lookup. Phase 4. |
+| POST | `/api/v3/cross-bank-protocol/interbank` | PeerAuth | PeerTxHandler.PostInterbank | SI-TX `Message<Type>` envelope. Phase 3. |
+| GET | `/api/v3/cross-bank-protocol/interbank/:transaction_id/status` | PeerAuth | PeerTxStatusHandler.GetTxStatus | Celina-5 CHECK_STATUS: peer queries cross-bank TX state. |
+| GET | `/api/v3/cross-bank-protocol/public-stock` | PeerAuth | PeerOTCHandler.GetPublicStocks | Lists own bank's OTC option offers — the sole cross-bank option-discovery surface. Phase 4. |
+| POST | `/api/v3/cross-bank-protocol/negotiations` | PeerAuth | PeerOTCHandler.CreateNegotiation | Peer-initiated cross-bank OTC offer. Phase 4. |
+| PUT | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.UpdateNegotiation | Counter-offer. Phase 4. SI-TX §3.3 turn/closed guards: **409** if closed or out of turn (2.9.2). |
+| GET | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.GetNegotiation | Read negotiation state. Phase 4. |
+| DELETE | `/api/v3/cross-bank-protocol/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.DeleteNegotiation | Cancel. Phase 4. |
+| GET | `/api/v3/cross-bank-protocol/negotiations/:rid/:id/accept` | PeerAuth | PeerOTCHandler.AcceptNegotiation | Triggers 4-posting TX via PeerTxService. Phase 4. |
+| GET | `/api/v3/cross-bank-protocol/user/:rid/:id` | PeerAuth | PeerUserHandler.GetUser | Counterparty user info lookup. Phase 4. |
 
 ### Browser Verification (/api/verifications — AnyAuthMiddleware)
 
@@ -1463,9 +1509,13 @@ These routes are reached by other banks in the SI-TX cohort, not by employees or
 
 ### WebSocket
 
-| Method | Path | Handler | Description |
-|---|---|---|---|
-| GET | `/ws/mobile` | wsHandler.HandleConnect | Mobile WebSocket connection |
+**Removed 2026-06-11 (VERSION 4.2.0).** There is no WebSocket endpoint. The
+`wsHandler.HandleConnect` handler was never wired to a route, so `/ws/mobile` never
+existed; the dead handler, its `notification.mobile-push` Kafka feed, the
+`MobilePushMessage` contract type, and the `gorilla/websocket` dependency were all
+removed. The mobile app receives verification challenges by polling
+`GET /api/v3/mobile/verifications/pending` (the `mobile_inbox_items` row is the sole
+source of truth) and general notifications via `GET /api/v3/me/notifications`.
 
 ### Swagger
 
@@ -1473,19 +1523,9 @@ These routes are reached by other banks in the SI-TX cohort, not by employees or
 |---|---|---|
 | GET | `/swagger/*any` | Swagger UI |
 
-### OTC Stocks Marketplace (Phase 3 / 3B refactor)
+### OTC Stocks Marketplace — REMOVED (2026-06-11)
 
-Stocks marketplace with sell + buy directions. Detailed in [REST_API_v3 §47.1](api/REST_API_v3.md#471-stocks-marketplace). Replaces the legacy `/otc/offers/*` stock routes deleted in Phase 8.
-
-| Method | Path | Handler | Description |
-|---|---|---|---|
-| GET    | `/api/v3/otc/stocks`                   | PortfolioHandler.ListOTCOffers       | Unified marketplace (local + remote sell offers from peer banks) |
-| POST   | `/api/v3/otc/stocks/:id/buy`           | PortfolioHandler.BuyOTCOffer         | Fill a sell offer — race-hardened in 3B with SELECT FOR UPDATE on seller holding |
-| POST   | `/api/v3/otc/stocks/:id/buy-on-behalf` | PortfolioHandler.BuyOTCOfferOnBehalf | Employee fills a sell offer for a client |
-| POST   | `/api/v3/otc/stocks/:id/sell`          | OTCStockHandler.SellOTCStockOffer    | Phase 3B: fill a buy offer with caller's shares — saga with cash-reservation settle |
-| GET    | `/api/v3/me/otc/stocks`                | OTCStockHandler.ListMyOTCStocks      | Caller's own offers (sell + buy directions; `?direction=sell\|buy` to filter) |
-| POST   | `/api/v3/me/otc/stocks`                | OTCStockHandler.CreateOTCStockOffer  | Create a sell OR buy offer (direction-keyed body) |
-| DELETE | `/api/v3/me/otc/stocks/:id`            | OTCStockHandler.CancelOTCStockOffer  | Cancel own offer (`?direction=sell\|buy` required) |
+The in-bank OTC stocks marketplace (`/api/v3/otc/stocks/*`, `/api/v3/me/otc/stocks/*`, `OTCStockMarketGRPCService`, `OTCStockService`, `OTCStockBuyOffer`, `make-public`, `Holding.public_quantity`) was deleted — the frontend's "market tab" was retired. Option offers (§ OTC Options) now serve as the cross-bank "stock" inventory on `/public-stock` (MAJOR bump 4.0.0).
 
 ### OTC Options Marketplace — parallel negotiation chains (Phase 2 / 6)
 
@@ -1499,14 +1539,95 @@ Many bidders can each open their own negotiation chain against the same listing;
 | POST   | `/api/v3/otc/options/:id/bid`                          | OTCOptionsHandler.OpenNegotiationChain      | Place a bid — opens a new negotiation chain |
 | GET    | `/api/v3/me/otc/options`                               | PortfolioHandler.ListMyOTCOptions           | Marketplace shape, scoped to caller's open listings (owner_only_seller_id filter on the unified cache) |
 | GET    | `/api/v3/me/otc/options/posted`                        | OTCOptionsHandler.ListMyPostedOffers        | Full history — every listing the caller posted, any status; raw `OTCOfferResponse` rows |
-| POST   | `/api/v3/me/otc/options`                               | OTCOptionsHandler.CreateOffer               | Create an option listing |
+| POST   | `/api/v3/me/otc/options`                               | OTCOptionsHandler.CreateOffer               | Create a **termless** option listing `(owner, ticker, quantity)` — no strike/premium/settlement (terms negotiated per chain); one open offer per `(owner, ticker, direction)` (duplicate ⇒ 409) |
+| PUT    | `/api/v3/me/otc/options/:id`                           | OTCOptionsHandler.UpdateMyOption            | Owner-only — SET the offer's total quantity (>0, ≥ committed shares, ≤ owner's holding) |
 | DELETE | `/api/v3/me/otc/options/:id`                           | OTCOptionsHandler.CancelMyListing           | Initiator-only — flips parent to `cancelled` and cascade-cancels all open child chains in one TX |
-| GET    | `/api/v3/me/otc/options/negotiations`                  | OTCOptionsHandler.ListMyNegotiations        | Caller's chains as a bidder |
+| GET    | `/api/v3/me/otc/options/negotiations`                  | OTCOptionsHandler.ListMyNegotiations        | Caller's LOCAL + REMOTE chains, merged with `kind`/provenance/`me_owner` (SP-1) |
 | POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/counter` | OTCOptionsHandler.CounterMyNegotiation      | Counter current terms |
 | POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/accept`  | OTCOptionsHandler.AcceptMyNegotiation       | Accept — first-accept-wins atomic TX |
 | POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/reject`  | OTCOptionsHandler.RejectMyNegotiation       | Reject one chain only |
 | DELETE | `/api/v3/me/otc/options/:id/negotiations/:nid`         | OTCOptionsHandler.CancelMyNegotiation       | Bidder withdraws their own chain |
-| GET    | `/api/v3/public-option-offers`                         | PeerOTCHandler.GetPublicOptionOffers        | Peer-facing discovery endpoint (PeerAuth) |
+| GET    | `/api/v3/me/otc/contracts`                             | OTCOptionsHandler.ListMyContracts           | Caller's LOCAL + REMOTE contracts, merged; each item has `kind`/`routing_number`/`bank_code`/`me_owner` (SP-1 Task 8) |
+| GET    | `/api/v3/otc/contracts/:id`                            | OTCOptionsHandler.GetContract               | Single contract — resolves local→remote; `kind`/`me_owner` stamped in service layer (SP-1 Task 8) |
+
+**SP-1 unified-read semantics (2026-06-04):** All OTC option read endpoints (offers, negotiations, contracts) return items with four provenance/ownership fields:
+
+| Field | Meaning |
+|---|---|
+| `kind` | `"local"` — this bank hosts the record; `"remote"` — sourced from a peer-bank mirror. |
+| `routing_number` | Owning bank's routing number (own for local; the COUNTERPARTY peer for remote). |
+| `bank_code` | 3-digit bank code matching `routing_number`. |
+| `me_owner` | Ownership flag. Semantics differ by resource: **offers + negotiations**: `true` when the caller is the poster/seller (originator); bidders are always `false`. **contracts**: `true` ONLY when the caller is the **buyer/holder** (the seller/writer is always `false`). For remote rows: computed from whether this bank hosts the relevant side. `me_owner` is omitted (falsy proto3 omitempty) when not owned. |
+
+The gateway is a **uniform passthrough** — all provenance and ownership computation happens in the stock-service handler, never in the gateway.
+
+### Unified Portfolio Routes (B1–B8, 2026-05-28)
+
+All routes call `GetUnifiedPortfolio` on `PortfolioGRPCService` and return a grouped response with per-position unrealised P/L. See [REST_API_v3 §48](api/REST_API_v3.md#48-unified-portfolio-routes).
+
+**Portfolio identity encoding** — the `portfolio_id` path parameter is a URL-safe string:
+
+| Value | Decoded as |
+|---|---|
+| `client-<n>` | client owner, id = n |
+| `bank` | bank owner (no id) |
+| `fund-<n>` | investment_fund owner, id = n |
+
+**`/api/v3/me/portfolio` — AnyAuthMiddleware + `OwnerIsBankIfEmployee`**
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/v3/me/portfolio` | UnifiedPortfolioHandler.GetMy | Caller's unified portfolio — employee sees bank, client sees own |
+
+**`/api/v3/portfolio/*` — AnyAuthMiddleware + `OwnerIsBankIfEmployee`**
+
+| Method | Path | Permission Required | Handler | Description |
+|---|---|---|---|---|
+| GET | `/api/v3/portfolio/bank` | (employee, any) | UnifiedPortfolioHandler.GetBank | Bank's unified portfolio |
+| GET | `/api/v3/portfolio/client/:client_id` | `portfolio.view.client` | UnifiedPortfolioHandler.GetByClientID | Any client's portfolio (employee only) |
+| GET | `/api/v3/portfolio/investment-fund/:fund_id` | `portfolio.view.fund` | UnifiedPortfolioHandler.GetByFundID | Any fund's portfolio |
+| GET | `/api/v3/portfolio/:portfolio_id` | varies (see encoding) | UnifiedPortfolioHandler.GetByPortfolioID | Generic portfolio by encoded id |
+
+**`/api/v3/watchlist/:portfolio_id` — AnyAuthMiddleware + `OwnerIsBankIfEmployee`**
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/v3/watchlist/:portfolio_id` | WatchlistHandler.GetByPortfolioID | Watchlist for any owner identified by encoded portfolio_id |
+
+**Access control summary:**
+- A client principal may only fetch their own portfolio (`client-<own_id>`).
+- An employee principal may always fetch the bank portfolio; fetching a client or fund portfolio requires `portfolio.view.client` or `portfolio.view.fund` respectively.
+- `EmployeeSupervisor` and `EmployeeAdmin` hold both permissions by default.
+
+**`/api/v3/admin/crons/*` — Admin Cron Viewer (C10 — 2026-05-28)**
+
+Protected by `AuthMiddleware` (employee JWT). Each sub-group has a distinct permission:
+
+| Method | Path | Permission | Handler | Description |
+|---|---|---|---|---|
+| GET | `/api/v3/admin/crons` | `admin.crons.view` | AdminCronHandler.List | Fan-out list of all crons across every service |
+| GET | `/api/v3/admin/crons/:service/:name` | `admin.crons.view` | AdminCronHandler.Get | One cron's detail from the named service |
+| POST | `/api/v3/admin/crons/:service/:name/trigger` | `admin.crons.trigger` | AdminCronHandler.Trigger | Manually fire a cron; optional body `{"force": bool, "reason": string}` |
+| POST | `/api/v3/admin/crons/:service/:name/pause` | `admin.crons.manage` | AdminCronHandler.Pause | Pause a cron; optional body `{"reason": string}` |
+| POST | `/api/v3/admin/crons/:service/:name/resume` | `admin.crons.manage` | AdminCronHandler.Resume | Resume a paused cron; optional body `{"reason": string}` |
+
+`GET /api/v3/admin/crons` fans out in parallel (`errgroup`) to all configured services. Each service appears as a result entry with `status: "ok"` or `status: "unreachable"`. An unreachable service does NOT fail the whole response. After a successful Trigger/Pause/Resume the gateway publishes an `AdminCronActionMessage` to `admin.cron-action` (see §19). `:service` must match an exact label (e.g. `stock-service`, `credit-service`).
+
+**`/api/v3/admin/audit/*` — Admin Audit Log Reader (D4 — 2026-05-28)**
+
+Six global changelog read endpoints. All require `admin.audit.view` (EmployeeAdmin only). Common query params: `page` (default 1), `page_size` (default 50, max 200), `since=YYYY-MM-DD`, `until=YYYY-MM-DD`, `actor_id` (employee ID), `action` (exact string match).
+
+| Method | Path | Permission | Handler | Description |
+|---|---|---|---|---|
+| GET | `/api/v3/admin/audit/clients-changelog` | `admin.audit.view` | AdminAuditHandler.ListClientsChangelog | Global changelog from client-service |
+| GET | `/api/v3/admin/audit/accounts-changelog` | `admin.audit.view` | AdminAuditHandler.ListAccountsChangelog | Global changelog from account-service |
+| GET | `/api/v3/admin/audit/cards-changelog` | `admin.audit.view` | AdminAuditHandler.ListCardsChangelog | Global changelog from card-service |
+| GET | `/api/v3/admin/audit/loans-changelog` | `admin.audit.view` | AdminAuditHandler.ListLoansChangelog | Global changelog from credit-service |
+| GET | `/api/v3/admin/audit/employees-changelog` | `admin.audit.view` | AdminAuditHandler.ListEmployeesChangelog | Global changelog from user-service |
+| GET | `/api/v3/admin/audit/cron-actions` | `admin.audit.view` | AdminAuditHandler.ListCronActions | Admin cron-action audit log from notification-service |
+| GET | `/api/v3/admin/audit/business-actions` | `admin.audit.view` | AdminAuditHandler.ListBusinessActions | Business-action audit log from notification-service (SP2 — 2026-06-04) |
+
+Response shape: `{entries: [...], total, page, page_size}`. Changelog entries carry `{id, entity_type, entity_id, action, field_name, old_value, new_value, actor_id, timestamp, reason}`. Cron-action entries carry `{id, action, service, cron_name, employee_id, reason, timestamp}`. Business-action entries carry `{id, action, actor_id, target_type, target_id, detail, timestamp}` and filter by `action` (`limit.set`|`limit.used_reset`|`order.approve`|`order.decline`|`permissions.set`|`tax.collect`), `target_type` (`employee`|`order`|`role`|`tax`), `actor_id`, and date range. The gateway publishes a `BusinessAuditActionMessage` to `admin.business-action` (actor from JWT) after each audited action succeeds (best-effort); notification-service records it into `business_audit_logs`.
 
 ---
 
@@ -1515,11 +1636,17 @@ Many bidders can each open their own negotiation chain against the same listing;
 > **New feature entities:** Investment-fund entities are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC option entities (`OTCOffer`, `OTCOfferRevision`, `OptionContract`, `OTCOfferReadReceipt`) are in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank OTC additions (`InterBankSagaLog`; `OTCOffer.Public/Private`; `OptionContract.CrossbankTxID/CrossbankExerciseTxID`; `HoldingReservation.OTCContractID`) are in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation). The `Order` model gained a `FundID *uint64` column for on-behalf-of-fund order placement.
 >
 > **OTC marketplace refactor (Phases 1B / 3 / 3B) entities:**
-> - `OTCStockBuyOffer` — standing buy-direction OTC stock offer. Cash held in an account-service reservation keyed on `AccountReservationOrderID` (allocated from `otc_stock_buy_offer_res_seq`). Lifecycle status enum `active|filled|cancelled|expired`. Versioned (optimistic locking) + `BeforeUpdate` hook.
-> - `OTCNegotiation` — one bidder's negotiation chain against a parent `OTCOffer` listing (Phase 2 parallel-chains model). Unique index `(parent_offer_id, bidder_owner_type, bidder_owner_id)` enforces one chain per bidder per listing. Status enum `open|countered|accepted|rejected|cancelled|expired`.
-> - `OTCNegotiationRevision` — append-only history row for one move (BID, COUNTER, ACCEPT, REJECT) within an `OTCNegotiation`. Unique index `(negotiation_id, revision_number)` enforces monotonic ordering.
-> - `OTCOffer` (existing model) — gained semantic dual-use: legacy single-chain negotiations still mutate it in place; Phase 2 marketplace treats it as an immutable LISTING with status `open|consumed|cancelled` (legacy `PENDING|COUNTERED` aliased as "open" via `IsOpenListing()` helper). Per-bidder chains live in `OTCNegotiation` rows above.
-> - `Holding` (existing model) — gained `OTCSafeAvailable() = Quantity - ReservedQuantity - PublicQuantity` helper used by `OTCStockService.CreateSellOffer` to prevent double-commit of shares already locked by orders or earlier public offers.
+> - `OTCStockBuyOffer` — **REMOVED 2026-06-11** (in-bank OTC stock marketplace deletion). The model, its `otc_stock_buy_offers` table, and the `otc_stock_buy_offer_res_seq` sequence are dropped on startup.
+> - `OTCNegotiation` — one bidder's negotiation chain against a parent `OTCOffer` listing (Phase 2 parallel-chains model). Unique index `(parent_offer_id, bidder_owner_type, bidder_owner_id)` enforces one chain per bidder per listing. Status enum `open|countered|accepted|rejected|cancelled|expired`. New field `minted_contract_id *uint64` (indexed, nullable): set after contract-formation saga succeeds on a `status=accepted` row, so the list endpoint can return a direct link from negotiation → contract.
+> - `OTCNegotiationRevision` — append-only history row for one move (BID, COUNTER, ACCEPT, REJECT) within an `OTCNegotiation`. Unique index `(negotiation_id, revision_number)` enforces monotonic ordering. Exposed via `GET /api/v3/me/otc/options/negotiations/:nid/revisions` (authorization: bidder or listing poster only).
+> - `OTCOffer` (existing model) — a **termless** marketplace LISTING: `(initiator owner, ticker, quantity, direction)` with status `open|consumed|cancelled` (legacy `PENDING|COUNTERED` aliased as "open" via `IsOpenListing()` helper). The preset-term columns (strike/premium/settlement_date) were **dropped** — terms are negotiated per chain. Per-bidder chains live in `OTCNegotiation` rows above. **One open offer per `(initiator owner, ticker, direction)`** is enforced by a partial unique index over open rows (a merge-duplicate startup migration collapses any pre-existing duplicates); resizing the lot total goes through `UpdateOTCOfferQuantity` / `PUT /api/v3/me/otc/options/:id`. The legacy single-chain Accept/Counter/Reject path that mutated the offer in place was **deleted** (offers now end only via cancel/accept; they no longer auto-expire — contract expiry is unchanged). A **cross-bank** accept (Direction 2: our user is the seller and a peer bidder's bid is accepted) also consumes the local listing — but because the termless `/public-stock` wire carries no offer id, the listing cannot be reached by `parent_offer_id`; it is resolved + flipped `consumed` by its `(owner, ticker, sell_initiated)` unique key (`OTCNegotiationService.ConsumeLocalSellOfferForSeller` → `OTCOfferRepository.ConsumeOpenByOwnerTickerDirection`; best-effort so a consume failure never reverses an already-formed contract). BOTH cross-bank accept paths apply this symmetrically when `sellerRouting == OwnRouting()`: the **outbound** `acceptRemoteNegotiation` (our seller accepts the buyer's last bid) and the **inbound** `PeerOTCGRPCHandler.AcceptNegotiation` (the peer buyer accepts the seller's counter). Each ALSO gates with `LocalSellOfferOpenForSeller` BEFORE forming the contract, rejecting (`FailedPrecondition`) an accept against a listing already `consumed`/`cancelled` — the key-based analogue of `LocalParentIsOpen`/`ErrOTCParentNotOpen`, so one listing backs exactly one accepted contract (without it, every still-`ongoing` sibling bid could form another contract and over-commit the seller's shares). **Cross-currency premium/strike (2026-06-11, VERSION 4.1.0):** the cross-bank settlement denominates the premium in the *buyer's* bound-account currency. When the seller holds no account in that currency, interbank-service's `PostingExecutor` (seller's bank) FX-converts the seller-CREDIT leg via exchange-service so it lands in the seller's own account currency (`reserveIncomingCredit` → `fxReserveCredit`; requires `EXCHANGE_GRPC_ADDR`) instead of voting `NO_SUCH_ACCOUNT`. The conversion is additive — with no converter wired, the pre-FX `NO_SUCH_ACCOUNT`/`NO_SUCH_ASSET` fail-closed behaviour is preserved. **Settlement-rollback safety:** `InitiateOutboundTxWithPostings` now returns the SI-TX row's real terminal status (`committed`/`committing`/`rolled_back`/`pending`) instead of a blanket `"pending"`; the inbound `PeerOTCGRPCHandler.AcceptNegotiation` fails the accept (reverts the claim, does NOT consume the listing) on a `rolled_back`/`failed` status, so a settlement that aborts no longer destroys the seller's listing with no contract. **Cross-bank contract-created notifications (2026-06-11, VERSION 4.2.0):** an accept now notifies BOTH local client parties with `OTC_CONTRACT_CREATED` (parity with the local accept's dual-party notify) — the **acceptor** via the outbound `acceptRemoteNegotiation` (`OTCNegotiationService.NotifyOTCParticipant`), and the **counterparty** via the inbound `AcceptNegotiation` (which now notifies whichever of buyer/seller is local, not only the seller). Previously the cross-bank **bidder** got no notification when their bid/counter was accepted. Each side is notified exactly once (the acceptor by their bank, the counterparty by theirs). **Cross-bank EXERCISE rollback safety (2026-06-11, VERSION 4.3.0):** `InitiateOptionExercise` claims the contract `active → exercising` then dispatches the exercise SI-TX. A peer NO vote is a valid protocol outcome (not a transport error), so the `err==nil` branch did not catch it and the claim was never reverted — leaving the contract permanently stuck in `exercising` (`"contract status \"exercising\" is not exercisable"`, the user's bug). It now also checks the returned settlement status and reverts `exercising → active` on `rolled_back`/`failed` (mirroring the accept path), returning a clean 409 so the buyer can retry. The exercise STRIKE seller-credit is FX-covered by the same `reserveIncomingCredit`→`fxReserveCredit` path as the premium (verified live: a CHF-strike exercise credited the seller's RSD account the FX-equivalent). The exercise itself is correct cross-bank — a stuck/rolled-back exercise against a **foreign cohort bank** is the counterparty voting NO, not a local fault.
+> - `Holding` (existing model) — the `PublicQuantity`/`PublicPrice` columns + the `OTCSafeAvailable()` helper were **REMOVED 2026-06-11** with the in-bank OTC stock marketplace (the `public_quantity`/`public_price` columns are dropped on startup).
+>
+> **SP-1 (Unified OTC Read, 2026-06-04) entities:**
+> - **Remote OTC offers** — peer-bank OTC option listings discovered via the peer `GET /api/v3/cross-bank-protocol/public-stock` catalog (the proprietary `/public-option-offers` discovery endpoint was removed 2026-06-11; `/public-stock` is the sole cross-bank option-discovery surface). **SP-2a (2026-06-05): folded into the unified `OTCOffer` table as remote rows; the standalone `RemoteOTCOffer` / `remote_otc_offers` table + `RemoteOTCOfferRepository` are retired.** A remote offer is an `OTCOffer` with `routing_number=<peer routing>` and `native_id=<peer foreign offer id>` (the `(routing_number, native_id)` UNIQUE is the natural key; local rows have `routing_number=OwnRouting()`, `native_id=NULL`). The autoincrement `OTCOffer.id` is the **stable local surrogate id** surfaced to the frontend on all SP-1 read routes. Remote-only nullable columns on `OTCOffer`: `remote_seller_id` (size 128 — the SI-TX wire seller id `"client-<N>"` | `"bank"`), `last_seen_at` (indexed; last successful peer poll that listed it). *(2026-06-11: the preset-term columns `strike_price`/`premium`/`settlement_date`/`strike_currency`/`premium_currency`/`has_preset_terms` were DROPPED from `OTCOffer` — option offers became termless "optionable inventory" (`(owner, ticker, quantity)`); terms are buyer-negotiated and live on the negotiation chain, and a remote `/public-stock` shell's currency is derived from the bidder's bound account at bid time.)* A remote row satisfies the model's NOT-NULL / CHECK / `ValidateOwner` constraints with `initiator_owner_type="bank"` + nil `initiator_owner_id` (the only owner pair `ValidateOwner` accepts without a concrete local owner; the actual remote seller lives in `remote_seller_id`/`initiator_bank_code`), `last_modified_by_principal_type="system"`/`id=0`. `OTCOfferRepository` gained three remote-scoped methods: `UpsertRemote(o, seenAt)` (ON CONFLICT on the natural key, reopens `status=open`, stamps `last_seen_at`, returns the stable surrogate id), `ReconcileRemoteNotSeen(peerRouting, seenNativeIDs)` (SkipHooks bulk-flip of open peer rows not in the latest poll to `status=cancelled`; never touches local or other-peer rows — guaranteed because `peerRouting != OwnRouting()`), and `GetRemoteByID(id)` (returns the remote row; `gorm.ErrRecordNotFound` for a local id so a local id never resolves through the remote path). The routing-guarded local-only queries (accept/cascade/expiry/exercise) exclude these remote rows via their `routing_number == OwnRouting()` filter.
+> - `OTCNegotiationResponse.kind / routing_number / bank_code / me_owner` (SP-1 Task 7) — four new proto fields stamped in the service layer when building the `ListMyNegotiations` response. `kind` = `"local"` | `"remote"`. `me_owner` = true only when the caller is the parent listing's poster/seller; a chain the caller opened as bidder is always false.
+> - `UnifiedOptionOffer.local_id / me_owner` (SP-1) — `local_id` (proto field 19) is the stable local surrogate id (= the folded-in remote `OTCOffer.id` for remote rows, SP-2a; numeric `offer_id` for local). `me_owner` (field 20) is true only when the acting caller posted the listing (always false for remote rows).
+> - `OptionContractResponse.kind / routing_number / bank_code / me_owner` (SP-1 Task 8) — provenance fields on the unified contract read. `me_owner` = true ONLY when the caller is the contract's **buyer/holder** (DIFFERENT from offers/negotiations where the poster/seller is the owner). For remote: true iff `direction == "CREDIT"` (this bank holds the buyer side).
 
 **InvestmentFund extension** (Celina 4 / closed-end funds) — `investment_funds` table gains:
 
@@ -1535,7 +1662,9 @@ Many bidders can each open their own negotiation chain against the same listing;
 
 Closed-end invariants enforced in `model.InvestmentFund.BeforeSave`. `FundService.Invest` rejects closed funds outside `fundraising` status; `FundService.Redeem` rejects closed funds outside `open` status. `FundLifecycleCron` walks closed funds every 15 min and transitions `fundraising → active → matured → liquidated` per the calendar, firing `FUND_FUNDRAISING_STARTED/CLOSED/MATURED/LIQUIDATED` in-app notifications to the fund manager. Auto-liquidation money movement (sell remaining holdings + pro-rata distribution) is deferred to a follow-up.
 
-**WatchlistItem** (Celina 3 — `watchlist_items` table in stock-service `stock_db`) — per-owner tracked-listing list
+**Watchlist** (SP6 — `watchlists` table in stock-service `stock_db`) — a named collection of tracked listings owned by a client or the bank. `{id, owner_type, owner_id, name, created_at, updated_at}`, unique `(owner_type, owner_id, name)`. A user may keep several (e.g. "tech stocks"). The legacy single-list endpoints operate on a lazily-created default **"My Watchlist"**. New routes (`/api/v3/me/watchlists*`) provide named-list CRUD + per-list item add/remove; a list is owner-scoped and the same listing may appear in multiple lists. On startup, `MigrateWatchlistsToNamedLists` (idempotent) drops the legacy `(owner, listing)` unique index and assigns any pre-existing items to their owner's default list. **Uniqueness fix (2026-06-08):** the composite unique index could not enforce `(owner, name)` for **bank/employee-owned lists** because their `owner_id` is `NULL` and SQL treats NULLs as distinct — so bank-owned lists (incl. the lazily-created default) duplicated on every create/`GetOrCreateDefault`. Fixed by (a) `CreateWatchlist` checking existence by `(owner, name)` before insert (idempotent for NULL owners), (b) a partial unique index `idx_watchlist_bank_name (owner_type, name) WHERE owner_id IS NULL` enforcing it at the DB level, and (c) an idempotent startup dedup `DedupeWatchlistsAndEnforceUniqueness` that collapses existing duplicates (keep oldest, merge items, delete rest) before creating the index. Net: one owner cannot hold two same-named lists; different owners may reuse a name.
+
+**WatchlistItem** (Celina 3 / SP6 — `watchlist_items` table in stock-service `stock_db`) — one tracked listing inside a `Watchlist`. Gains `watchlist_id` (FK; unique `(watchlist_id, listing_id)`); retains denormalised `owner_type`/`owner_id` so the daily price-move notification cron scans per-owner unchanged.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -1546,6 +1675,8 @@ Closed-end invariants enforced in `model.InvestmentFund.BeforeSave`. `FundServic
 | `AddedAt` | time.Time | wall-clock insert time |
 
 Unique `(OwnerType, OwnerID, ListingID)` enforces "one tracked entry per owner+listing"; `WatchlistRepository.Add` issues `ON CONFLICT DO NOTHING` so double-adds are idempotent. No version column — append/delete only.
+
+**RecurringOrder** (Celina 3 — `recurring_orders` table in stock-service `stock_db`) — per-owner weekly/monthly Market-order template (`OwnerType`/`OwnerID`, `ListingID`, `Side` buy|sell, `Quantity`, `AccountID`, `Interval` weekly|monthly with `DayOfWeek`/`DayOfMonth`, `StartDate`/`EndDate`, `Status` active|paused|cancelled|finished, `NextRun`). `RecurringOrderCron` ticks hourly and calls `RunDue`, which materialises every due template into a real Market order via `OrderService.CreateOrder` (the full placement saga: reserve funds → persist → approve). The cron is wired through `recurringOrderPlacerAdapter` (stock-service `cmd/`), which maps each tick's `(owner_type, owner_id)` back onto the legacy `(user_id, system_type)` pair CreateOrder consumes (`bank`→system_type=bank/no user id; `client`→system_type=client/client id). A failed tick (insufficient funds, validation) does not abort the loop: it fires a `RECURRING_ORDER_SKIPPED` in-app notification (vs. `RECURRING_ORDER_EXECUTED` on success) and still advances `NextRun` so the template never gets stuck. Past `EndDate` flips `Status=finished`.
 
 ### Auth Service (auth_db)
 
@@ -1705,6 +1836,14 @@ UniqueIndex: (reference, direction)
 
 ### Card Service (card_db)
 
+**ClientReplica** (SP-1 service-decoupling, 2026-06-08) — NON-AUTHORITATIVE local read-model of a client's profile (id, email, first/last name, jmbg, version), fed by `client.created`/`client.updated` events with a version-guarded upsert and a synchronous `GetClient` fallback+backfill on miss. Now maintained in **card-service** (card-status notification email), **credit-service** (installment-failure email; group `credit-service-client-replica`), **account-service** (account-created email; group `account-service-client-replica`), and **stock-service** (local OTC-seller existence validation; group `stock-service-client-replica`) — each replacing a synchronous `GetClient` read. (interbank-service's `GetClient` is intentionally left as-is: it serves the frozen cross-bank-protocol `/user` endpoint.)
+```
+ID(uint64, PK, no autoincrement — == client-service Client.ID),
+Email, FirstName, LastName, JMBG(size:13),
+Version(int64) — source Client.Version; ordering guard (stale events are ignored),
+UpdatedAt
+```
+
 **Card**
 ```
 ID(uint64), CardNumber(unique,masked), CardNumberFull, CVV,
@@ -1837,6 +1976,16 @@ FixedRate(decimal10,4), VariableBase(decimal10,4), Active(bool), CreatedAt, Upda
 ID(uint64), LoanType(unique), Margin(decimal10,4), Active(bool), CreatedAt, UpdatedAt
 ```
 
+**EmployeeLimitReplica** (SP-2 service-decoupling, 2026-06-08) — NON-AUTHORITATIVE local read-model of an employee's approval limits, maintained by credit-service to avoid synchronous `GetEmployeeLimits` RPCs on the loan-approval gate. Fed by `user.employee-limits-updated` events (consumer group `credit-service-employee-limit-replica`). Upsert is version-guarded: a message whose `Version` is ≤ the stored row's `Version` is silently dropped to prevent stale overwrites. On a cache miss the approval gate falls back to a synchronous `GetEmployeeLimits` gRPC call and backfills the replica at `Version=0` (a later versioned event will overwrite it). Only `MaxLoanApprovalAmount` is actively enforced; the other four limit fields are stored for future gate expansion.
+```
+EmployeeID(uint64, PK — no autoincrement; == user-service EmployeeLimit.EmployeeID),
+MaxLoanApprovalAmount(numeric18,4), MaxSingleTransaction(numeric18,4),
+MaxDailyTransaction(numeric18,4), MaxClientDailyLimit(numeric18,4),
+MaxClientMonthlyLimit(numeric18,4),
+Version(int64) — source EmployeeLimit.Version; ordering guard (stale events are dropped),
+UpdatedAt
+```
+
 ### Exchange Service (exchange_db)
 
 **ExchangeRate**
@@ -1928,16 +2077,17 @@ LastRefresh, Version(int64), CreatedAt, UpdatedAt
 ```
 ID(uint64), OwnerType(client|bank,indexed), OwnerID(*uint64,indexed),
 SecurityType(stock|futures|forex|option), SecurityID(indexed), Quantity(int64),
-AveragePrice(numeric 18,8), PublicQuantity(int64), ReservedQuantity(int64,default:0),
+AveragePrice(numeric 18,8), ReservedQuantity(int64,default:0),
 AccountID(uint64), Version(int64), CreatedAt, UpdatedAt
 ```
 `OwnerType`+`OwnerID` replaces the pre-Task-4 (UserID, SystemType) pair (plan 2026-04-27-owner-type-schema.md). Bank-owned holdings have `OwnerType="bank"` with `OwnerID IS NULL`; client-owned holdings have `OwnerType="client"` with a non-null `OwnerID`. The `BeforeSave` hook calls `model.ValidateOwner` to enforce the invariant. Unique index `idx_holding_per_owner_security` keys on `(owner_type, COALESCE(owner_id, 0), security_type, security_id)` so each (owner, security) pair rolls up to a single row.
 
 `ReservedQuantity` is the running total of units locked by active sell-side `HoldingReservation` rows. `AvailableQuantity = Quantity - ReservedQuantity`. Sell orders are rejected at placement if `AvailableQuantity` is insufficient; filled sells decrement both `Quantity` and `ReservedQuantity` atomically.
 
-**HoldingReservation** — Quantity-based mirror of `AccountReservation`. Locks shares on a holding for the duration of a sell order. Immutable except for `Status`/`Version`.
+**HoldingReservation** — Quantity-based mirror of `AccountReservation`. Locks shares on a holding for the duration of a sell order. Immutable except for `Status`/`Version`. `FundHoldingID` (nullable) re-targets the reservation at a `fund_holdings` row for on-behalf-of-fund sells: when set, `HoldingID` is `0` (sentinel) and the reserve/settle/release lifecycle mutates `fund_holdings` instead of `holdings` (the fund-sell mirror of the buy fill that credits `fund_holdings`). The "exactly one of OrderID/OTCContractID/PeerOptionContractID/CrossbankTxID" CHECK is unchanged — a fund sell still carries `OrderID` as its key; `FundHoldingID` is only the holding-table discriminator.
 ```
-ID(uint64), HoldingID(uint64,indexed), OrderID(uint64,unique), Quantity(int64),
+ID(uint64), HoldingID(uint64,indexed), FundHoldingID(*uint64,indexed,nullable),
+OrderID(uint64,unique), Quantity(int64),
 Status(active|released|settled,indexed), CreatedAt, UpdatedAt, Version(int64)
 ```
 
@@ -1986,6 +2136,8 @@ CreatedAt, UpdatedAt, Version(int64)
 ```
 Placement saga steps: `validate_listing` → ... → `reserve_funds` → `persist_order`. Fill saga steps: `record_transaction` → `convert_amount` → `settle_reservation` → `update_holding` → `credit_commission` → `publish_kafka`. Compensating rows set `IsCompensation=true` and `CompensationOf` pointing at the forward step.
 
+**Stuck-compensation escalation (recovery correctness):** when a step's `Backward` cannot complete (e.g. a seller-debit compensation fails because the seller already spent a credited amount), `saga.Compensate` now returns `saga.ErrCompensationStuck` (previously it returned `nil`, so the recovery reconciler force-marked the row `compensated` and permanently hid money in limbo). The recovery recoverers propagate it, so the stuck row keeps failing, its `retry_count` climbs, and it is eventually dead-lettered (`stock.saga-dead-letter`) for human review. To keep that escalation bounded, `Recorder.RecordCompensation` is **idempotent across recovery ticks** — it reuses the existing compensation row for a `(saga_id, step_name)` (via `SagaLogRepository.FindLatestCompensationRow`) instead of inserting a new one each time the loop re-drives the rollback, so a persistently-stuck compensation stays on ONE row rather than spawning unbounded `saga_logs` rows. Safe because every `Backward` in stock-service is idempotent.
+
 **SystemSetting** — Global key-value configuration (key = primary key)
 ```
 Key(string, PK, size:64), Value(string)
@@ -1993,16 +2145,62 @@ Key(string, PK, size:64), Value(string)
 `system_settings.active_stock_source` — persists the currently active stock data source
 (`external`, `generated`, or `simulator`) across service restarts.
 
-**PeerOtcNegotiation** (Phase 4 SI-TX) — Receiver-side persistence of inbound peer OTC negotiations
+**PeerOtcNegotiation** — **RETIRED (SP-2a, 2026-06-05): folded into the unified `OTCNegotiation` table as REMOTE rows.** A remote negotiation is an `OTCNegotiation` with `routing_number=<peer routing>` (the peer bank that owns the canonical side of the chain) and `native_id=<peer-assigned negotiation id>` (the `ForeignBankId.id` returned by the peer's inbound POST handler); the `(routing_number, native_id)` UNIQUE index is the natural key. Local rows have `routing_number=OwnRouting()`, `native_id=NULL`. The autoincrement `OTCNegotiation.id` is the stable local surrogate id surfaced to the frontend. Remote-only nullable columns added to `OTCNegotiation`:
+
+| Column | Purpose |
+|---|---|
+| `remote_offer_json` (`text`) | Serialised `contract/sitx.OtcOffer` — authoritative terms for a remote chain; `Quantity`/`StrikePrice`/`Premium`/`SettlementDate` are best-effort parses kept to satisfy NOT-NULL schema. |
+| `remote_buyer_routing` (`int64`) | SI-TX wire buyer routing number. |
+| `remote_buyer_id` (`size:128`) | SI-TX wire buyer participant id (`"client-<N>"` \| `"bank"`). |
+| `remote_seller_routing` (`int64`) | SI-TX wire seller routing number. |
+| `remote_seller_id` (`size:128`) | SI-TX wire seller participant id. |
+| `remote_parent_routing` (`int64`, indexed with `remote_parent_native_id`) | Phase-10 cascade-cancel grouping key — the peer routing of the parent listing. |
+| `remote_parent_native_id` (`size:128`, indexed with `remote_parent_routing`) | Phase-10 cascade-cancel grouping key — the peer-assigned native id of the parent listing's lot. |
+
+The shared `Status` column carries the peer status vocabulary on remote rows (`"ongoing"` \| `"accepted"` \| `"cancelled"`). `OTCNegotiationRepository` gained remote-scoped methods: `UpsertRemoteNeg`, `GetRemoteNegByRoutingAndNative`, `GetRemoteNegByNative`, `UpdateRemoteNegOffer`, `UpdateRemoteNegStatus`, `CompareAndSetRemoteNegStatus`, `ListRemoteNegBySellerAndParent`, `ListRemoteNegByClient`, and `ListRemoteNegOngoing`. The standalone `PeerOtcNegotiation` model (`stock-service/internal/model/peer_otc_negotiation.go`) and `PeerOtcNegotiationRepository` (`stock-service/internal/repository/peer_otc_negotiation_repository.go`) are deleted; the inbound peer webhooks, the negotiation reconciler, and the SP-1 read-merge all use `OTCNegotiationRepository`'s remote methods. No data migration (fresh start).
+
+**CronPauseState** (C5 — 2026-05-28) — Persists pause/resume admin decisions for each cron, shared by every service's cron registry.
 ```
-ID(uuid,PK), PeerBankCode(indexed), ForeignID(indexed),
-BuyerRoutingNumber(3), BuyerID, SellerRoutingNumber(3), SellerID,
-OfferJSON(serialised contractsitx.OtcOffer),
-Status(ongoing|accepted|cancelled|expired,indexed),
-CreatedAt, UpdatedAt
-Composite-unique: (peer_bank_code, foreign_id)
+Name(string,PK,size:128), IsPaused(bool,not null), PausedBy(int64), PausedAt(time.Time,nullable)
+TableName: cron_pause_states
 ```
-Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance triggers a 4-posting `Transaction` dispatched through `PeerTxService.InitiateOutboundTxWithPostings`.
+One row per named cron per service. Queried by the cron runner on every tick to decide whether to skip execution. Written by `AdminCron.PauseCron` / `AdminCron.ResumeCron` gRPC calls. The model lives in `contract/cronreg/model.go` and is auto-migrated in every service that uses `cronreg.NewRegistry`.
+
+**AdminAuditLog** (C11 — 2026-05-28) — Audit trail for admin cron control actions, stored in `notification-service`'s `notification_db`.
+```
+ID(uint64,PK,autoIncrement),
+Action(string,size:32,not null,indexed),      -- "trigger"|"pause"|"resume"
+Service(string,size:64,not null,indexed),     -- e.g. "stock-service"
+CronName(string,size:100,not null,indexed),
+EmployeeID(int64,not null,indexed),
+Reason(string,size:512),
+Timestamp(time.Time,not null,indexed)
+TableName: admin_audit_logs
+```
+
+**BusinessAuditLog** (SP2 — 2026-06-04) — Audit trail for high-value business actions (limit changes, usedLimit resets, order approve/reject, permission changes, manual tax collection), stored in `notification-service`'s `notification_db`. Fed by the `admin.business-action` Kafka topic published by the api-gateway (actor known from JWT).
+```
+ID(uint64,PK,autoIncrement),
+Action(string,size:32,not null,indexed),      -- limit.set|limit.used_reset|order.approve|order.decline|permissions.set|tax.collect
+ActorID(int64,not null,indexed),              -- employee who performed the action
+TargetType(string,size:32,not null,indexed),  -- employee|order|role|tax
+TargetID(string,size:64,not null,indexed),
+Detail(string,size:512),                      -- human-readable new value / outcome
+Timestamp(time.Time,not null,indexed)
+TableName: business_audit_logs
+```
+Written by the notification-service `admin_audit_consumer` consuming `admin.cron-action` Kafka events published by the api-gateway after each Trigger/Pause/Resume action.
+
+**ClientLimitPolicy** (SP-5 — 2026-06-08) — Per-client spending-cap read-model stored in `account_db`. Fed by `client.limits-updated` events; drives `UpdateAccountLimits` propagation to all non-bank accounts the client owns. Non-authoritative replica (source of truth is `client_db.client_limits`); kept monotonically up-to-date via Version comparison on every upsert.
+```
+ClientID(uint64,PK),              -- the client whose limits were set
+DailyLimit(decimal(18,4)),        -- mirrors client_limits.DailyLimit
+MonthlyLimit(decimal(18,4)),      -- mirrors client_limits.MonthlyLimit
+Version(int64,not null),          -- monotonic; upsert is a no-op when incoming Version <= stored Version
+UpdatedAt(time.Time,not null)
+TableName: client_limit_policies
+```
+Written by `account-service/internal/consumer.ClientLimitConsumer` (consumer group `account-service-client-limit`). After a successful upsert the consumer calls `AccountService.ApplyClientLimitPolicy`, which sets the `daily_limit` and `monthly_limit` columns on every `Account` row where `owner_id = ClientID AND is_bank_account = false`.
 
 ---
 
@@ -2028,10 +2226,10 @@ Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance t
 | `user.limit-template-created` | user-service | (consumers) | LimitTemplateMessage |
 | `user.limit-template-updated` | user-service | (consumers) | LimitTemplateMessage |
 | `user.limit-template-deleted` | user-service | (consumers) | LimitTemplateMessage |
-| `user.client-limits-updated` | user-service | (consumers) | ClientLimitsUpdatedMessage |
+| `client.limits-updated` | client-service | account-service (group `account-service-client-limit`) | ClientLimitsUpdatedMessage — enriched (SP-5): carries DailyLimit, MonthlyLimit, TransferLimit as decimal strings + monotonic Version; Version increments on every upsert so account-service can apply idempotently. Consumer upserts ClientLimitPolicy then calls ApplyClientLimitPolicy on all client-owned accounts. |
 | `user.role-permissions-changed` | user-service | auth-service | RolePermissionsChangedMessage |
-| `client.created` | client-service | notification-service | ClientCreatedMessage |
-| `client.updated` | client-service | (consumers) | (generic) |
+| `client.created` | client-service | notification-service, card-service | ClientCreatedMessage |
+| `client.updated` | client-service | card-service | ClientCreatedMessage (full snapshot) |
 | `account.created` | account-service | notification-service | AccountCreatedMessage |
 | `account.status-changed` | account-service | (consumers) | (generic) |
 | `account.name-updated` | account-service | (consumers) | AccountNameUpdatedMessage |
@@ -2063,13 +2261,17 @@ Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance t
 | `verification.challenge-created` | verification-service | notification-service | VerificationChallengeCreatedMessage |
 | `verification.challenge-verified` | verification-service | transaction-service | VerificationChallengeVerifiedMessage |
 | `verification.challenge-failed` | verification-service | transaction-service | VerificationChallengeFailedMessage |
-| `notification.mobile-push` | notification-service | api-gateway | MobilePushMessage |
 | `notification.general` | account/card/credit/auth/transaction/stock-service | notification-service | GeneralNotificationMessage |
 | `stock.order-created` | stock-service | (consumers) | OrderCreatedMessage |
 | `stock.order-approved` | stock-service | (consumers) | OrderApprovedMessage |
 | `stock.order-declined` | stock-service | (consumers) | OrderDeclinedMessage |
 | `stock.order-filled` | stock-service | (consumers) | OrderFilledMessage (payload below) |
 | `stock.order-cancelled` | stock-service | (consumers) | OrderCancelledMessage |
+| `transaction.saga-dead-letter` | transaction-service | (monitoring/alerting) | Failed saga events that exceeded all retries (cross-bank transfers, compensation failures). |
+| `credit.saga-dead-letter` | credit-service | (monitoring/alerting) | Failed loan saga events that exceeded all retries (disbursement, installment failures). |
+| `stock.saga-dead-letter` | stock-service | (monitoring/alerting) | Failed stock/OTC saga events that exceeded all retries (OTC exercises, recurring-order failures). |
+| `admin.cron-action` | api-gateway | notification-service | `AdminCronActionMessage` — published after each Trigger/Pause/Resume admin cron action; consumed by notification-service to persist audit log rows (C6/C10/C11 — 2026-05-28) |
+| `admin.business-action` | api-gateway | notification-service | `BusinessAuditActionMessage` — published (best-effort, actor from JWT) after a limit change, usedLimit reset, order approve/reject, permission change, or manual tax collection; consumed by notification-service to persist `business_audit_logs` rows (SP2 — 2026-06-04) |
 
 ### General Notification Types
 
@@ -2105,6 +2307,20 @@ Published to `notification.general` by various services. notification-service co
 **credit-service in-app notifications (Plan B3):** credit-service emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `LOAN_REQUEST_SUBMITTED`, `LOAN_REQUEST_APPROVED`, `LOAN_REQUEST_REJECTED`, `LOAN_DISBURSED` (from the gRPC handler), `INSTALLMENT_COLLECTED`, `INSTALLMENT_FAILED` (from the daily installment-collection cron). Recipient is always the loan's borrower (`Loan.ClientID` / `LoanRequest.ClientID`); no bank-side skip. Best-effort, after the action commits.
 
 **account-service in-app notifications (Plan B4):** account-service now emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `ACCOUNT_OPENED` (on create), `ACCOUNT_STATUS_CHANGED` (on status update), `ACCOUNT_NAME_UPDATED` (on rename), `ACCOUNT_LIMITS_UPDATED` (on limit change), `MAINTENANCE_FEE_CHARGED` (per monthly cron charge). Recipient is the account owner (`account.OwnerID`); bank-owned accounts (`is_bank_account == true` or owner id `1_000_000_000`) are skipped. **Plan B4 also closed three pre-existing publish-site gaps** in the same change: the `account.name-updated`, `account.limits-updated`, and `account.maintenance-charged` domain Kafka events are now published (the producer methods existed but were never called by the handlers / cron). Best-effort, after the action commits.
+
+**SP5 notification coverage expansion (2026-06-04):**
+- **D1 — client limit change:** `client-service.ClientLimitService.SetClientLimits` now emits a `LIMIT_CHANGED` in-app notification (and a best-effort `LIMIT_CHANGED` email via the client's address) to the affected client with the new daily/monthly/transfer limits. (client-service's producer gained `PublishGeneralNotification`; `notification.general` added to its `EnsureTopics`.) New `LIMIT_CHANGED` push + email templates.
+- **E — OTC contract expiring soon:** the OTC expiry cron gained an expiring-soon pass (`OptionContractRepository.ListExpiringOn`) that warns both client parties `OTC_CONTRACT_EXPIRING_SOON` when a contract settles exactly `OTC_EXPIRY_WARNING_DAYS` (default 3) out. New `OTC_CONTRACT_EXPIRING_SOON` push template. Intra-bank contracts only.
+- **D2 (card block) and D3 (loan created/approved)** were already covered by existing card-service / credit-service notifications — no change.
+- **H — order auto-cancel-on-settlement-expiry: DEFERRED.** Stock orders have no `settlement_date` and there is no order-expiry mechanism to notify on; building one is a feature beyond notification scope. OTC offer/contract expiry already notify (`OTC_OFFER_EXPIRED`/`OTC_CONTRACT_EXPIRED`).
+
+**SP-2b service-decoupling: client↔user cycle fully removed (2026-06-08):** client-service's `SetClientLimits` no longer calls `GetEmployeeLimits` synchronously to authorize a client limit against the employee's `MaxClientDailyLimit`/`MaxClientMonthlyLimit`. It now reads a local `EmployeeLimitReplica` (consumer group `client-service-employee-limit-replica`, fed by the enriched `user.employee-limits-updated`) with a gRPC fallback+backfill on miss — same version-guarded, eventual+fallback pattern as the credit-service slice. Combined with SP-4 (user-service no longer writes client limits), the bidirectional `client ↔ user` coupling is now fully event-driven/replica-backed.
+
+**SP-1 service-decoupling: enriched `ClientCreatedMessage` + card-service `ClientReplica` (2026-06-08):**
+`ClientCreatedMessage` (published on both `client.created` and `client.updated`) was enriched with two new fields: `jmbg` (string) and `version` (int64, source `Client.Version`), so it now carries the full client snapshot. card-service consumes both topics via consumer group `card-service-client-replica` and maintains the `ClientReplica` read-model (§18 Card Service). Upsert is version-guarded: a message with a lower version than the stored row is silently dropped to prevent stale overwrites. The card-status notification path resolves the owner email from the replica first; on a miss it falls back to a synchronous `GetClient` gRPC call and backfills the replica. This is the first slice of the service-decoupling program (SP-1, client-profile replica, card-service slice).
+
+**SP-2 service-decoupling: `EmployeeLimitsUpdatedMessage` enrichment + credit-service `EmployeeLimitReplica` (2026-06-08):**
+`EmployeeLimitsUpdatedMessage` (published on `user.employee-limits-updated` by user-service whenever `SetEmployeeLimits` or `ApplyLimitTemplate` is called) was enriched to carry the FULL limit snapshot (`MaxLoanApprovalAmount`, `MaxSingleTransaction`, `MaxDailyTransaction`, `MaxClientDailyLimit`, `MaxClientMonthlyLimit` as `StringFixed(4)` decimal strings) plus a monotonic `Version` field (source `EmployeeLimit.Version`, incremented on every upsert). `EmployeeLimit.Version` now increments on every `SetEmployeeLimits` / `ApplyLimitTemplate` call in user-service. credit-service consumes the topic via consumer group `credit-service-employee-limit-replica` and maintains the `EmployeeLimitReplica` read-model (§18 Credit Service). The loan-approval gate in `LoanRequestService.ApproveLoanRequest` reads `MaxLoanApprovalAmount` from the replica first; on a miss it falls back to a synchronous `GetEmployeeLimits` gRPC call and backfills the replica at `Version=0` (a later versioned event will overwrite it). An approval whose amount exceeds the employee's limit returns `ErrAmountExceedsApprovalLimit` (gRPC `FailedPrecondition` → HTTP 409 `business_rule_violation`). This is the second slice of the service-decoupling program (SP-2, employee-limit replica, credit-service slice).
 
 ### Email Types (SendEmailMessage.EmailType)
 
@@ -2270,6 +2486,42 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 
 ### Key Business Rules
 
+**Cross-bank protocol canonical prefix (2026-05-29):**
+- Cross-bank wire-protocol routes are served EXCLUSIVELY at the canonical prefix `/api/v3/cross-bank-protocol/<route>`. Legacy paths (`/api/v3/interbank`, `/api/v3/public-stock`, `/api/v3/negotiations/*`, `/api/v3/user/*`) were removed on 2026-05-29 and return 404.
+- Cohort banks MUST register this bank's `base_url` ending in `/api/v3/cross-bank-protocol` in their `peer_banks` table to interoperate. Any bank still registered with the old prefix will receive 404 and must update immediately.
+- All routes use `PeerAuth` middleware (hybrid `X-Api-Key` or HMAC bundle). Protocol semantics are unchanged — same SI-TX envelopes, same idempotence keys, same status codes.
+- To migrate our outbound calls to a peer's canonical prefix: update the peer's row in our `peer_banks` table via `PUT /api/v3/peer-banks/:id` with the new `base_url`.
+
+**Stock & futures price oscillation (generated source — dev/demo default):**
+- The `generated` source (`stock-service/internal/source/generated_source.go`) drives stock and futures prices on a deterministic 4-minute cycle keyed to wallclock UTC minutes. Each phase lasts exactly one minute.
+- Multipliers per phase: `[0.90, 1.00, 1.10, 1.00]` applied to immutable seed prices. Phase index = `floor(unixSeconds / 60) mod 4`.
+- Cycle repeats indefinitely with zero drift — base seeds are never mutated.
+- Forex pairs are NOT oscillated; cross-currency conversion via `exchange-service.Convert` depends on stable rates for fill pricing and fee math.
+- The security price refresh interval default is `1` minute (env `SECURITY_SYNC_INTERVAL_MINUTES`, default in `stock-service/internal/config/config.go`) so the DB visibly steps to the new phase each minute. The `external` and `simulator` sources are unaffected by the oscillation.
+
+**Fund RSD Account Outflow Restriction (E0 — Celina-4, 2026-05-28):**
+- Money in an investment fund's RSD account may ONLY leave via three permitted paths: (a) a buy order placed on behalf of the fund (`on_behalf_of_fund_id` in a stock order or OTC accept), (b) a dividend payout to fund investors (E4 — not yet implemented), or (c) a redemption by an investor of their position (`FundService.Redeem`).
+- **FORBIDDEN:** An employee CANNOT transfer money from a fund's RSD account to any arbitrary other account via the generic transfer/payment routes (`POST /api/v3/me/payments`, `POST /api/v3/me/transfers`, or any employee transfer/payment route).
+- Enforcement: fund RSD accounts are tagged `account_category = "investment_fund"` in account-service at creation time. `transaction-service`'s `PaymentService.CreatePayment` and `TransferService.CreateTransfer` reject any source account with `account_category == "investment_fund"` with `ErrFundAccountRestricted` (codes.PermissionDenied).
+- **`GET /api/v3/investment-funds/:id` enrichment (E1 — 2026-05-28):** Returns `investor_count`, `total_contributed_rsd`, `liquid_rsd_balance`, `total_holdings_value_rsd`, `total_value_rsd`, `total_dividends_paid_rsd` (real sum from `fund_dividend_payments` as of E4), `profit_rsd`, `profit_pct`, and `holdings[].current_value_rsd`.
+- **OTC buy on behalf of fund (E2 — 2026-05-28):** `POST /api/v3/me/otc/options/:id/negotiations/:nid/accept` and `POST /api/v3/otc/contracts/:id/exercise` now accept `on_behalf_of_fund_id`. When set, debit comes from fund's RSD account; resulting holding lands in `fund_holdings`. Manager-only (`acting_employee_id == fund.manager_employee_id`).
+- **Sell from a fund's portfolio (2026-06-12, VERSION 4.6.0):** `POST /api/v3/me/orders` and `POST /api/v3/orders` with `on_behalf_of_fund_id` + `direction=sell` now correctly draw the shares from the fund's `fund_holdings` position — the mirror of the buy fill that credits `fund_holdings`. Previously the sell-side reserve/settle ran against the bank-sentinel `holdings` table (the order's resolved owner), so a fund sell either failed with "insufficient holding" or drew down the bank's own book; both are fixed. Implementation: the placement `reserve_holding` step calls `HoldingReservationService.ReserveFund` (locks `fund_holdings.ReservedQuantity` under a row lock, recording a `HoldingReservation` with `FundHoldingID` set); the fill's `PartialSettle` and the cancel/compensation `Release` branch on that `FundHoldingID` to mutate `fund_holdings`. Proceeds credit the fund's RSD account. No `CapitalGain` row is written for a fund sell (funds are CG tax-deferred, and the `CapitalGain` owner CHECK admits only `client`/`bank`). This also repairs `FundService.LiquidateAndAwait` (fund-redemption liquidation), which places fund sell orders through the same path.
+- **Fund-order account auto-resolve (2026-06-12, VERSION 4.6.0):** For any order with `on_behalf_of_fund_id`, `account_id` is OPTIONAL. When omitted (0) stock-service resolves it to the fund's RSD account; when supplied it must equal that account (else `InvalidArgument`). The api-gateway skips the caller-account ownership check for fund orders (the account is the fund's, bound and re-validated in stock-service against the manager). The employee-only gate still fires before the gRPC call, so a client passing `on_behalf_of_fund_id` is rejected `403 forbidden`.
+- **Dividend pass-through (E4 — 2026-05-28):** Dividends from securities held directly by clients go to the client's RSD account (15% tax withheld, net = 85% of gross). Dividends from securities held by the bank go to the bank's RSD account (no tax). Dividends from securities held by an investment fund flow into the fund's RSD account (no tax at payout time); a `FundDividendPayment` snapshot records the per-investor share at the moment of payout so that each investor's `dividends_received_rsd` in the portfolio response can be computed correctly. Tax on fund-dividend pass-through is realized at the investor's redemption time, not at payout time.
+- **Portfolio dividend visibility (E3 — 2026-05-28):** `GET /api/v3/me/portfolio` (and all portfolio routes) return two new fields on each `PortfolioPosition`: `dividends_received_rsd` (the caller's pro-rata share of dividends paid, based on the per-investor snapshot for fund positions or direct `dividend_payouts.net_amount_rsd` for security positions) and `fund_status` (the fund's lifecycle status for `investment_fund` type positions).
+
+**Client Limits Ownership (SP-4, 2026-06-08):**
+- Client limits are written ONLY by client-service (`ClientLimitService.SetClientLimits`).
+- Client-type limit blueprints are orchestrated by the api-gateway: `BlueprintHandler.ApplyBlueprint` reads the blueprint values from user-service, then calls `ClientLimitService.SetClientLimits` on client-service directly. This path never goes through user-service's `BlueprintService.ApplyBlueprint`.
+- user-service's `BlueprintService` rejects client-type apply calls with `ErrClientBlueprintNotApplicable` (gRPC `FailedPrecondition`) to guard against incorrect direct calls. user-service holds no gRPC connection to client-service.
+
+**Client Limit → Account Cap Propagation (SP-5, DONE 2026-06-08):**
+- Client limits (DailyLimit, MonthlyLimit) are now ENFORCED at the account level, not merely stored.
+- When `PUT /api/v3/clients/{id}/limits` is called, client-service persists the limit and publishes `client.limits-updated` to Kafka with the full post-write snapshot (DailyLimit, MonthlyLimit, TransferLimit as decimal strings) and a monotonically incrementing `Version` (`ClientLimit.Version` increments on every upsert).
+- account-service's `ClientLimitConsumer` (group `account-service-client-limit`) receives the event, upserts a `ClientLimitPolicy` replica row (skips stale events via Version comparison), and calls `AccountService.ApplyClientLimitPolicy` which writes the new DailyLimit/MonthlyLimit to every non-bank account owned by the client.
+- account-service is the authoritative enforcement point for spending limits (via `DebitWithLock`). The per-account `daily_limit`/`monthly_limit` columns set by this propagation are what the ledger repository enforces on every debit.
+- TransferLimit is carried in the Kafka message but is NOT stored in `ClientLimitPolicy` (transfer limits are enforced by client-service at request time, not by account-service). Only DailyLimit and MonthlyLimit propagate to account caps.
+
 **Accounts:**
 - `current` accounts → RSD only
 - `foreign` accounts → EUR, CHF, USD, GBP, JPY, CAD, AUD
@@ -2304,6 +2556,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 
 **Auth:**
 - 5 failed login attempts → 30-min lockout
+- A successful password reset unlocks a brute-force-locked account and clears the failed-attempt counter (`AccountService.ResetPassword` calls `LoginAttemptRepository.UnlockAccount`).
 - Password: 8-32 chars, 2+ digits, 1 uppercase, 1 lowercase
 - JMBG: exactly 13 digits
 - Role permission updates revoke active sessions for affected employees within seconds via the `user.role-permissions-changed` Kafka event; auth-service rejects access tokens whose `iat` predates the per-user revocation epoch (`user_revoked_at:<id>` Redis key, TTL = `JWT_ACCESS_EXPIRY`) and revokes their refresh tokens to force a full re-login.
@@ -2339,6 +2592,10 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - When the active source is `simulator`, a background goroutine refreshes prices every 3 seconds. Switching away from `simulator` cancels this goroutine via `context.Context` cancellation.
 - The `SourceAdminService.SwitchSource` RPC rejects unknown source names with `codes.InvalidArgument`.
 
+**Stock-service synthetic history backfill.** During `SeedAll` (initial seed and `SwitchSource`), `stock-service` writes 5 years (1825 days) of deterministic synthetic OHLC rows per listing to `listing_daily_price_infos`. Random walk is seeded by `listing.ID`, anchors the newest row at the listing's current price, and is idempotent on reseed via `INSERT … ON CONFLICT (listing_id, date) DO UPDATE`. Implemented in `stock-service/internal/service/listing_history_backfill.go`.
+
+**No saga can leave the system stuck.** Every cross-bank (SI-TX), OTC, loan disbursement, and recurring-order operation has automatic compensation. Compensations are retried up to 10 times by per-service recovery workers, then escalated to a service-scoped dead-letter Kafka topic (`transaction.saga-dead-letter`, `credit.saga-dead-letter`, `stock.saga-dead-letter`). No path requires admin manual reconciliation under normal failure modes. Cross-bank TX stuck-state is additionally resolved by the Celina-5 CHECK_STATUS mechanism: `PeerTxReconciler` (sender side) polls peers every 10 minutes via `GET /api/v3/cross-bank-protocol/interbank/:txID/status`; peers that have committed locally will report `committed` so the sender can close its row without a re-send loop.
+
 **Securities & Trading (Phase 2 bank-safe settlement):**
 - Buy orders for securities reserve funds at placement (converted to the account currency via exchange-service for cross-currency listings). Reservations are released on cancellation; released partially when an order completes under the reserved amount due to market slippage.
 - Sell orders for securities reserve holdings at placement; sells are rejected if `AvailableQuantity = Quantity - ReservedQuantity` is insufficient. Filling decrements both `Quantity` and `ReservedQuantity` atomically via the holding reservation ledger.
@@ -2350,12 +2607,20 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - `GetReservation` returns the authoritative list of `settled_transaction_ids` so stock-service's saga recovery can distinguish "step already committed remotely" from "step never ran."
 - Only whole-remaining-order cancellation is supported; partial-cancel-during-fill is out of scope.
 - **Order matching honours the user's price condition.** The execution engine in `stock-service/internal/service/order_execution.go` enforces, per portion: market orders fill at the live quote (ask for buy, bid for sell); limit orders fill only when the live quote satisfies `LimitValue` (`ask ≤ LimitValue` for buy, `bid ≥ LimitValue` for sell); stop orders fill only after the trigger price has been crossed (`High ≥ StopValue` for buy, `Low ≤ StopValue` for sell); stop-limit orders require BOTH the stop trigger AND the limit condition each tick. The fill price for limit / stop-limit orders is the live quote (never clamped to `LimitValue`) — the live quote is what a real counterparty would accept. A defensive pre-fill check (`execPriceAllowed`) rejects any computed execution price that would violate `LimitValue`, even if the trigger check above missed it (e.g. a quote moved during the per-portion wait).
+- **Agent order approval is a disjunction (Celina 3).** An employee-placed BUY order requires supervisor approval if ANY of: the acting agent's `need_approval` flag is set, OR the order would push the agent's `used_limit + amount` over their configured daily `limit` (which also covers the "limit already fully used" case). Implemented by `decideNeedsApproval` in `stock-service/internal/service/order_service.go` and wired into the placement saga's finalize step. NB: agents default to `need_approval=true` (`user-service ... actuary_service.go`: `!isSupervisor`), so a fresh agent's orders are approval-gated until a supervisor grants `skip-approval`; a configured limit is enforced regardless of the flag (closes the prior conjunction money-hole where a non-flagged agent could auto-approve an over-limit order). Limit=0 means "no limit configured" → the over-limit branch never fires, so a non-flagged agent with no limit auto-approves.
+- **Forex pairs and options market data are actuary-only.** Clients may browse/trade only stocks and futures (Celina 3 portal matrix). The gateway guards `/securities/forex*` and `/securities/options*` with `middleware.DenyClientToken()` → `403 forbidden` for client principals; `/securities/candles` stays open (clients need it for stocks/futures).
 - **Capital gains are recorded for every realised sale**, including OTC option exercise. On exercise, `stock-service/internal/service/otc_exercise_saga.go` snapshots the seller's `Holding.AveragePrice` before the consume step and writes a `CapitalGain` row post-pivot with `BuyPricePerUnit = AveragePrice`, `SellPricePerUnit = StrikePrice`, `TotalGain = (Strike - AveragePrice) × Quantity`, `OTC = true`, `Currency = StrikeCurrency`, `AccountID = SellerAccountID`. Best-effort — a CG write failure logs `WARN` but does NOT reverse the strike/shares movement (shares and money have already moved). Mirrors the existing CG writes in `PortfolioService.recordCapitalGain` (sell-order fill) and `OTCService.BuyOffer` (direct OTC stock sale). Wired via `OTCOfferService.WithCapitalGain(repo)` in `stock-service/cmd/main.go`; tests that don't wire it see degraded (no-CG) behaviour, identical to pre-fix.
 - **Every stock realisation path records a CapitalGain row.** In addition to the order-fill sell (`PortfolioService.recordCapitalGain`), the direct OTC stock sale (`OTCService.BuyOffer`), and the local OTC option exercise (`otc_exercise_saga.go`), realisation rows are now also written by:
   - `OTCStockService.FillBuyOffer` — when a seller fills a buyer's standing buy-offer; uses the holding snapshot captured in step 2 of the fill saga as cost basis and `offer.PricePerUnit` as sell price.
   - `PeerOTCGRPCHandler.recordOptionExercise` (DEBIT branch) — when a cross-bank OTC option exercise lands on the seller's bank; cost basis is snapshotted under the row lock inside `HoldingReservationService.ConsumeForPeerOptionContract` (exposed on `PartialSettleHoldingResult.AveragePriceBefore`), sell price is `contract.StrikePrice`. Wired via `PeerOTCGRPCHandler.WithCapitalGain(repo)` in `cmd/main.go`.
-- **Option premium realises as `CapitalGain` rows at acceptance**, not at exercise or expiry. `OTCOfferService.Accept` writes two `SecurityType="option"` rows when the premium-payment saga commits: `+premium` for the writer (seller) and `−premium` for the buyer, both `OTC=true`, `Currency=PremiumCurrency`. This single-realisation model means option expiry needs no further P/L entry (premium already booked) and option exercise just realises the stock-side P/L on top (writer's stock CG via the exercise saga; buyer's later stock sell at the strike-cost-basis they were credited at). End-to-end totals: round-tripping `buy stock → write call → get exercised` shows premium gain + stock gain; round-tripping `buy call → let expire` shows premium loss; round-tripping `buy call → exercise → sell stock` shows premium loss + stock gain at `sellPrice − strike`.
-- **Buyer's cost basis on OTC option exercise = StrikePrice, premium tracked separately.** Both `otc_exercise_saga.go` (local) and `HoldingReservationService.CreditBuyerHoldingForPeerOption` (cross-bank, now takes a `strikePrice` argument and applies a weighted-average when the buyer already holds the ticker) set the credited `Holding.AveragePrice` to the per-share strike. The premium the buyer paid at acceptance was booked as its own `SecurityType="option"` CG row, so folding it into the stock cost basis would double-count.
+- **Option premium tax — resolution-month model (2026-06-04, `docs/superpowers/specs/2026-06-04-options-premium-tax-design.md`).** The OTC option premium and exercise are taxed as follows:
+  - **Seller (writer) — at accept.** `OTCOfferService.Accept` writes one `SecurityType="option"`, `OTC=true` row: `+premium` for the seller, `Currency=PremiumCurrency`. The premium income is taxable when received (15%).
+  - **Buyer — at resolution, NOT at accept.** The buyer's premium is no longer booked at accept (the `record_buyer_premium_cost` accept-saga step is now a no-op, kept in place so the saga shape — hence crash-recovery — is unchanged).
+    - **On exercise:** `otc_exercise_saga.go` (`record_buyer_exercise_cost` step) writes the buyer's `SecurityType="option"`, `OTC=true` row with `TotalGain = (market − strike) × qty − premium`, in the exercise month, where `market` is the underlying `Listing.Price` snapshotted pre-saga. The row may be negative (premium > bargain), correctly reducing the buyer's monthly gain. Best-effort: skipped (and basis kept at strike) when the market price is unknown — never blocks the exercise.
+    - **On expiry:** the daily `OTCExpiryCron.expireContract` writes the buyer's `−premium` loss row in the expiry month (idempotent on `expire-contract-<id>-buyer-premium-loss`, written before the status flip). The seller adds nothing (already taxed at accept).
+  - **Buyer's cost basis steps up to market on exercise.** `otc_exercise_saga.go` sets the credited `Holding.AveragePrice` to the snapshotted **market** price (was strike). This prevents double taxation: since `(market − strike)` is taxed at exercise, a later sale at market produces zero stock gain. Equivalence: `((market−strike)×qty − premium)` [exercise] `+ (S−market)×qty` [sale] `= (S−strike)×qty − premium`. Falls back to strike basis when the market price is unknown.
+- **Bank (Profit Banke) exemption.** `TaxCollectionRepository.ListOwnersWithGains` filters to `owner_type='client'`, so bank-owned capital gains (actuary trading on behalf of the bank — option premiums, exercise gains, dividends, stock) are never collected; the profit stays with the bank. Same rule as dividends.
+- **Cross-bank OTC buyer taxation is deferred** (`docs/Bugs.txt` §"Cohort-dependent TODOs" item 5): the frozen SI-TX exercise flow carries neither premium nor market price, so `(market−strike)×qty − premium` is uncomputable on the buyer's bank. Cross-bank **sellers** are still taxed (the strike-gain write in `PeerOTCGRPCHandler.recordOptionExercise` DEBIT branch is unchanged); cross-bank buyers are taxed via their eventual stock sale (shares credited at strike basis), as before.
 - **Total P/L = sum of all CG rows regardless of `SecurityType`.** `CapitalGainRepository.SumByOwner*` methods do NOT filter on `security_type`, so portfolio-summary totals already cover stock and option realisations together. Future per-security-type breakdown fields (e.g. `realized_profit_stock_rsd`, `realized_profit_options_rsd`) can be added on top without changing the totals.
 
 ### 21.1 gRPC Error Sentinels
@@ -2367,6 +2632,8 @@ Handlers do NOT map errors — they return wrapped service errors directly. The 
 The api-gateway maps gRPC status codes to HTTP via `api-gateway/internal/handler/validation.go:grpcToHTTPError`. Distinct sentinels surface as distinct HTTP error codes, so a client can distinguish "wrong password" (401 unauthorized) from "account locked" (403 forbidden) from "account pending" (409 business_rule_violation), etc.
 
 Email-not-found and bcrypt-mismatch deliberately collapse to the same `ErrInvalidCredentials` sentinel for security (prevents email enumeration). All other failure modes are distinct.
+
+**Standardization audit (2026-06-08):** a sweep confirmed all services return `svcerr`-coded errors across the gRPC boundary. stock-service was brought into full conformance — bare `errors.New` returns that were mapping to HTTP 500 now use the correct codes: listing-not-found → `NotFound` (404); OTC business-rule rejections (terminal-state, self-counter/accept, settlement-not-future, accounts-not-bound) → `FailedPrecondition` (409); and `otc_service` debit/credit failures now wrap the account-service error with `%w` so its code (e.g. insufficient-balance `FailedPrecondition`) is preserved instead of being flattened to 500. Gateway websocket and rate-limit responses were standardized onto `apiError`/`abortWithError`. (cross-bank-protocol error responses are intentionally exempt and unchanged.)
 
 ### 21.2 Cross-Service Saga Coordination
 
@@ -2532,17 +2799,18 @@ The full endpoint reference is in `docs/api/REST_API_v1.md` (kept under that fil
 | GET | `/api/v3/me/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListMyPositions | Caller's fund positions |
 | GET | `/api/v3/investment-funds/positions` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ListBankPositions | Bank-owned positions |
 | GET | `/api/v3/actuaries/performance` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ActuaryPerformance | Realised profit per acting employee |
-| POST | `/api/v3/otc/offers` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.CreateOffer | Create OTC option offer (Spec 2). Clients allowed (ownership-gated); ticker-keyed; `account_id` required; optional `on_behalf_of_client_id` |
-| POST | `/api/v3/otc/offers/:id/counter` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.CounterOffer | Counter offer terms; optional `on_behalf_of_client_id` |
-| POST | `/api/v3/otc/offers/:id/accept` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.AcceptOffer | Accept offer (premium-payment saga; cross-bank dispatches via Spec 4). Single `account_id` (acceptor's); optional `on_behalf_of_client_id` |
-| POST | `/api/v3/otc/offers/:id/reject` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.RejectOffer | Reject offer |
+| POST | `/api/v3/admin/dividends` | AuthMiddleware + RequirePermission(`securities.manage.catalog`) | DividendHandler.DeclareDividend | Declare a dividend for a security (E4) |
+| POST | `/api/v3/admin/dividends/:id/payout` | AuthMiddleware + RequirePermission(`securities.manage.catalog`) | DividendHandler.PayoutDividend | Fan out dividend credits to all holders (E4) |
+| GET | `/api/v3/me/dividends` | AnyAuthMiddleware | DividendHandler.ListMyDividends | Caller's dividend payout history (E4) |
+| GET | `/api/v3/investment-funds/:id/dividends` | AnyAuthMiddleware | DividendHandler.ListFundDividends | Fund's dividend history (E4) |
+| POST | `/api/v3/me/otc/options` | AnyAuthMiddleware + ResolveIdentity | OTCOptionsHandler.CreateOffer | Create a **termless** OTC option listing `(owner, ticker, quantity)` — no preset strike/premium/settlement (terms are negotiated per chain); ticker-keyed; `account_id` required; one open offer per `(owner, ticker, direction)` (duplicate ⇒ 409); optional `on_behalf_of_client_id`. (The legacy single-chain `POST /api/v3/otc/offers` + its `/counter`,`/accept`,`/reject` routes were **deleted** — bidding goes through `POST /api/v3/otc/options/:id/bid` and the per-chain `/me/otc/options/:id/negotiations/*` routes.) |
 | POST | `/api/v3/otc/contracts/:id/exercise` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.ExerciseContract | Exercise option (cross-bank dispatches via Spec 4). Accounts read from the contract; optional `on_behalf_of_client_id` |
-| GET | `/api/v3/otc/offers/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetOffer | Offer detail with revisions |
+| GET | `/api/v3/otc/options/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetOffer | Offer detail with revisions (terms viewer-contextual) |
 | GET | `/api/v3/otc/contracts/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetContract | Contract detail |
-| GET | `/api/v3/me/otc/offers` | AnyAuthMiddleware | OTCOptionsHandler.ListMyOffers | Caller's OTC offers |
-| GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts (intra-bank in `contracts`, cross-bank in `peer_contracts`) |
-| POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | AnyAuthMiddleware | OTCOptionsHandler.ExercisePeerContract | Cross-bank option exercise (buyer-only). See §27. |
-| POST | `/api/v3/me/peer-otc/negotiations` | AnyAuthMiddleware | PeerOTCInitiateHandler.CreatePeerNegotiation | Client-facing initiator for cross-bank OTC negotiations. See §27. |
+| GET | `/api/v3/me/otc/options/posted` | AnyAuthMiddleware | OTCOptionsHandler.ListMyPostedOffers | Caller's posted OTC option listings (any status) |
+| GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts, LOCAL + REMOTE merged into one `contracts[]` array (each row carries `kind`/`routing_number`/`bank_code`/`me_owner`). **SP-2b (2026-06-05):** the legacy `peer_contracts`/`peer_total` response fields were removed — remote contracts now appear in `contracts[]` with `kind=remote`. |
+| GET | `/api/v3/me/otc/options/negotiations` | AnyAuthMiddleware + ResolveIdentity | OTCOptionsHandler.ListMyNegotiations | Caller's LOCAL (intra-bank bidder) + REMOTE (cross-bank peer) negotiation chains, merged into one list (SP-1 Task 7). All statuses (open/countered/accepted/rejected/cancelled/expired) with optional `?statuses=` filter applied to both sets. Each item carries `kind` (`local`\|`remote`), `routing_number`/`bank_code` provenance, and `me_owner` (true only when the caller is the parent listing's poster/seller — never for a bidder; for remote, true iff we host the seller side). Remote `id` is the local peer-negotiation surrogate key; remote terms are projected from the mirrored offer. Local response also includes `minted_contract_id` (non-zero on `status=accepted` rows). Paging applies to the local set; remote chains are appended in full; `total` is the local total. The gateway is a uniform pass-through. |
+| GET | `/api/v3/me/otc/options/negotiations/:nid/revisions` | AnyAuthMiddleware + ResolveIdentity | OTCOptionsHandler.ListMyNegotiationRevisions | Full revision chain (BID/COUNTER/ACCEPT/REJECT) for a negotiation. Caller must be the bidder or the listing's poster; returns 403 otherwise. |
 
 ## 24. Investment Funds (Celina 4)
 
@@ -2550,11 +2818,15 @@ The full endpoint reference is in `docs/api/REST_API_v1.md` (kept under that fil
 
 | Entity | Table | Purpose |
 |---|---|---|
-| `InvestmentFund` | `investment_funds` | Supervisor-managed pool. One bank-owned RSD account, manager_employee_id, minimum contribution. Optimistic locking via Version. |
+| `InvestmentFund` | `investment_funds` | Supervisor-managed pool. One bank-owned RSD account, manager_employee_id, minimum contribution. Optimistic locking via Version. `dividend_mode` (`payout`\|`reinvest`, default `payout` — SP4 2026-06-04): in `reinvest` mode `DividendService.Payout` buys `floor(grossRSD/priceRSD)` more shares of the dividend-paying stock on behalf of the fund (DRIP, best-effort — cash retained on failure) instead of leaving the dividend as cash. Settable on create/update; surfaced on `FundResponse`. |
+| `FundValueSnapshot` | `fund_value_snapshots` | Daily point-in-time NAV per fund (SP3 — 2026-06-04). Unique `(fund_id, date)`; columns `total_value_rsd`, `liquid_rsd_bal`, `holdings_value_rsd`, `investor_count`. Written by the `fund-snapshot-cron` (daily, default 23:50 UTC, `FUND_SNAPSHOT_CRON_UTC`). Feeds the discovery/detail statistics (annualized return, volatility, reward-to-variability, max drawdown — std-dev/Sharpe use monthly-resampled returns; drawdown uses the daily series) and the detail `history`/`average_history` charts. Metrics are computed on demand and shown only once there are ≥ `FUND_METRICS_MIN_MONTHLY_RETURNS` (default 2) monthly returns; otherwise `metrics_available=false`. `ListFunds` supports `sort_by`/`sort_order` over the metrics (`FundResponse`/`FundDetailResponse` extended). |
 | `ClientFundPosition` | `client_fund_positions` | One row per (fund, owner). Owner identified by (`OwnerType`, `OwnerID`) — `bank` with `OwnerID IS NULL` for the bank's own stake, `client` with non-null `OwnerID` for clients. (Renamed from the pre-Task-4 `(UserID=1_000_000_000, SystemType="employee")` sentinel pattern by plan 2026-04-27-owner-type-schema.md.) TotalContributedRSD accumulates contributions and decrements on redeem. |
 | `FundContribution` | `fund_contributions` | Append-mostly history of every invest/redeem event. Owner identified by (`OwnerType`, `OwnerID`); status pending → completed/failed under the saga that produced it. SagaID is a UUID string referencing saga_logs. |
 | `FundHolding` | `fund_holdings` | Fund-side analogue of Holding. Increments on on-behalf-of-fund order fills, decrements on liquidation. FIFO order-by created_at for liquidation. |
 | `Order.FundID` | `orders.fund_id` | New optional column. Non-nil when the order was placed on behalf of a fund — `OwnerType="bank"`/`OwnerID IS NULL` and fills credit `fund_holdings` instead of `holdings`. |
+| `DividendPayment` | `dividend_payments` | One declared dividend per `(security_id, payment_date)`. Status: `declared → paid_out` (or `cancelled`). Created by `DividendService.Declare` (E4). UNIQUE on `(security_id, payment_date)`. |
+| `DividendPayout` | `dividend_payouts` | One row per `(dividend_payment_id, holding_id)` — the actual account credit record. `holding_owner_type`: `client`/`bank`/`investment_fund`. `tax_amount_rsd` = 15% of gross for clients, 0 for bank/fund. `idempotency_key` is UNIQUE (`"dividend-<payment_id>-<holding_id>"`). (E4) |
+| `FundDividendPayment` | `fund_dividend_payments` | Snapshot of the fund-level dividend event plus per-investor shares at payout time (`per_investor_snapshot` JSONB). UNIQUE on `(dividend_payment_id, fund_id)`. Used to compute `dividends_received_rsd` in portfolio positions (E3/E4). |
 
 ### Kafka topics
 
@@ -2619,7 +2891,7 @@ Hosted on api-gateway, gated by `middleware.PeerAuth` (hybrid auth — see "Auth
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/v3/interbank` | Receives `Message<Type>` envelope. Decodes by `messageType` and dispatches to `transaction-service.PeerTxService` via gRPC. |
+| POST | `/api/v3/interbank` | Receives `Message<Type>` envelope. Decodes by `messageType` and dispatches to `interbank-service.PeerTxService` via gRPC (2026-06-07 cutover; was transaction-service). |
 
 ### Admin REST routes (api-gateway, employee JWT)
 
@@ -2629,9 +2901,11 @@ Hosted on api-gateway, gated by employee JWT + `peer_banks.manage.any` permissio
 |---|---|---|
 | GET | `/api/v3/peer-banks` | List registered peers (optional `?active_only=true`). |
 | GET | `/api/v3/peer-banks/:id` | Read one. |
-| POST | `/api/v3/peer-banks` | Register a new peer (bank_code, routing_number, base_url, api_token, optional HMAC keys, active flag). |
+| POST | `/api/v3/peer-banks` | Register a new peer (bank_code, routing_number, base_url, api_token, optional HMAC keys, active flag). **Returns 400 when `bank_code` or `routing_number` equals this bank's own** (peer-collision invariant, SP-2a). |
 | PUT | `/api/v3/peer-banks/:id` | Update mutable fields. |
 | DELETE | `/api/v3/peer-banks/:id` | Remove. |
+
+**Peer-collision invariant (SP-2a, 2026-06-05):** A peer may never share this bank's own `bank_code` or `routing_number`. The check is enforced at three layers: (1) `POST /api/v3/peer-banks` returns 400 if either field matches own; (2) the `OTCOfferRepository.UpsertRemote` and `OptionContractRepository.UpsertRemoteContract` ingestion paths reject rows where `routing_number == OwnRouting()`; (3) `stock-service` startup aborts if a peer-bank row with own routing is found in the DB (invariant never silently violated at runtime). This ensures that `routing_number == OwnRouting()` is a reliable discriminator between local rows and remote (folded-in) rows in the unified tables.
 
 API tokens are bcrypt-hashed before persist. The plaintext `api_token` is also stored alongside (only readable via the internal `ResolvePeerByAPIToken` RPC, never via REST) so the api-gateway middleware can resolve incoming tokens to peer-bank records.
 
@@ -2639,45 +2913,66 @@ API tokens are bcrypt-hashed before persist. The plaintext `api_token` is also s
 
 `middleware.PeerAuth` accepts either:
 
-1. **`X-Api-Key: <token>`** — looked up via `transaction-service.PeerBankAdminService.ResolvePeerByAPIToken` (internal gRPC; constant-time compare against `peer_banks.api_token_plaintext` for active peers only).
+1. **`X-Api-Key: <token>`** — looked up via `interbank-service.PeerBankAdminService.ResolvePeerByAPIToken` (internal gRPC; constant-time compare against `peer_banks.api_token_plaintext` for active peers only). *(2026-06-07 cutover: the gateway dials interbank-service for this; was transaction-service.)*
 2. **`X-Bank-Code: <code>` + `X-Bank-Signature: <hex SHA-256>` + `X-Timestamp: <RFC3339>` + `X-Nonce: <single-use>`** — looked up via `ResolvePeerByBankCode`. Signature verified against `peer_banks.hmac_inbound_key`; timestamp window ±5 min; nonce dedup window 10 min in Redis (`cache.PeerNonceStore`).
 
 On success the middleware sets `peer_bank_code` and `peer_routing_number` on the gin context. On any failure: 401 with empty body (no info leak; constant-time compare).
 
 ### gRPC services
 
-- **`PeerTxService`** (transaction-service): 4 RPCs — `HandleNewTx`, `HandleCommitTx`, `HandleRollbackTx`, `InitiateOutboundTx`, plus `InitiateOutboundTxWithPostings` (Phase 4).
-- **`PeerBankAdminService`** (transaction-service): 5 admin RPCs (List/Get/Create/Update/Delete) + 2 internal-resolve RPCs (`ResolvePeerByAPIToken`, `ResolvePeerByBankCode`) returning `PeerBankFull` (with HMAC keys + plaintext token, never exposed via REST).
+> **2026-06-07 cutover:** the entire SI-TX engine + peer_banks registry below was
+> **moved out of transaction-service into `interbank-service`** (gRPC `:50062`,
+> its own `interbank_db`). The proto definitions, RPCs, wire protocol, and
+> execution logic are byte-for-byte unchanged — only the hosting service changed.
+> transaction-service no longer registers `PeerTxService`/`PeerBankAdminService`
+> and is now pure local payments/transfers/fees. interbank-service additionally
+> hosts `PeerEgressService` (the single outbound HTTP egress to peers),
+> `PeerUserService` (peer `/user` resolver), and a `PeerOTCService` forwarder→stock.
+
+- **`PeerTxService`** (interbank-service): 4 RPCs — `HandleNewTx`, `HandleCommitTx`, `HandleRollbackTx`, `InitiateOutboundTx`, plus `InitiateOutboundTxWithPostings` (Phase 4) and `GetTxStatus`.
+- **`PeerBankAdminService`** (interbank-service): 5 admin RPCs (List/Get/Create/Update/Delete) + 2 internal-resolve RPCs (`ResolvePeerByAPIToken`, `ResolvePeerByBankCode`) returning `PeerBankFull` (with HMAC keys + plaintext token, never exposed via REST).
 
 ### TX execution
 
 **Receiver side** (`HandleNewTx`):
 1. Replay-cache lookup on `(peer_bank_code, locally_generated_key)` in `peer_idempotence_records`. Hit → return cached vote.
 2. `vote_builder.BuildPrelimVote(postings)` — cheap balance check (UNBALANCED_TX if Σ debits ≠ Σ credits per `assetId`).
-3. `posting_executor.Reserve(...)` — per-posting checks: `NO_SUCH_ACCOUNT` (account not found), `UNACCEPTABLE_ASSET` (debit on our routing, or inactive account), `NO_SUCH_ASSET` (currency mismatch), `INSUFFICIENT_ASSET` (reserve fails). On YES, `account-service.ReserveIncoming(reservation_key="<peer>:<idem>")` per credit posting.
+3. `posting_executor.Reserve(...)` — per-posting checks: `NO_SUCH_ACCOUNT` (account not found), `UNACCEPTABLE_ASSET` (inactive account), `NO_SUCH_ASSET` (currency mismatch), `INSUFFICIENT_ASSET` (reserve fails). On YES: CREDIT postings → `account-service.ReserveIncoming(reservation_key="<peer>:<idem>")`; DEBIT (money) postings → `account-service.ReserveOutgoing(reservation_key="<peer>:<idem>:<i>")` (reserve-then-settle HOLD on AvailableBalance, tracked in `DebitsJSON`).
 4. Record cached response in `peer_idempotence_records` (same DB tx as the local commit per SI-TX §"R must record the idempotence key").
 5. Return 200 + `TransactionVote`.
 
-**Receiver side** (`HandleCommitTx` / `HandleRollbackTx`): look up idem record; `account-service.CommitIncoming` / `ReleaseIncoming` on the reservation key. Return 204.
+**Receiver side** (`HandleCommitTx` / `HandleRollbackTx`): look up idem record. CREDIT side → `account-service.CommitIncoming` / `ReleaseIncoming` on the reservation key. DEBIT (money) side → `account-service.SettleOutgoing` (COMMIT, money leaves) / `ReleaseOutgoing` (ROLLBACK, hold lifted) on each `DebitsJSON` per-posting key. Return 204.
 
 **Sender side** (`InitiateOutboundTx`):
 1. Detect peer routing from receiver-account 3-digit prefix. `peerLookup` reads `peer_banks` table.
 2. Generate UUID idempotence key. Persist `outbound_peer_txs` row in `pending`.
-3. **Sender-debit-immediate**: `account-service.UpdateBalance(amount=-X)` to debit sender now (preserves intra-bank transfer semantics).
-4. Best-effort dispatch via `sitx.PeerHTTPClient` to peer's `/interbank` (`Message<NEW_TX>`); on YES response, follow up with `Message<COMMIT_TX>`. On any error, leave row `pending` and `OutboundReplayCron` resumes.
+3. **Reserve-then-settle**: `account-service.ReserveOutgoing(reservation_key="peer-out:<idem>")` to HOLD the sender's funds (AvailableBalance dips, Balance untouched). A failed reserve marks the row `rolled_back` (so the replay cron can't later commit an unfunded transfer).
+4. Best-effort dispatch via `sitx.PeerHTTPClient` to peer's `/interbank` (`Message<NEW_TX>`); on YES, follow up with `Message<COMMIT_TX>` then `SettleOutgoing` (money leaves); on NO, `ReleaseOutgoing` (hold lifted). On any error, leave row `pending` and `OutboundReplayCron` resumes (its `LocalCommitFunc`/`LocalReversalFunc` settle/release with the same idempotent keys).
+
+**Time-safety backstop**: `OutgoingReservationTimeoutCron` (account-service, TTL `OUTGOING_RESERVATION_TTL`, default 10m) releases any pending `OutgoingReservation` whose peer never sent COMMIT/ROLLBACK. `SettleOutgoing` refuses a non-pending row, so a late COMMIT racing the timeout cannot re-debit.
 
 `InitiateOutboundTxWithPostings` is the same flow but accepts a pre-composed `[]Posting` (used by cross-bank OTC accept — see §27).
 
 ### Database tables
 
+> **2026-06-07 cutover:** `peer_banks`, `peer_idempotence_records`, and
+> `outbound_peer_txs` now live in **`interbank_db`** (interbank-service's own
+> Postgres, host port `5443`), not `transaction_db`. `outgoing_reservations`
+> stays in `account_db` (account-service owns it). The schemas are unchanged.
+
 - **`peer_banks`** — runtime-editable registry. Columns: `id`, `bank_code`, `routing_number`, `base_url`, `api_token_bcrypt`, `api_token_plaintext`, `hmac_inbound_key`, `hmac_outbound_key`, `active`, timestamps.
-- **`peer_idempotence_records`** — receiver-side replay cache. Composite-unique on `(peer_bank_code, locally_generated_key)`. Stores `response_payload_json`, `debits_json` (immediate-debit list for ROLLBACK_TX credit-back), and `options_json` (option-leg list for COMMIT_TX materialisation).
+- **`peer_idempotence_records`** — receiver-side replay cache. Composite-unique on `(peer_bank_code, locally_generated_key)`. Stores `response_payload_json`, `debits_json` (DEBIT-leg list: per-posting `accountNumber`/`amount`/`idempotencyTag`, used to settle outgoing holds at COMMIT_TX and release them at ROLLBACK_TX), and `options_json` (option-leg list for COMMIT_TX materialisation).
+- **`outgoing_reservations`** (account-service DB) — debit-side reserve-then-settle table for cross-bank money DEBIT legs (mirror of `incoming_reservations`). Columns: `id`, `account_number`, `amount`, `currency`, `reservation_key` (unique; SI-TX per-posting tag `"<peer>:<idem>:<i>"` or simple-transfer `"peer-out:<idem>"`), `status` (`pending` → `settled` | `released`), `created_at` (indexed for the timeout sweep), `updated_at`, `version`. `ReserveOutgoing` dips AvailableBalance; `SettleOutgoing` debits Balance + ledger entry; `ReleaseOutgoing` restores AvailableBalance. `OutgoingReservationTimeoutCron` releases pending rows older than `OUTGOING_RESERVATION_TTL`.
 - **`outbound_peer_txs`** — sender-side state. Columns: `id`, `idempotence_key`, `peer_bank_code`, `tx_kind` (`transfer` | `otc-accept` | `otc-exercise`), `postings_json`, `status` (`pending` | `committing` | `committed` | `rolled_back` | `failed`), `attempt_count`, `last_attempt_at`, `last_error`, timestamps.
-- **`peer_option_contracts`** (stock-service DB, Celina 5) — cross-bank option contract records. See §27 for the full column list. Lifecycle: `active` → `exercised` (via exercise SI-TX) or `expired` (via daily cron after settlement_date passes).
+- **cross-bank option contracts** (stock-service DB, Celina 5) — **SP-2a (2026-06-05): folded into the unified `option_contracts` table as REMOTE rows; the standalone `peer_option_contracts` table is retired.** See §27 for the full column mapping. Lifecycle (on the shared `status` column, PEER vocabulary): `active` → `exercised` (via exercise SI-TX) or `expired` (via daily cron after settlement_date passes); buyer-side claim transits `active` → `exercising`.
 
 ### Retry / replay policy
 
-`OutboundReplayCron` (transaction-service): 30s tick. Scans `outbound_peer_txs` rows in `pending` whose `last_attempt_at` is older than 60s (or NULL — never attempted). 4-attempt cap; rows that exceed get marked `failed`. Receiver returns the same cached vote on every retry due to idempotence-key dedup.
+`OutboundReplayCron` (interbank-service; 2026-06-07 cutover — was transaction-service): 30s tick. Scans `outbound_peer_txs` rows in `pending` whose `last_attempt_at` is older than 60s (or NULL — never attempted). 4-attempt cap; rows that exceed get marked `failed`. Receiver returns the same cached vote on every retry due to idempotence-key dedup.
+
+**Release on terminal failure (cron + inline parity):** because the sender's funds are HELD (reserve-then-settle) at initiation, every terminal non-committed outcome must lift that hold (no money ever left). On a peer **NO vote** *and* on **max-attempts-exceeded**, the cron first reverses the local effects (via `PeerTxGRPCHandler.ReverseOutboundLocal`, wired as the cron's `LocalReversalFunc`) before marking the row `rolled_back` / `failed`. The reversal dispatches by `tx_kind`: `payment` (the simple-transfer kind `InitiateOutboundTx` actually sets) releases the single local outgoing hold with key `peer-out-release-<idem>`; OTC kinds (`transfer`/`otc-accept`/`otc-exercise` from `InitiateOutboundTxWithPostings`) delegate to `PostingExecutor.ReverseLocal`, which releases the local CREDIT reservation (`sitx-localrelease-<own>:<idem>`) and releases each local DEBIT hold (`sitx-localrelease-out-<own>:<idem>:<i>`). On peer **YES**, the commit path (inline, or the cron's `LocalCommitFunc` = `PeerTxGRPCHandler.CommitOutboundLocal`) settles the holds (`peer-out-settle-<idem>` / `sitx-localsettle-out-<own>:<idem>:<i>`). All keys match the inline dispatch path so the two never double-act. If a reversal/settle itself fails, the row is kept `pending` (via `MarkAttempt`) so a later tick retries it — money is never stranded in a terminal row.
+
+**ROLLBACK_TX to the peer on abandonment.** Whenever the sender terminally abandons a row it had already dispatched NEW_TX for (max-attempts `failed`, NO-vote `rolled_back`, inline NO-vote, or `PeerTxReconciler` resolving to `rolled_back`), it also sends a `ROLLBACK_TX` to the peer (shared `dispatchPeerRollback` / `PeerTxGRPCHandler.rollbackPeer`). This releases any reservation the peer placed when it voted YES — a benign incoming-credit hold on the transfer path, or a **real seller-share lock** on the OTC path. `HandleRollbackTx` is idempotent (release by key, no-op when there's no record or it already rolled back), so it is safe to send on every terminal non-committed transition and safe to retry. Best-effort: a dispatch failure is logged and the peer's `OutgoingReservationTimeoutCron` (money) is the final backstop for holds whose peer never answers at all.
 
 ### NoVote reason codes
 
@@ -2713,7 +3008,7 @@ All `PeerAuth` failures return 401 with empty body. Constant-time comparison via
 
 | Entity | Table | Purpose |
 |---|---|---|
-| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status. Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. `InitiatorAccountID` is the initiator's account bound at offer creation (pays the premium on `buy_initiated`, receives it on `sell_initiated`). `Ticker` (string, size 16, not null, default `''`) carries a human-readable underlying-stock ticker for in-app notification rendering (Plan B1). (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
+| `OTCOffer` | `otc_offers` | A **termless** marketplace LISTING ("optionable inventory"). Carries direction, stock_id, qty (total), status — the preset-term columns (strike/premium/settlement_date) were **dropped**; terms are negotiated per chain (`OTCNegotiation`). One open offer per `(initiator owner, ticker, direction)` is enforced by a partial unique index over open rows (with a merge-duplicate startup migration). Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. `InitiatorAccountID` is the initiator's account bound at offer creation (pays the premium on `buy_initiated`, receives it on `sell_initiated`). `Ticker` (string, size 16, not null, default `''`) carries a human-readable underlying-stock ticker for in-app notification rendering (Plan B1). (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
 | `OTCOfferRevision` | `otc_offer_revisions` | Append-only history of every CREATE/COUNTER/ACCEPT/REJECT action on an offer. Carries `ModifiedByPrincipalType`/`ModifiedByPrincipalID` (the principal who issued the revision, not the resource owner). (offer_id, revision_number) is unique. |
 | `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. Buyer + seller identified by (`BuyerOwnerType`, `BuyerOwnerID`) / (`SellerOwnerType`, `SellerOwnerID`); `BuyerAccountID`/`SellerAccountID` are bound at accept time and read straight off the contract on exercise; status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. `Ticker` (string, size 16, not null, default `''`) carries a human-readable underlying-stock ticker for in-app notification rendering (Plan B1). |
 | `OTCOfferReadReceipt` | `otc_offer_read_receipts` | Composite-PK row tracking the most recent updated_at the owner has seen for an offer. PK is (`OwnerType`, `OwnerID`, `OfferID`); bank readers materialise as `OwnerID=0` because Postgres disallows NULL in primary keys. Drives the `unread` flag. |
@@ -2726,7 +3021,9 @@ All `PeerAuth` failures return 401 with empty body. Constant-time comparison via
 
 ### gRPC service: `OTCOptionsService`
 
-Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, GetOffer, CounterOffer, AcceptOffer, RejectOffer, ListMyContracts, GetContract, ExerciseContract, OpenNegotiation, CounterNegotiation, AcceptNegotiationChain, RejectNegotiation, CancelNegotiation, **CancelListing**, ListMyNegotiations, ListNegotiationsByListing.
+Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, GetOffer, **UpdateOTCOfferQuantity**, ListMyContracts, GetContract, ExerciseContract, OpenNegotiation, CounterNegotiation, AcceptNegotiationChain, RejectNegotiation, CancelNegotiation, **CancelListing**, ListMyNegotiations, ListNegotiationsByListing. (The legacy single-chain `CounterOffer` / `AcceptOffer` / `RejectOffer` RPCs — unrouted since Phase 8 — were **removed**; their HTTP routes are gone and negotiation runs through the parallel-chain RPCs.)
+
+`UpdateOTCOfferQuantity(UpdateOTCOfferQuantityRequest) → OTCOfferResponse` — SETs an offer's TOTAL quantity (backs `PUT /api/v3/me/otc/options/:id`). Owner-only; the offer must be local + open. New quantity must be `> 0`, not below the shares already committed to formed/forming contracts on the offer, and not above the owner's holding for the ticker (net of other active commitments). Optimistic-lock safe (`SELECT FOR UPDATE` + version check). Reflects the **termless optionable-inventory** model: an `OTCOffer` is `(owner, ticker, quantity, direction)` with NO own strike/premium/settlement — those are negotiated per chain, so resizing the lot is the offer's only mutable term.
 
 `CancelListing(CancelListingRequest) → CancelListingResponse` — closes a parent `OTCOffer` listing posted by the caller; cascade-cancels every still-open child `OTCNegotiation` in the same DB transaction. Authorization: caller's (owner_type, owner_id) must match the offer's `initiator_owner_*`. Listing status must be open. Returns the cancelled parent + the list of cascade-cancelled chain rows (so the gateway can publish per-chain `OTC_OFFER_CASCADE_CANCELLED` notifications). No fund/share unwinding — listings hold no reservations at the parent level; reservations only exist inside the accept saga and are guarded by the parent-status check there.
 
@@ -2767,15 +3064,25 @@ Same-currency flows skip the conversion call entirely.
 
 ## 27. Cross-Bank OTC Options (Celina 5 / SI-TX)
 
-Full cross-bank OTC option lifecycle: discovery → initiation → counter-offer → accept → exercise → expiry. The negotiation surface (`/api/v3/negotiations/...`) and the option-formation / exercise transactions ride on the §25 SI-TX wire (`POST /api/v3/interbank` + `Message<Type>` envelopes); only the `/me/peer-otc/...` and `/me/otc/contracts/peer/...` user-facing endpoints sit on top of normal client JWT auth.
+Full cross-bank OTC option lifecycle: discovery → initiation → counter-offer → accept → exercise → expiry. The negotiation surface (`/api/v3/cross-bank-protocol/negotiations/...`) and the option-formation / exercise transactions ride on the §25 SI-TX wire (`POST /api/v3/cross-bank-protocol/interbank` + `Message<Type>` envelopes).
+
+**SP-2b clean-cut (2026-06-05) — unified client write surface.** There is **no separate `/me/peer-otc/*` client surface** any more, and `POST /me/otc/contracts/peer/:id/exercise` is gone. Cross-bank negotiation initiation/counter/accept/cancel and cross-bank exercise are now dispatched **inside stock-service** behind the **same unified client routes** used for local OTC, selected by the listing's routing (`routing_number == OwnRouting()` ⇒ local, else remote):
+
+- initiate (bid): `POST /api/v3/otc/options/:id/bid`
+- counter / accept / reject: `POST /api/v3/me/otc/options/:id/negotiations/:nid/{counter,accept,reject}`
+- cancel: `DELETE /api/v3/me/otc/options/:id/negotiations/:nid`
+- list own chains (local + remote merged): `GET /api/v3/me/otc/options/negotiations`
+- exercise: `POST /api/v3/otc/contracts/:id/exercise`
+
+The api-gateway is a uniform pass-through for these; stock-service composes/forwards the SI-TX envelopes when the target is remote.
 
 ### Peer-facing routes (api-gateway, behind `PeerAuth`)
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v3/public-stock` | Returns this bank's OTC-public-flagged holdings (queries `holdings` where `public_quantity > 0 AND security_type = 'stock'`). |
-| POST | `/api/v3/negotiations` | Inbound from a peer. Body is a flat SI-TX `OtcOffer` (with `buyerId`/`sellerId` nested inside, per spec). Persists in `peer_otc_negotiations`; returns a fresh `ForeignBankId` directly (`{routingNumber, id}`), not wrapped. |
-| PUT | `/api/v3/negotiations/:rid/:id` | Counter-offer. Body is the same flat `OtcOffer`. Updates the offer JSON. |
+| GET | `/api/v3/cross-bank-protocol/public-stock` | Returns this bank's open sell-initiated option offers as termless `/public-stock` seller inventory (reads `otc_offers` via `ListPublicOptionOffersForPeer` — no longer holdings/`public_quantity`, which were removed 2026-06-11). |
+| POST | `/api/v3/negotiations` | Inbound from a peer. Body is a flat SI-TX `OtcOffer` (with `buyerId`/`sellerId` nested inside, per spec). Persists as a REMOTE row in the unified `otc_negotiations` table (via `OTCNegotiationRepository.UpsertRemoteNeg`); returns a fresh `ForeignBankId` directly (`{routingNumber, id}`), not wrapped. |
+| PUT | `/api/v3/negotiations/:rid/:id` | Counter-offer. Body is the same flat `OtcOffer`. Updates the offer JSON. Per SI-TX §3.3, before persisting: returns **409** if the negotiation is closed (status ≠ `ongoing`) or if it is not the calling peer's turn (the stored `lastModifiedBy.routingNumber`, derived from the authenticated sender, must equal *this* bank's routing — i.e. we last proposed). Rejected counters persist no mutation. |
 | GET | `/api/v3/negotiations/:rid/:id` | Returns SI-TX `OtcNegotiation` (= `OtcOffer & {isOngoing: boolean}`). `isOngoing` is `true` iff this bank's row has `status="ongoing"`. |
 | DELETE | `/api/v3/negotiations/:rid/:id` | Soft-cancel: row status flips to `cancelled` (NOT physically deleted, per spec §3.5: "DELETE … sets isOngoing to false"). Subsequent `GET` returns 200 with `isOngoing=false`. |
 | GET | `/api/v3/negotiations/:rid/:id/accept` | Accept — composes the 4-posting option-formation `Transaction` and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. Returns `{transaction_id, status}`. |
@@ -2783,28 +3090,51 @@ Full cross-bank OTC option lifecycle: discovery → initiation → counter-offer
 
 ### Client-facing routes (api-gateway, behind `AnyAuthMiddleware`)
 
-| Method | Path | Notes |
-|---|---|---|
-| POST | `/api/v3/me/peer-otc/negotiations` | Initiate. Buyer-side entry. Reads `buyerId` from the JWT, resolves the seller's bank via `PeerBankAdminService.ResolvePeerByBankCode`, HTTP-POSTs an `OtcOffer` to the peer's `/api/v3/negotiations`. Returns the seller-bank-assigned `ForeignBankId`. **Body REQUIRES `bidder_account_id`** (Fix #1, 2026-05-16): gateway validates ownership + active status + currency match (account.currency_code must equal premium.currency; no cross-bank FX). Account number is pinned into the SI-TX `OtcOffer.BuyerAccountNumber` so the seller's bank's posting executor uses this exact account on accept instead of resolving `client-<id>` to "first active account in this currency". |
-| GET | `/api/v3/me/otc/contracts` | Existing endpoint, now also returns `peer_contracts` and `peer_total` for cross-bank rows where the caller is a participant (CREDIT side = this bank holds the buyer; DEBIT side = this bank holds the seller). |
-| POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | Exercise. Buyer-only (rejects when this bank's row is `direction=DEBIT`). Body is `{buyer_account_number}`. Dispatches the 4-posting exercise SI-TX (strike money buyer→seller + option markers carrying `intent=exercise`). |
+**SP-2b clean-cut (2026-06-05):** the dedicated client-facing `/me/peer-otc/*` routes
+(`POST`/`GET`/`PUT`/`POST …/accept`/`DELETE` `…/me/peer-otc/negotiations[/:rid/:id]`)
+and `POST /me/otc/contracts/peer/:id/exercise` were **DELETED**. The behaviours they
+provided are now dispatched inside stock-service behind the unified client routes
+listed at the top of this section. The behavioural notes below (account-ownership
+pre-check on initiate, the buyer-side remote mirror, the `seller_id` prefixed-form
+requirement, and the inbound cross-bank routing assertions) still apply — they now
+fire on the unified routes' remote-dispatch path:
 
-### Client-facing peer-OTC negotiation routes (implemented 2026-05-15)
+- **Initiate (bid) on a remote listing.** `POST /api/v3/otc/options/:id/bid` with the
+  listing's remote surrogate `:id`. **Body REQUIRES `bidder_account_id`**: gateway
+  validates ownership + active status + currency match (account currency must equal the
+  premium currency; no cross-bank FX). The account number is pinned into the SI-TX
+  `OtcOffer.BuyerAccountNumber` so the seller's bank's posting executor uses this exact
+  account on accept. stock-service resolves the seller's bank, composes the SI-TX
+  `OtcOffer`, and POSTs it to the peer's `/cross-bank-protocol/negotiations`.
+- **Contracts list.** `GET /api/v3/me/otc/contracts` returns LOCAL + REMOTE rows merged
+  into one `contracts[]` array (`kind=remote` for cross-bank rows); the legacy
+  `peer_contracts`/`peer_total` fields were removed.
+- **Exercise a remote contract.** `POST /api/v3/otc/contracts/:id/exercise`. Buyer-only
+  (rejects when this bank's row is `direction=DEBIT`); the strike account
+  (`buyer_account_number`) is the only client-supplied money-path resource and is
+  gated **authoritatively for ALL principals** gateway-side via
+  `ResolveAndCheckAccountByNumber` (client → must own it; employee acting as the bank →
+  must be a BANK account; employee on-behalf → that client's account; `403` on
+  mismatch). **SP-3 Task 5 security fix (2026-06-05):** this replaced an
+  `enforceOwnership` call that returned nil for any non-client principal, which had
+  let a bank-acting employee pay the bank's strike obligation from an **arbitrary
+  account** (including a client's) of the matching currency. stock-service's
+  `exerciseRemoteContract` additionally re-asserts the same predicate
+  (`isBankAccount` for a bank buyer; owner match for a client buyer; active +
+  strike-currency match) **before** dispatching `InitiateOptionExercise`, as
+  defense-in-depth — mirroring the already-hardened bid path (`openRemoteNegotiation`).
+  Dispatches the 4-posting exercise SI-TX using the OPTION-pseudo-account form (see
+  Exercise lifecycle below).
+- **Own-chain list / counter / accept / cancel on a remote chain.** Use the unified
+  `GET /api/v3/me/otc/options/negotiations` (remote rows carry `kind="remote"` and a
+  `role`) and the per-chain `…/:nid/{counter,accept}` + `DELETE …/:nid`; stock-service
+  forwards to the counterparty over SI-TX and mirrors the local row.
 
-Both sides of a cross-bank negotiation now have full visibility + control through their own bank's JWT:
-
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/api/v3/me/peer-otc/negotiations` | Lists rows from this bank's `peer_otc_negotiations` where the caller's `client-<principal_id>` matches `buyer_id` (when this bank hosts the buyer) or `seller_id` (when this bank hosts the seller). Optional `?role=buyer|seller` filter. Each item carries a `role` field so the UI knows which side the caller is on. |
-| PUT | `/api/v3/me/peer-otc/negotiations/:rid/:id` | Counter-offer. Resolves the counterparty's bank from the caller's row, proxies a PUT to `{peer.base_url}/negotiations/{rid}/{id}`, and mirrors the new offer onto the caller's local row so both UIs reflect the change immediately. |
-| POST | `/api/v3/me/peer-otc/negotiations/:rid/:id/accept` | Accept. Calls the counterparty's `GET .../accept`, which begins the option-formation SI-TX. |
-| DELETE | `/api/v3/me/peer-otc/negotiations/:rid/:id` | Cancel. Proxies DELETE to counterparty + flips local mirror status to `cancelled` (matches peer-protocol soft-cancel semantics). |
-
-The buyer-side mirror is persisted by a new `PeerOTCService.RecordOutboundNegotiation` gRPC call made by the gateway right after the initial `POST /me/peer-otc/negotiations` succeeds. Without that mirror the buyer-side `GET` list would be empty (only the seller's bank receives the inbound POST and persists locally). On `(peer_bank_code, foreign_id)` conflicts the upsert overwrites, so retried inits are idempotent.
+The buyer-side mirror is persisted by stock-service's unified outbound-negotiation flow (`OTCOptionsHandler`'s bid path) right after the outbound POST to the seller's bank succeeds — it calls `OTCNegotiationRepository.UpsertRemoteNeg` directly. Without that mirror the buyer-side list would be empty (only the seller's bank receives the inbound POST and persists the remote row). The mirror is stored as a REMOTE row in the unified `otc_negotiations` table. On natural-key `(routing_number, native_id)` conflicts the upsert overwrites, so retried inits are idempotent. (SP-2b clean-cut, 2026-06-05: the former `PeerOTCService.RecordOutboundNegotiation` / `ListMyPeerNegotiations` / `MarkNegotiationAccepted` / `CascadeCancelSiblings` gRPC RPCs were deleted — the unified `OTCOptionsHandler` + `otc_negotiation_remote_action.go` flow re-implements accept/cascade via repos directly.)
 
 The auto-mirroring of counter/cancel onto the caller's local row is best-effort: failure logs but does not roll back the authoritative state on the counterparty's bank. If a mirror update fails the caller can re-pull via `GET /api/v3/negotiations/:rid/:id` on the counterparty later.
 
-**Important — `seller_id` / `buyer_id` format.** The SI-TX wire spec requires `ForeignBankId.id` to be the prefixed form `client-<N>` or `employee-<N>`. The `POST /me/peer-otc/negotiations` body's `seller_id` is passed through verbatim into that wire field, so clients must send `"seller_id": "client-1"`, not `"seller_id": "1"`. Otherwise the seller's bank persists a row with `seller_id="1"` which doesn't match any of its clients' principal ids — the negotiation will be invisible to the seller-side `GET /me/peer-otc/negotiations` list. The gateway should ideally normalise this; that remains a follow-up.
+**Important — `seller_id` / `buyer_id` format.** The SI-TX wire spec requires `ForeignBankId.id` to be the prefixed form `client-<N>` or `employee-<N>`. When the unified bid route (`POST /api/v3/otc/options/:id/bid`) dispatches to a remote listing, stock-service composes the SI-TX `OtcOffer` from the resolved remote listing's seller id (already in prefixed form on the discovered row), so a malformed `"1"` seller id can't be smuggled through the client request. Otherwise the seller's bank would persist a row whose `seller_id` doesn't match any of its clients' principal ids and the chain would be invisible to the seller side's unified `GET /api/v3/me/otc/options/negotiations` list (remote rows).
 
 **Cross-bank routing assertions (Fix #7/#8/#9, 2026-05-16).** The inbound `PeerOTCGRPCHandler.CreateNegotiation` rejects:
 - buyer-routing spoofing: `buyer_id.routing_number` must equal the authenticated peer's routing (security — without this, peer A could submit a bid claiming peer C as buyer, causing the cross-bank accept to debit a third bank's user)
@@ -2814,55 +3144,94 @@ The auto-mirroring of counter/cancel onto the caller's local row is best-effort:
 
 **Cross-bank FX limitation (Fix #2, 2026-05-16).** SI-TX postings must balance per `asset_id` across banks. The buyer's bank therefore cannot convert at execution time — the buyer must already hold an account in the offer's currency. The intra-bank accept saga's `exchange-service.Convert` path does NOT extend to the cross-bank flow. Bids with currency mismatch are rejected at the gateway with HTTP 400 and an explanatory error.
 
+**Seller-centric discovery limitation — `buy_initiated` offers are intra-bank only (2.9.1).** The SI-TX OTC discovery + negotiation model is structurally **seller-centric**, by spec: a bank publishes only its **sellers'** public stock (§3.1 `PublicStock` lists `sellers`); a negotiation is created `POST /negotiations` "from a Buyer's bank to a Seller's bank" (§3.2), so the receiving bank is **always** the seller's bank; and "the option pseudo-account is always in the bank of the seller" (§3.6.1). The symmetric `OtcOffer` wire (`{buyerId, sellerId, …}`) carries no `direction` field — direction is a local-only concept of *this* implementation. A `buy_initiated` listing's poster is a **BUYER** wanting to acquire shares, which has **no conformant cross-bank representation**: publishing it would mislabel the buyer-poster as a `sellerId`, and a peer bidding on it would invert the economic roles on accept/exercise. Therefore cross-bank `buy_initiated` bidding is **out of scope of the protocol**, enforced end-to-end:
+- **Publish.** `PeerOTCGRPCHandler.GetPublicStocks` (serving `/public-stock`, the sole cross-bank option-discovery surface) reads `ListPublicOptionOffersForPeer`, which returns only `sell_initiated` rows — `buy_initiated` listings are never exposed cross-bank (the local `ListOpenForCache` still returns both for the bank's own marketplace UI). The proprietary `/public-option-offers` serving endpoint + its `GetPublicOptionOffers` RPC were removed 2026-06-11.
+- **Ingest.** The discovery poll (`otccache.OptionRefresher.buildAndMirrorRemoteOffers`) drops any peer offer with `Direction == buy_initiated` at the poll boundary (defense vs a non-conformant peer that emits the proprietary `direction` field), so it never becomes a biddable remote listing.
+- **Bid.** `openRemoteNegotiation` fails closed (`FailedPrecondition` → HTTP 409) on a remote `buy_initiated` listing with a spec-grounded message; now effectively unreachable because ingest drops such offers, retained as defense-in-depth.
+
+LOCAL `buy_initiated` offers/bids are **fully supported and unaffected** — they never traverse the cross-bank path. The `OtcOffer` wire is unchanged; cohort peers see fewer (seller-only) discovery rows, which is spec-conformant.
+
 ### gRPC services
 
-- **`PeerOTCService`** (stock-service): 9 RPCs.
-  - Negotiation lifecycle: `GetPublicStocks`, `CreateNegotiation`, `UpdateNegotiation`, `GetNegotiation`, `DeleteNegotiation`, `AcceptNegotiation`.
-  - SI-TX option leg materialisation (called by transaction-service): `RecordOptionContract` — dispatches on `intent` field, creates a `peer_option_contracts` row + locks seller's holdings on `accept`, transitions to `exercised` + runs role-specific stock ops on `exercise`. Idempotent on `(crossbank_tx_id, posting_index)`.
-  - SI-TX validation hooks (called by transaction-service): `CheckSellerCanDeliver` — NEW_TX-time pre-check that the seller has enough unreserved shares, drives `INSUFFICIENT_ASSET` `NoVote` so money never moves on a contract the seller can't fulfil.
-  - Exercise dispatch (called by gateway): `InitiateOptionExercise` — composes the 4-posting exercise TX from a contract row and dispatches via `transaction-service.PeerTxService.InitiateOutboundTxWithPostings`.
+- **`PeerOTCService`** (stock-service): 13 RPCs. (SP-2b clean-cut, 2026-06-05: the 4 dead `RecordOutboundNegotiation` / `ListMyPeerNegotiations` / `MarkNegotiationAccepted` / `CascadeCancelSiblings` RPCs were removed. 2026-06-11: the proprietary `GetPublicOptionOffers` RPC was removed — cross-bank option discovery is `GetPublicStocks` / `/public-stock` only.)
+  - Discovery + negotiation lifecycle: `GetPublicStocks`, `CreateNegotiation`, `UpdateNegotiation`, `GetNegotiation`, `DeleteNegotiation`, `AcceptNegotiation`.
+  - Seller-share reservation hooks (NEW_TX/rollback): `ReserveSellerSharesForNewTx`, `ReleaseSellerSharesForNewTx`.
+  - Money-leg validation / contract lookup: `ValidatePeerOptionMoneyLeg`, `LookupPeerOptionContract` — the latter's response gained `seller_account_number` (field 9, 2.9.0): the seller's nominated 18-digit account number stored on the seller-side contract, used by `posting_executor.reserveExercisePseudoLeg` to credit the strike to the bound account (empty ⇒ first-active fallback).
+  - SI-TX option leg materialisation (called by interbank-service; 2026-06-07 cutover — was transaction-service): `RecordOptionContract` — dispatches on transaction SHAPE (OPTION-as-asset → accept; OPTION-as-pseudo-account with STOCK legs → exercise), creates a remote `option_contracts` row (routing_number != own) + locks seller's holdings on accept, transitions to `exercised` + runs role-specific stock ops on exercise. Idempotent on `(crossbank_tx_id, posting_index)`.
+  - SI-TX validation hooks (called by interbank-service; 2026-06-07 cutover — was transaction-service): `CheckSellerCanDeliver` — NEW_TX-time pre-check that the seller has enough unreserved shares, drives `INSUFFICIENT_ASSET` `NoVote` so money never moves on a contract the seller can't fulfil.
+  - Exercise dispatch (called by gateway): `InitiateOptionExercise` — composes the 4-posting exercise TX from a contract row and dispatches via `interbank-service.PeerTxService.InitiateOutboundTxWithPostings` (2026-06-07 cutover — was transaction-service).
 
 ### Unified OTC offer discovery
 
-The unified OTC offer view (local + cross-bank) is served by `stock-service`'s `OTCGRPCService.ListUnifiedOffers`. An in-process refresher goroutine in stock-service rebuilds the cache every ~5 s by reading local offers from `OTCService.ListOffers` and HTTP-GETting each active peer bank's `/api/v3/public-stock` (PeerAuth via `X-Api-Key`, resolved through `transaction-service.PeerBankAdminService`). The api-gateway's `GET /api/v3/otc/offers` handler is a thin pass-through over this RPC and owns no cache; query params (`security_type`, `ticker`, `kind`, `bank_code`, pagination) map 1-to-1 onto the gRPC request.
+The unified OTC offer view (local + cross-bank) is served by `stock-service`'s `OTCGRPCService.ListUnifiedOffers`. An in-process refresher goroutine in stock-service rebuilds the cache every ~5 s by reading local offers from `OTCService.ListOffers` and fetching each active peer bank's `/public-stock` (the sole cross-bank option-discovery surface; the proprietary `/public-option-offers` fetch was removed 2026-06-11). As of the 2026-06-07 interbank cutover, stock-service no longer does that HTTP itself: it enumerates peers via `interbank-service.PeerBankAdminService.ListPeerBanks` and fetches each via `interbank-service.PeerEgressService.ProxyToPeer` — peer resolution + `X-Api-Key`/HMAC signing + the actual GET all happen inside interbank-service (the single outbound HTTP egress to permitted peers). The api-gateway's `GET /api/v3/otc/offers` handler is a thin pass-through over this RPC and owns no cache; query params (`security_type`, `ticker`, `kind`, `bank_code`, pagination) map 1-to-1 onto the gRPC request.
 
 ### Lifecycle flows
 
 #### Acceptance (`accept`)
 
 `AcceptNegotiation` (stock-service handler) →
-1. Look up negotiation in `peer_otc_negotiations`.
-2. Resolve seller's local account number via `account-service.ListAccountsByClient` + premium currency match.
-3. Compose 4 postings — buyer DEBIT premium / seller CREDIT premium / seller DEBIT `OptionDescription` / buyer CREDIT `OptionDescription`. The `OptionDescription` JSON includes `negotiationId` for cross-bank reference.
-4. Call `transaction-service.PeerTxService.InitiateOutboundTxWithPostings` with `tx_kind="otc-accept"`.
+1. Look up the negotiation as a REMOTE row in the unified `otc_negotiations` table (via `OTCNegotiationRepository.GetRemoteNegByRoutingAndNative`).
+2. Resolve the seller's **nominated** account number (2.9.0): `SellerAccountResolver` (wired via `PeerOTCGRPCHandler.WithSellerAccountResolver`) reads the local parent listing (`RemoteParentRouting == ownRouting` → `RemoteParentNativeID` is the local `OTCOffer` id) and resolves its bound `InitiatorAccountID` to its 18-digit account number when the listing is `sell_initiated`, the account is active, and its currency matches the premium currency. Mirrors the local accept saga's `sellerAccountID = offer.InitiatorAccountID`. When no nomination is resolvable (free-form negotiation with no local parent, unbound account, wrong currency) it returns `""` → the seller-credit leg falls back to the participant id (the documented first-active resolution in `posting_executor.resolveAccountForPosting`).
+3. Compose 4 postings (OPTION-as-asset form) — buyer DEBIT premium / seller CREDIT premium / seller DEBIT `OptionDescription` / buyer CREDIT `OptionDescription`. **Both premium money legs carry a pinned `ACCOUNT{num}` when the party nominated one** — the buyer's `BuyerAccountNumber` (set at bid time) on the DEBIT, and the seller's resolved nominated account (step 2) on the CREDIT — spec §2.6 (`TxAccount` may target a specific account). The two OPTION legs ALWAYS carry the participant id (it becomes the contract's `buyer_id`/`seller_id`, used for exercise + `/me/otc/contracts` listing). The `OptionDescription` encodes the option asset; its `negotiationId` field provides the cross-bank reference. On the DEBIT (seller-side) `RecordOptionContract` at COMMIT, the seller's bank persists the resolved nominated account number on the remote contract (`option_contracts.remote_seller_account_number`) so the later exercise strike credit honors it too.
+4. Call `interbank-service.PeerTxService.InitiateOutboundTxWithPostings` with `tx_kind="otc-accept"` (2026-06-07 cutover — was transaction-service).
 5. The SI-TX flow:
    - `posting_executor.Reserve` (NEW_TX) on each bank validates option-asset postings via `CheckSellerCanDeliver` for DEBIT direction → vote NO with `INSUFFICIENT_ASSET` if seller short.
    - On YES, `cacheAndReturn` persists `peer_idempotence_records.options_json` listing the option items.
-   - On COMMIT_TX, `materialiseOptions` calls `PeerOTCService.RecordOptionContract` per option leg → writes `peer_option_contracts` row + (DEBIT side) calls `HoldingReservationService.ReserveForPeerOptionContract` to lock seller's shares.
+   - On COMMIT_TX, `materialiseOptions` calls `PeerOTCService.RecordOptionContract` per option leg → writes a remote `option_contracts` row (routing_number != own) + (DEBIT side) calls `HoldingReservationService.ReserveForPeerOptionContract` to lock seller's shares. If the seller-side lock fails (reservation error or unparseable `seller_id`), `RecordOptionContract` **returns an error** rather than reporting success — leaving an `active` contract with no holding reservation behind it (silent over-promise) is not allowed. The COMMIT then does not ack and retries; both the contract row (idempotent on `crossbank_tx_id, posting_index`) and the reservation (idempotent on `peer_option_contract_id`) are replay-safe, so the lock heals once shares are available.
 6. Negotiation status transitions to `accepted`.
 
-#### Exercise (`/me/otc/contracts/peer/:id/exercise`)
+> **Concurrency & ownership guards (2026-05-30, found by adversarial testing).**
+> - **Accept and exercise are claimed atomically.** `AcceptNegotiation` does a compare-and-set `ongoing → accepted` on the negotiation, and `InitiateOptionExercise` does `active → exercising` on the contract, BEFORE dispatching the SI-TX; a concurrent second call loses the CAS and is rejected (409). Without this, two simultaneous accepts/exercises each charged the buyer (premium / strike) and reserved shares / minted contracts twice — the share legs are row-locked-idempotent but the money legs were not. On a synchronous dispatch failure the claim reverts (so the action stays retryable); the commit-side `recordOptionExercise`/`ExerciseBuyerCreditForPeerOption` accept the transient `exercising` state.
+> - **Sender/strike account ownership is enforced gateway-side.** `/me/payments` (cross-bank branch) and the unified exercise route `POST /api/v3/otc/contracts/:id/exercise` (remote-dispatch branch) resolve the caller-supplied account and call `enforceOwnership` before dispatch — a client cannot debit another client's account via a cross-bank payment or an exercise strike. (Negotiation bidder_account_id was already checked.)
+> - Business rejections from the dispatch (insufficient seller shares / insufficient buyer funds) preserve their gRPC code → the gateway returns 409, not 500.
+> - **The receiver validates an OTC exercise's MONEY legs against its own stored contract (forged-money defense, found 2026-05-30 round 3).** The interbank `/interbank` endpoint is peer-authenticated by a shared API key only, so a buggy/malicious peer can post arbitrary amounts. Previously the share quantity was trusted-from-the-stored-contract (`ConsumeForPeerOptionContract` uses `contract.Quantity`) but the strike money was trusted-from-the-posting — decoupled, enabling three thefts: **(a) forged-low strike** (seller delivers full shares for ~0 money), **(b) buyer-overcharge** (a forged-high strike DEBIT sent to the buyer's bank), **(c) replay** (a second exercise of an already-`exercised` contract debits the buyer the strike again while COMMIT no-ops on delivery). Fix: a new internal gRPC `PeerOTCService.ValidatePeerOptionMoneyLeg(negotiation_routing, negotiation_id, direction, tx_shape, ticker, quantity, strike_price, money_amount, currency) → (ok, reason)` loads the stored `peer_option_contract` by `(negotiation, direction)` and for an exercise-shape TX requires: contract status ∈ {active, exercising} (closes replay), `quantity`/`ticker`/`strike_price` match the stored contract, and `money_amount == StrikePrice × Quantity`. `posting_executor.Reserve` calls it in a **pre-pass before any reservation** for EVERY option leg on this bank's routing (DEBIT = we hold the seller, paired with the money CREDIT; CREDIT = we hold the buyer, paired with the money DEBIT — `pairedMoney` pairs by leg direction on own routing and reports the money leg's actual currency, robust to the participant-id-vs-account-number asymmetry between the two money legs); any mismatch / validator error → `UNACCEPTABLE_ASSET` NO vote with no hold placed. Receiver-side only — NO SI-TX wire-protocol change. **Accept-shape legs** (OPTION-as-asset) are validated too: the contract doesn't exist on the receiver yet, so the validator loads the stored **negotiation** by `foreign_id` (the UUID — unique per bank, identical on both; looked up without `peer_bank_code` because the validator runs on both the coordinator [own-routing peer code] and the receiver [counterparty code]) and requires terms (ticker/quantity/strike) to match the offer + premium == `offer.Premium` when the money leg is in the premium currency. **Residual (low severity):** a cross-currency BUYER premium is FX-converted at the live rate (not recomputable at vote time) so it is only checked > 0 — the SELLER always receives `offer.Premium` in its own currency, so the underpayment-victim side is always exact.
 
-`PeerOTCGRPCHandler.InitiateOptionExercise` →
+#### Exercise (remote branch of `POST /api/v3/otc/contracts/:id/exercise`)
+
+When the unified exercise route resolves a remote (`kind=remote`) contract, stock-service dispatches the cross-bank exercise. `PeerOTCGRPCHandler.InitiateOptionExercise` →
 1. Validate this bank holds the buyer side (`direction=CREDIT`) and contract is `active`.
-2. Compose 4 postings using the original contract terms — buyer DEBIT strike money / seller CREDIT strike / seller DEBIT option marker / buyer CREDIT option marker. The `OptionDescription` carries `intent="exercise"`.
+2. Compose 4 postings using the OPTION-pseudo-account form from the original contract terms:
+
+   **Exercise wire encoding (OPTION-pseudo-account form):**
+   | # | Account | Asset | Amount | Description |
+   |---|---|---|---|---|
+   | 1 | buyer `ACCOUNT` (buyer's money account number) | `MONAS` (strike currency) | −(strikePrice × quantity) | Buyer pays strike |
+   | 2 | `OPTION` pseudo-account `{type:"OPTION", id: negotiationId}` | `MONAS` (strike currency) | +(strikePrice × quantity) | Strike credited to seller via pseudo-account. The seller's bank resolves the pseudo-account leg to the seller's **nominated** account (2.9.0): `LookupPeerOptionContract` returns the stored `remote_seller_account_number` and `posting_executor.reserveExercisePseudoLeg` credits that exact account (empty ⇒ first-active fallback). |
+   | 3 | `OPTION` pseudo-account `{type:"OPTION", id: negotiationId}` | `STOCK {ticker}` | −quantity | Underlying leaves pseudo-account |
+   | 4 | buyer `PERSON` (buyer participant id) | `STOCK {ticker}` | +quantity | Underlying delivered to buyer |
+
+   An **OPTION pseudo-account** is a `TxAccount` of `type="OPTION"` whose `id` is the `negotiationId` (`ForeignBankId`). It is NOT an `OptionDescription` asset — the STOCK legs are what distinguish this from an accept TX. The receiver identifies an exercise by **transaction shape**: OPTION-as-account with STOCK legs ⇒ exercise; OPTION-as-asset (`OptionDescription`) ⇒ accept. No `intent` flag is present on the wire.
+
+   **Receiver-side settlement rule:** a bank settles the OPTION pseudo-account legs of an exercise if and only if it holds the **seller-side** option contract for that `negotiationId` (ownership-by-contract, not routing-prefix). Vote `NO` reasons specific to option exercise: `OPTION_NEGOTIATION_NOT_FOUND` (no matching contract for the `negotiationId`), `OPTION_USED_OR_EXPIRED` (contract already exercised or `settlement_date` has passed), `OPTION_AMOUNT_INCORRECT` (strike money amount ≠ `strikePrice × quantity`).
+
 3. Dispatch via `InitiateOutboundTxWithPostings` (`tx_kind="otc-exercise"`).
 4. On COMMIT_TX, `RecordOptionContract`'s exercise branch:
-   - DEBIT side: `ConsumeForPeerOptionContract` settles the reservation and decrements seller's holding.
-   - CREDIT side: `CreditBuyerHoldingForPeerOption` finds-or-creates the buyer's holding and increments it.
-   - Both sides: contract row → `status=exercised`.
+   - DEBIT side: `ConsumeForPeerOptionContract` settles the reservation and decrements seller's holding. It is idempotent on a synthetic settlement txn id; a replay returns `AlreadySettled=true` so the handler **skips** the realised-`CapitalGain` write (which is not idempotent) and avoids double-counting P/L. Then `SetStatus(exercised)`.
+   - CREDIT side: `ExerciseBuyerCreditForPeerOption` credits the buyer's holding **and** flips the contract to `status=exercised` in a single transaction, with the contract status read under a row lock as the idempotency guard. A replayed exercise (duplicate COMMIT_TX) finds `status=exercised` and is a no-op, so the buyer's shares are never double-credited. If the credit fails (or `buyer_id` is unparseable), it **returns an error and does not mark the contract exercised** — the buyer has paid the strike, so a silent failure would leave them paid-but-undelivered; the SI-TX exercise commit retries instead.
+
+**Option legs carry participant ids, money legs carry account numbers (fixed 2026-05-30).** `AcceptNegotiation` composes the buyer DEBIT premium leg with the buyer's pinned **account number** (`OtcOffer.BuyerAccountNumber`, so the executor debits the exact account) but the buyer CREDIT **option** leg with the buyer **participant id** (`row.BuyerID` = `client-<n>`). That participant id becomes the minted contract's `buyer_id`, which (a) the exercise CREDIT branch (`ExerciseBuyerCreditForPeerOption`) parses to resolve the owner and credit the buyer's holding (a scaffolding row with `security_id=0/listing_id=0` when the buyer's bank doesn't list the security), and (b) `ListByLocalParticipant` matches for the `/me/otc/contracts` listing. (Previously the option leg also used the account number — an unparseable `buyer_id` that broke exercise credit AND hid the contract from the buyer's listing.) The exercise composition's option legs likewise carry participant ids. **Inline commit atomicity:** `InitiateOutboundTxWithPostings` marks the row `committed` ONLY when local commit + settle + option-materialise + `PostCommitTx` all succeed; any failure leaves it `pending` so `OutboundReplayCron` retries via `CommitOutboundLocal`, which re-materialises the sender-side option legs (`PostingExecutor.ExtractOwnOptionItems`) — so a sender-side contract that failed to materialise inline is recoverable. Verified live on two stacks: a full accept→exercise round is clean on both sides (buyer pays premium+strike and receives the holding, contract `exercised` + listed; seller credited, shares delivered, reservation released, no orphans).
 
 #### Expiry (cron)
 
-`OTCExpiryCron` runs daily at 02:00 UTC (and once on stock-service startup to catch up missed runs). For each `peer_option_contracts` row with `status='active'` and `settlement_date < today`:
+`OTCExpiryCron` runs daily at 02:00 UTC (and once on stock-service startup to catch up missed runs). For each remote `option_contracts` row (routing_number != own) with `status='active'` and `settlement_date < today`:
 - DEBIT direction (seller's bank): `ReleaseForPeerOptionContract` releases the reservation; shares unlock.
 - CREDIT direction (buyer's bank): no holding op.
 - Both: row → `status=expired`. Seller keeps the premium (no money movement).
 
+#### Safety-net negotiation reconciler (SP-1 Task 9, 2026-06-05)
+
+`PeerOTCNegotiationReconciler` is a background goroutine (`service.NewPeerOTCNegotiationReconciler`) that runs every **2 minutes** in stock-service. It polls each active peer bank's `GET /api/v3/cross-bank-protocol/negotiations/{rid}/{id}` for every REMOTE `ongoing` row (from `OTCNegotiationRepository.ListRemoteNegOngoing`) whose authoritative bank is the PEER (identified by `peerRoutingForRow`: whichever of `RemoteBuyerRouting` / `RemoteSellerRouting` does not equal `ownRouting`). When the peer reports `isOngoing: false` (accepted, cancelled, expired, or any terminal state), and the local remote row is still `ongoing`, the reconciler flips it to `status=cancelled` via `OTCNegotiationRepository.UpdateRemoteNegStatus` (same path as the inbound DELETE webhook) and emits a best-effort `OTC_OFFER_CANCELLED` in-app notification to the local party if one can be resolved.
+
+**False-cancel guard:** any transport error, non-2xx HTTP status, or JSON parse failure on the poll causes the row to be **skipped** for that tick. The reconciler never cancels on ambiguous data. Intra-bank rows (both `buyer_routing_number` and `seller_routing_number` equal `ownRouting`) are also skipped (no peer to query).
+
+**Cronreg integration:** the reconciler is registered as `"peer-otc-neg-reconciler"` in the stock-service cron registry, so operators can pause, resume, or manually trigger it via `GET /api/v3/admin/crons/stock-service/peer-otc-neg-reconciler`.
+
+**Implementation:** `stock-service/internal/service/peer_otc_reconciler.go`. `OTCNegotiationRepository.ListRemoteNegOngoing()` returns all REMOTE `ongoing` rows for the poll loop.
+
 ### Database tables
 
-- **`peer_otc_negotiations`** — receiver-side persistence of inbound peer negotiations. Composite-unique on `(peer_bank_code, foreign_id)`. Columns: `id`, `peer_bank_code`, `foreign_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `offer_json`, `status` (`ongoing` | `accepted` | `cancelled`), timestamps.
-- **`peer_option_contracts`** — cross-bank option-contract records. One row per option-asset posting that landed on this bank. Composite-unique on `(crossbank_tx_id, posting_index)`. Columns: `id`, `crossbank_tx_id` (= `<peer_bank_code>:<locally_generated_key>`), `posting_index`, `negotiation_routing_number`, `negotiation_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `ticker`, `quantity`, `strike_price`, `currency`, `settlement_date`, `direction` (`DEBIT` = seller side, `CREDIT` = buyer side), `status` (`active` | `exercised` | `expired`), `created_at`.
+- **`peer_otc_negotiations`** — **RETIRED (SP-2a, 2026-06-05): folded into the unified `otc_negotiations` table as REMOTE rows** (`routing_number=<peer routing>`, `native_id=<peer foreign negotiation id>`; the `(routing_number, native_id)` UNIQUE is the natural key; local rows have `routing_number=OwnRouting()`). Remote-only columns added to `otc_negotiations`: `remote_offer_json`, `remote_buyer_routing`, `remote_buyer_id`, `remote_seller_routing`, `remote_seller_id`, `remote_parent_routing`, `remote_parent_native_id`. The standalone model + repository are deleted; all inbound webhooks, the reconciler, and the SP-1 read-merge use `OTCNegotiationRepository`'s remote methods. No data migration (fresh start).
+- **`peer_option_contracts`** — **RETIRED (SP-2a, 2026-06-05): folded into the unified `option_contracts` table as REMOTE rows.** A remote contract is an `OptionContract` with `routing_number=<counterparty routing>` (the side this bank does NOT host: CREDIT→counterparty=seller's bank, DEBIT→counterparty=buyer's bank) and `native_id="<crossbank_tx_id>:<posting_index>"` (the retired natural key preserved inside `native_id`, so the `(routing_number, native_id)` UNIQUE keeps `UpsertRemoteContract` idempotent; local rows have `routing_number=OwnRouting()`). The autoincrement `OptionContract.id` is the stable local surrogate id surfaced to the frontend on SP-1 read routes and used as the `holding_reservations.peer_option_contract_id` reference. Remote-only nullable columns added to `OptionContract`: `remote_posting_index`, `remote_negotiation_routing` + `remote_negotiation_native_id` (the originating negotiation reference; indexed together; the exercise / money-leg validators look the contract up by these + `remote_direction`), `remote_direction` (`DEBIT`|`CREDIT`, size 8), `remote_buyer_id` + `remote_seller_id` (SI-TX participant ids `"client-<N>"`|`"bank"`, size 128), and `remote_seller_account_number` (size 34, nullable, 2.9.0 — the seller's nominated 18-digit account number stored on a DEBIT/seller-side row at accept-COMMIT; the exercise strike credit reads it back via `LookupPeerOptionContract`; NULL ⇒ first-active fallback). The buyer/seller routings are stored in the existing `buyer_bank_code`/`seller_bank_code` columns (as strings); the rest of the terms ride the shared columns: `quantity` (int amount as decimal; `IntPart()` round-trips it), `strike_price`, `ticker`, `strike_currency` (the option currency), `settlement_date` (parsed `time.Time`; re-formatted RFC3339-UTC on read — the instant is preserved for the `optionExpired` check), `crossbank_tx_id`, and `status` (the PEER vocabulary `active`|`exercising`|`exercised`|`expired` as-is on remote rows). A remote row satisfies the model's NOT-NULL / CHECK / `ValidateOwner` constraints with `buyer_owner_type=seller_owner_type="bank"` + nil owner ids, `offer_id=NULL`, `premium_paid=0`, `premium_currency=strike_currency`, `buyer_account_id=seller_account_id=0`, `saga_id=crossbank_tx_id`, `premium_paid_at=created_at`. `OptionContractRepository` gained remote-scoped methods (all scoped `routing_number != OwnRouting()`): `UpsertRemoteContract` (ON CONFLICT DO NOTHING on the natural key, loads back the surrogate id), `GetRemoteContractByNegotiationAndDirection`, `GetRemoteContractByID` (NotFound for a local id), `SetRemoteContractStatus` + `CompareAndSetRemoteContractStatus` (SkipHooks guarded status flips; the CAS is the exercise-claim concurrency control), `HasRemoteContractForNegotiation` (reconciler accepted-vs-cancelled discriminator), `ListRemoteContractsExpiring` (daily cron cross-bank pass), and `ListRemoteContractsByLocalParticipant` (SP-1 `/me/otc/contracts` remote merge). The routing-guarded local-only queries (`GetByID`/`GetByOfferID`/`ListExpiring`) exclude remote rows via their `routing_number == OwnRouting()` filter. The standalone `PeerOptionContract` model + `PeerOptionContractRepository` are deleted; `peer_otc_grpc_handler.go`, the expiry cron, the reconciler, the stale-reservation scanner, and the SP-1 contract reads all use `OptionContractRepository`'s remote methods. No data migration (fresh start). Cross-bank WIRE + SI-TX exercise behaviour unchanged.
 - **`holding_reservations`** — extended with `peer_option_contract_id` (third optional FK alongside `order_id` and `otc_contract_id`). DB CHECK constraint `holding_reservation_owner_chk` enforces "exactly one of three" non-NULL.
 - **`peer_idempotence_records`** — extended with `options_json` column (in addition to `debits_json`). Persists option items at NEW_TX vote-YES so COMMIT_TX can materialise them without depending on the original postings list.
 
@@ -2873,7 +3242,17 @@ Defined in `contract/sitx/otc_types.go`. Spec-conforming shapes (per cohort spec
 - `ForeignBankId` — `(routingNumber, id)` tuple.
 - `OtcOffer` — `stock`, `settlementDate`, `pricePerUnit`, `premium`, `buyerId`, `sellerId`, `amount`, `lastModifiedBy`. (Internal storage is a flat-fielded variant; the gateway translates between the spec wire shape and internal gRPC.)
 - `OtcNegotiation` — `OtcOffer & {isOngoing: boolean}`.
-- `OptionDescription` — used as a posting `assetId` (JSON-encoded). Fields: `ticker`, `amount`, `strikePrice`, `currency`, `settlementDate`, `negotiationId`, plus a local extension `intent` (`""` / `"accept"` for accept TX, `"exercise"` for exercise TX). Cohort partners ignore the `intent` extension.
+- `OptionDescription` — used as a posting `assetId` (JSON-encoded) for the **accept** TX (OPTION-as-asset form). Spec-conforming nested shape:
+  ```
+  OptionDescription = {
+    negotiationId:   ForeignBankId,          // { routingNumber: number, id: string }
+    stock:           { ticker: string },
+    pricePerUnit:    { amount: number, currency: string },  // strike per share
+    settlementDate:  string,                 // ISO 8601
+    amount:          number                  // quantity (share count)
+  }
+  ```
+  The old flat fields (`ticker`, `strikePrice`, `currency` at top level) and the non-spec `intent` extension field were removed from the wire as of 2026-06-02 (see `docs/superpowers/specs/2026-06-02-sitx-option-wire-conformance-design.md`). Exercise TXs do NOT use `OptionDescription` — they use the OPTION-pseudo-account form (see Exercise lifecycle above). The accept-vs-exercise distinction is derived entirely from transaction shape, never from a wire `intent` flag.
 - `UserInformation` — response shape of `GET /user/{rid}/{id}`.
 - `PublicStocksResponse` + `PublicStock` — response shape of `GET /public-stock`.
 
@@ -2881,13 +3260,13 @@ Defined in `contract/sitx/otc_types.go`. Spec-conforming shapes (per cohort spec
 
 Per Celina 5 §"Plaćanja" (*"u celosti, ili ne uopšte"*):
 - NEW_TX-time pre-check: insufficient seller holdings → vote NO before any money moves.
-- Sender-debit-immediate is matched by sender-credit-back on NO vote.
-- Receiver-side DEBIT postings perform immediate `UpdateBalance(-X)` with idempotency keys; on ROLLBACK_TX, each persisted `DebitsJSON` entry is credited back.
+- Money DEBIT legs are **reserve-then-settle** (not immediate-debit): the hold dips AvailableBalance at NEW_TX, settles Balance at COMMIT_TX, and is released on NO/ROLLBACK/timeout — both the sender's own leg (`peer-out:<idem>`) and receiver-side legs (per-posting `DebitsJSON` keys).
 - Option contract materialisation happens at COMMIT_TX (never at NEW_TX), so a rolled-back TX leaves no contract row.
+- **Exercise does not re-reserve seller shares.** The NEW_TX-time share hold (`ReserveSellerSharesForNewTx`) fires only for accept-shape TXs (OPTION-as-asset / `OptionDescription` postings); an exercise-shape TX (OPTION-pseudo-account with STOCK legs) skips the reserve (the shares were already held at accept and are consumed at COMMIT by `RecordOptionContract`) — otherwise the exercise would orphan a second hold that permanently locks the shares.
 - Holding reservations use composite-unique indexes for idempotent retry.
 
 ### Out of scope
 
-- Bank-side OTC participation across banks — employees acting as bank can already participate intra-bank, but the user-facing `/me/peer-otc/negotiations` initiator forces `client-<n>` from the JWT principal.
+- ~~Bank-side OTC participation across banks~~ — **DELIVERED in SP-3 (2026-06-05).** An employee acting as the bank is now a first-class cross-bank OTC principal: bank-owned offers publish `employee-<ActingEmployeeID>` on the SI-TX wire (biddable by peers), and the bank can bid/counter/accept/reject/cancel/exercise cross-bank against BANK accounts/holdings (sentinel `1000000000`). The unified bid path (`POST /api/v3/otc/options/:id/bid` against a remote listing) now publishes `buyerId=employee-<N>` for the bank principal (no longer a 409); the wire id is stable per-resource via the `acting_employee_id` column; the bank sees its own remote chains in all read views; inbound `employee-<N>` party ids parse to bank ownership; the exercise strike account is gated (gateway `ResolveAndCheckAccountByNumber` + stock-service bank re-assert).
 - Cross-bank currency conversion at exercise — buyer must hold the strike currency directly; cross-currency strikes would need exchange-service plumbing through the SI-TX path.
 - HMAC outbound auth has been wired but not exercised end-to-end with another team's bank.

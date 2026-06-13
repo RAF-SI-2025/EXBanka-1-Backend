@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/logger"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
@@ -24,6 +25,7 @@ import (
 )
 
 func main() {
+	logger.Init("exchange-service")
 	cfg := config.Load()
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{

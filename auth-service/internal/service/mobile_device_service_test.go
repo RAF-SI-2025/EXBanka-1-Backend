@@ -134,7 +134,7 @@ func TestDeactivateDevice_Success(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -162,7 +162,7 @@ func TestDeactivateDevice_WrongUser(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -197,7 +197,7 @@ func TestDeactivateDevice_AlreadyDeactivated(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -217,7 +217,7 @@ func TestDeactivateDevice_NotFound(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -242,7 +242,7 @@ func TestGetDeviceInfo_ActiveDevice(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -262,7 +262,7 @@ func TestGetDeviceInfo_NoActiveDevice(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -288,7 +288,7 @@ func TestValidateDeviceSignature_Valid(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -322,7 +322,7 @@ func TestValidateDeviceSignature_WrongSignature(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -348,7 +348,7 @@ func TestValidateDeviceSignature_ExpiredTimestamp(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -371,7 +371,7 @@ func TestValidateDeviceSignature_DeviceNotFound(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -404,7 +404,7 @@ func TestValidateDeviceSignature_InactiveDevice(t *testing.T) {
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 
 	svc := NewMobileDeviceService(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,

@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/exbanka/contract/identity"
 )
 
 // ResolvedIdentity is the per-request, fully-resolved actor and owner.
@@ -121,6 +123,19 @@ func ResolveIdentity(rule IdentityRule, args ...string) gin.HandlerFunc {
 		}
 
 		c.Set("identity", id)
+
+		// OWN-1: when an employee acts on behalf of a specific client (the
+		// resource owner resolved to a client id different from the bank), stamp
+		// on-behalf onto the downstream gRPC identity so the owning service can
+		// bind the action to that client. (setPrincipalContext already injected
+		// the base employee/client principal; this layers on-behalf on top.)
+		if id.PrincipalType == "employee" && id.OwnerType == "client" && id.OwnerID != nil {
+			c.Request = c.Request.WithContext(identity.Inject(c.Request.Context(), identity.Caller{
+				PrincipalType:    identity.PrincipalEmployee,
+				PrincipalID:      int64(id.PrincipalID),
+				OnBehalfClientID: int64(*id.OwnerID),
+			}))
+		}
 		c.Next()
 	}
 }

@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestGeneralNotificationConsumer_HandleMessage_HappyPath(t *testing.T) {
 		RefID:   1234,
 	}
 
-	c.handleMessage(mustMarshal(t, payload))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 
 	require.Len(t, repo.created, 1)
 	got := repo.created[0]
@@ -53,7 +54,7 @@ func TestGeneralNotificationConsumer_HandleMessage_MalformedPayloadIsIgnored(t *
 	repo := &stubGeneralNotificationCreator{}
 	c := newGeneralNotificationConsumerForTest(repo, &stubGeneralRenderer{subject: "T", body: "M"})
 
-	c.handleMessage([]byte("not json"))
+	_ = c.handleMessage(context.Background(), []byte("not json"))
 	assert.Empty(t, repo.created)
 }
 
@@ -69,7 +70,7 @@ func TestGeneralNotificationConsumer_HandleMessage_RepoError_LogsAndDoesNotPanic
 	}
 
 	require.NotPanics(t, func() {
-		c.handleMessage(mustMarshal(t, payload))
+		_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 	})
 	// Repo error means nothing is recorded as "created".
 	assert.Empty(t, repo.created)
@@ -87,7 +88,7 @@ func TestGeneralNotificationConsumer_HandleMessage_DataRendersViaRegistry(t *tes
 		RefType: "order",
 		RefID:   7,
 	}
-	c.handleMessage(mustMarshal(t, payload))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 
 	require.Len(t, repo.created, 1)
 	got := repo.created[0]
@@ -109,7 +110,7 @@ func TestGeneralNotificationConsumer_HandleMessage_LegacyTitleMessageStillWorks(
 	payload := kafkamsg.GeneralNotificationMessage{
 		UserID: 1, Type: "password_changed", Title: "Password changed", Message: "Your password was changed.",
 	}
-	c.handleMessage(mustMarshal(t, payload))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, payload))
 
 	require.Len(t, repo.created, 1)
 	assert.Equal(t, "Password changed", repo.created[0].Title)
@@ -124,6 +125,6 @@ func TestGeneralNotificationConsumer_HandleMessage_RenderErrorDropsMessage(t *te
 	payload := kafkamsg.GeneralNotificationMessage{
 		UserID: 5, Type: "NOPE", Data: map[string]string{"x": "y"},
 	}
-	require.NotPanics(t, func() { c.handleMessage(mustMarshal(t, payload)) })
+	require.NotPanics(t, func() { _ = c.handleMessage(context.Background(), mustMarshal(t, payload)) })
 	assert.Empty(t, repo.created, "a render error drops the message (nothing stored)")
 }

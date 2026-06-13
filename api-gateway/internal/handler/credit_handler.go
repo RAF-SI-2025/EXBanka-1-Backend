@@ -287,9 +287,6 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
-	if !enforceClientSelf(c, clientID) {
-		return
-	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -372,9 +369,6 @@ func (h *CreditHandler) ListLoansByClientPath(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid client id")
 		return
 	}
-	if !enforceClientSelf(c, clientID) {
-		return
-	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
@@ -449,9 +443,6 @@ func (h *CreditHandler) ListLoanRequestsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
 		apiError(c, 400, ErrValidation, "invalid client_id")
-		return
-	}
-	if !enforceClientSelf(c, clientID) {
 		return
 	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -828,9 +819,6 @@ func (h *CreditHandler) GetMyLoan(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
-		return
-	}
 	c.JSON(http.StatusOK, loanToJSON(resp))
 }
 
@@ -860,6 +848,30 @@ func (h *CreditHandler) GetMyInstallments(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"installments": installments})
+}
+
+// GetMyLoanRequest godoc
+// @Summary      Get one of the caller's own loan requests
+// @Description  Returns a single loan request owned by the authenticated client. The /me self-version of GET /api/v3/loan-requests/{id} (which is employee-permissioned); ownership is enforced from the JWT, so a client can track a request they submitted without an employee route.
+// @Tags         loans
+// @Produce      json
+// @Param        id path int true "loan request id"
+// @Security     BearerAuth
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/loan-requests/{id} [get]
+func (h *CreditHandler) GetMyLoanRequest(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.creditClient.GetLoanRequest(c.Request.Context(), &creditpb.GetLoanRequestReq{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, loanRequestToJSON(resp))
 }
 
 // ListMyLoanRequests serves GET /api/me/loan-requests.

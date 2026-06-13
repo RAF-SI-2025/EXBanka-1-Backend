@@ -120,6 +120,20 @@ permissions:
   # notifications
   - notifications.templates.manage
 
+  # portfolio cross-owner views (B8 — 2026-05-28)
+  - portfolio.view.client
+  - portfolio.view.fund
+
+  # admin cron viewer (C5 — 2026-05-28)
+  - admin.crons.view
+  - admin.crons.trigger
+  - admin.crons.manage
+
+  # admin audit log reader (D1 — 2026-05-28)
+  - admin.audit.view
+
+
+
 default_roles:
   EmployeeBasic:
     grants:
@@ -139,13 +153,16 @@ default_roles:
       - clients.update.contact
       - accounts.create.current
       - accounts.create.foreign
+      - bank_accounts.manage.any
       - cards.create.physical
       - orders.place.own
       - orders.place.on_behalf_client
       - securities.trade.any
       - securities.read.holdings_own
+      - otc.read.all
       - otc.trade.accept
       - otc.trade.exercise
+      - otc.trade.expire
       - otc.trade.on_behalf
       - funds.invest.own
       - funds.invest.on_behalf_client
@@ -182,6 +199,8 @@ default_roles:
       - funds.manage.catalog
       - verification.skip.any
       - verification.manage.any
+      - portfolio.view.client
+      - portfolio.view.fund
 
   EmployeeAdmin:
     inherits: [EmployeeSupervisor]

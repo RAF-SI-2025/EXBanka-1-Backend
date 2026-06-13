@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
@@ -25,6 +26,7 @@ import (
 )
 
 func main() {
+	logger.Init("verification-service")
 	cfg := config.Load()
 
 	// 1. Connect to PostgreSQL

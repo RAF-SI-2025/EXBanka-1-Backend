@@ -21,6 +21,9 @@ service TransactionService {
   rpc UpdatePaymentRecipient(UpdatePaymentRecipientRequest) returns (PaymentRecipientResponse);
   rpc DeletePaymentRecipient(DeletePaymentRecipientRequest) returns (DeletePaymentRecipientResponse);
 
+  // Admin audit: read transfer/payment saga execution logs.
+  rpc ListSagaLogs(ListSagaLogsRequest) returns (ListSagaLogsResponse);
+
 }
 
 message CreatePaymentRequest {
@@ -255,6 +258,83 @@ service PeerTxService {
   rpc HandleRollbackTx(SiTxRollbackRequest) returns (SiTxAckResponse);
   rpc InitiateOutboundTx(SiTxInitiateRequest) returns (SiTxInitiateResponse);
   rpc InitiateOutboundTxWithPostings(SiTxInitiateWithPostingsRequest) returns (SiTxInitiateResponse);
+  // GetTxStatus allows a peer bank to query the status of a cross-bank
+  // transaction by its transactionId (= our idempotenceKey). Used by the
+  // Celina-5 CHECK_STATUS mechanism so both sides can resolve stuck sagas
+  // when communication breaks mid-flight.
+  rpc GetTxStatus(GetTxStatusRequest) returns (GetTxStatusResponse);
+}
+
+// PeerEgressService is the centralized outbound HTTP egress to permitted peer
+// banks. Domain services (e.g. stock-service for OTC /negotiations, /public-stock,
+// /public-option-offers, /accept) call ProxyToPeer instead of dialing peers
+// directly, so peer_banks resolution + X-Api-Key/HMAC signing live in ONE place
+// (the interbank-service). Implemented by interbank-service only.
+service PeerEgressService {
+  rpc ProxyToPeer(ProxyToPeerRequest) returns (ProxyToPeerResponse);
+  // CheckPeerReachability probes ONE registered peer with a signed
+  // GET /public-stock (the universal SI-TX liveness endpoint) and reports
+  // reachability + HTTP status + latency. Used by the admin "verify on add"
+  // flow. Does NOT mutate the registry.
+  rpc CheckPeerReachability(CheckPeerReachabilityRequest) returns (PeerReachability);
+  // GetPeersState probes ALL registered peers concurrently — the fleet
+  // health/state view across peers.
+  rpc GetPeersState(GetPeersStateRequest) returns (GetPeersStateResponse);
+}
+
+message ProxyToPeerRequest {
+  string peer_bank_code = 1; // registered peer (peer_banks.bank_code)
+  string method         = 2; // GET | POST | PUT | DELETE
+  string path           = 3; // leaf appended to the peer's base_url, e.g. "/public-stock" or "/negotiations/222/abc/accept"
+  bytes  body           = 4; // request body (JSON); empty for GET/DELETE
+}
+
+message ProxyToPeerResponse {
+  int32 status_code = 1; // peer HTTP status
+  bytes body        = 2; // peer response body (verbatim)
+}
+
+message CheckPeerReachabilityRequest {
+  string peer_bank_code = 1;
+}
+
+message GetPeersStateRequest {}
+
+// PeerReachability is the health snapshot of a single registered peer.
+message PeerReachability {
+  string bank_code      = 1;
+  int64  routing_number = 2;
+  string base_url       = 3;
+  bool   active         = 4;  // peer_banks.active flag
+  bool   reachable      = 5;  // an HTTP response was received (no transport error)
+  int32  status_code    = 6;  // peer HTTP status on the probe; 0 when unreachable
+  int64  latency_ms     = 7;  // round-trip latency of the probe
+  string error          = 8;  // transport error message, or "" on success
+  string checked_at     = 9;  // RFC3339 timestamp of the probe
+}
+
+message GetPeersStateResponse {
+  repeated PeerReachability peers = 1;
+}
+
+// PeerUserService resolves one of THIS bank's users (client-<N> / employee-<N>)
+// to display names for a peer's friendly-name lookup (the SI-TX GET /user/{rid}/{id}
+// surface, §9). interbank-service implements it by forwarding to client-service /
+// user-service, so the api-gateway can route the ENTIRE /cross-bank-protocol
+// surface — including /user — to the single interbank backend.
+service PeerUserService {
+  rpc ResolvePeerUser(ResolvePeerUserRequest) returns (ResolvePeerUserResponse);
+}
+
+message ResolvePeerUserRequest {
+  int64  routing_number = 1; // must equal this bank's own routing, else not found
+  string id             = 2; // "client-<N>" | "employee-<N>"
+}
+
+message ResolvePeerUserResponse {
+  bool   found             = 1; // false ⇒ unknown user / foreign routing (gateway maps to 404)
+  string bank_display_name = 2;
+  string display_name      = 3;
 }
 
 message SiTxIdempotenceKey {
@@ -262,18 +342,30 @@ message SiTxIdempotenceKey {
   string locally_generated_key = 2;
 }
 
+message SiTxForeignBankId {
+  int64 routing_number = 1;
+  string id = 2;
+}
+
 message SiTxPosting {
   int64 routing_number = 1;
   string account_id = 2;
   string asset_id = 3;
-  string amount = 4; // decimal as string
-  string direction = 5; // DEBIT | CREDIT
+  string amount = 4;     // decimal as string (magnitude, non-negative)
+  string direction = 5;  // DEBIT | CREDIT (internal effect)
+  string account_type = 6; // PERSON | ACCOUNT | OPTION
+  string asset_type = 7;   // MONAS | STOCK | OPTION
 }
 
 message SiTxNewTxRequest {
   SiTxIdempotenceKey idempotence_key = 1;
   string peer_bank_code = 2;
   repeated SiTxPosting postings = 3;
+  SiTxForeignBankId transaction_id = 4;
+  string message = 5;
+  string payment_code = 6;
+  string payment_purpose = 7;
+  string call_number = 8;
 }
 
 message SiTxNoVote {
@@ -286,18 +378,19 @@ message SiTxVoteResponse {
   string type = 1; // YES | NO
   repeated SiTxNoVote no_votes = 2;
   string transaction_id = 3; // opaque receiver-side id, set on YES
+  bool pending = 4; // receiver still processing (HTTP 202); type/no_votes unset
 }
 
 message SiTxCommitRequest {
   SiTxIdempotenceKey idempotence_key = 1;
   string peer_bank_code = 2;
-  string transaction_id = 3;
+  SiTxForeignBankId transaction_id = 3;
 }
 
 message SiTxRollbackRequest {
   SiTxIdempotenceKey idempotence_key = 1;
   string peer_bank_code = 2;
-  string transaction_id = 3;
+  SiTxForeignBankId transaction_id = 3;
 }
 
 message SiTxAckResponse {
@@ -321,6 +414,18 @@ message SiTxInitiateWithPostingsRequest {
   string peer_bank_code = 1;
   repeated SiTxPosting postings = 2;
   string tx_kind = 3; // "transfer" | "otc-accept" | "otc-exercise"
+}
+
+message GetTxStatusRequest {
+  string transaction_id = 1;       // the SI-TX idempotence key / UUID
+  string caller_peer_bank_code = 2; // bank code of the requesting peer
+}
+
+message GetTxStatusResponse {
+  string state = 1;          // "prepared"|"committed"|"rolled_back"|"dead_letter"|"unknown"
+  string our_role = 2;       // "sender"|"receiver"|""
+  string last_action_at = 3; // RFC3339 timestamp of last update
+  string last_error = 4;     // last recorded error, if any
 }
 
 // PeerBankAdminService is the runtime-editable peer-bank registry. Lets
@@ -422,4 +527,39 @@ message ResolvePeerByBankCodeRequest {
 message ResolvePeerByBankCodeResponse {
   PeerBankFull peer_bank = 1;
   bool found = 2;
+}
+
+// --- Admin audit: saga logs (transfer/payment saga execution + compensation) ---
+
+message ListSagaLogsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string saga_id = 3;           // optional: filter to one saga
+  string status = 4;            // optional: pending|completed|failed|compensating|dead_letter
+  string transaction_type = 5;  // optional: transfer|payment
+  int64 since = 6;              // optional: unix seconds (created_at >=)
+  int64 until = 7;              // optional: unix seconds (created_at <=)
+}
+
+message SagaLogEntry {
+  uint64 id = 1;
+  string saga_id = 2;
+  uint64 transaction_id = 3;
+  string transaction_type = 4;
+  int32 step_number = 5;
+  string step_name = 6;
+  string status = 7;
+  bool is_compensation = 8;
+  string account_number = 9;
+  string amount = 10;            // signed decimal string
+  string error_message = 11;
+  uint64 compensation_of = 12;   // 0 when not a compensation
+  int32 retry_count = 13;
+  int64 created_at = 14;         // unix seconds
+  int64 completed_at = 15;       // unix seconds, 0 when null
+}
+
+message ListSagaLogsResponse {
+  repeated SagaLogEntry logs = 1;
+  int64 total = 2;
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -16,6 +17,18 @@ import (
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
+
+// syntheticSecurityID derives a stable, ticker-unique security id in a high
+// range (>= 9e12) for cross-bank holdings whose security this bank does not
+// carry in its local catalog. The high range can't collide with real catalog
+// ids (small) and distinct tickers map to distinct ids, so the
+// (owner_type, owner_id, security_type, security_id) unique index is satisfied
+// even when a buyer holds several un-listed cross-bank securities.
+func syntheticSecurityID(ticker string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strings.ToUpper(ticker)))
+	return 9_000_000_000_000 + (h.Sum64() % 1_000_000_000_000)
+}
 
 // HoldingReservationService owns the reserve / release / partial-settle
 // lifecycle of share quantities held on behalf of a sell-side client order.
@@ -75,6 +88,12 @@ type PartialSettleHoldingResult struct {
 	RemainingReserved  int64
 	QuantityAfter      int64
 	AveragePriceBefore decimal.Decimal
+	// AlreadySettled is true when this call was a replay: the settlement
+	// for this synthetic txn id already existed, so no shares moved this
+	// time. Callers that perform non-idempotent follow-up writes (e.g. a
+	// realised CapitalGain row) MUST skip them when this is true, or a
+	// retried exercise would duplicate those rows.
+	AlreadySettled bool
 }
 
 // Reserve locks `qty` shares of the given holding for `orderID`. Idempotent on
@@ -140,14 +159,122 @@ func (s *HoldingReservationService) Reserve(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
 			AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ReserveFund is the on-behalf-of-FUND analogue of Reserve: it locks `qty`
+// shares of a fund's position (the `fund_holdings` row keyed by
+// fundID+securityType+securityID) for a sell `orderID`. The buy fill writes
+// fund quantities into fund_holdings (PortfolioService.upsertHoldingForBuy); a
+// fund sell must draw down the SAME table, not the bank's `holdings`. The
+// reservation row carries FundHoldingID so the later PartialSettle / Release
+// mutate fund_holdings. Idempotent on orderID; FailedPrecondition when the fund
+// holding is missing or available quantity is insufficient.
+func (s *HoldingReservationService) ReserveFund(
+	ctx context.Context,
+	fundID uint64,
+	securityType string,
+	securityID, orderID uint64,
+	qty int64,
+) (*ReserveHoldingResult, error) {
+	if qty <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	var out *ReserveHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var fh model.FundHolding
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("fund_id = ? AND security_type = ? AND security_id = ?", fundID, securityType, securityID).
+			First(&fh).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "fund holding not found")
+			}
+			return err
+		}
+		available := fh.Quantity - fh.ReservedQuantity
+		if available < qty {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available fund quantity: have %d, need %d", available, qty)
+		}
+		oid := orderID
+		fhID := fh.ID
+		res := &model.HoldingReservation{
+			HoldingID:     0, // sentinel — fund reservations live on fund_holdings (FundHoldingID below)
+			OrderID:       &oid,
+			FundHoldingID: &fhID,
+			Quantity:      qty,
+			Status:        model.HoldingReservationStatusActive,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		inserted, existing, err := s.resRepo.WithTx(tx).InsertIfAbsent(res)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			out = &ReserveHoldingResult{
+				ReservationID:     existing.ID,
+				ReservedQuantity:  fh.ReservedQuantity,
+				AvailableQuantity: fh.Quantity - fh.ReservedQuantity,
+			}
+			return nil
+		}
+		// Atomic guarded increment (same rationale as Reserve): re-check
+		// availability inside the UPDATE's WHERE so concurrent reservers can't
+		// over-commit. Raw UPDATE bypasses the FundHolding BeforeUpdate
+		// optimistic-lock hook (a zero-value struct would inject a stale
+		// version predicate); the availability re-check is evaluated atomically
+		// against the latest committed row under the row lock.
+		upd := tx.Exec(
+			"UPDATE fund_holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), fh.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
+		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available fund quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		fh.ReservedQuantity += qty
+		out = &ReserveHoldingResult{
+			ReservationID:     res.ID,
+			ReservedQuantity:  fh.ReservedQuantity,
+			AvailableQuantity: fh.Quantity - fh.ReservedQuantity,
 		}
 		return nil
 	})
@@ -186,16 +313,26 @@ func (s *HoldingReservationService) Release(ctx context.Context, orderID uint64)
 			remaining = 0
 		}
 
-		var holding model.Holding
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
-			return err
-		}
-		holding.ReservedQuantity -= remaining
-		if holding.ReservedQuantity < 0 {
-			holding.ReservedQuantity = 0
-		}
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Fund reservations live on fund_holdings; bank/user ones on holdings.
+		if res.FundHoldingID != nil {
+			reservedAfter, ferr := releaseFundHoldingReserved(tx, *res.FundHoldingID, remaining)
+			if ferr != nil {
+				return ferr
+			}
+			out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: reservedAfter}
+		} else {
+			var holding model.Holding
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+				return err
+			}
+			holding.ReservedQuantity -= remaining
+			if holding.ReservedQuantity < 0 {
+				holding.ReservedQuantity = 0
+			}
+			if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+				return err
+			}
+			out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: holding.ReservedQuantity}
 		}
 
 		res.Status = model.HoldingReservationStatusReleased
@@ -203,13 +340,30 @@ func (s *HoldingReservationService) Release(ctx context.Context, orderID uint64)
 		if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
 			return err
 		}
-		out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: holding.ReservedQuantity}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// releaseFundHoldingReserved returns `remaining` reserved shares of a
+// fund_holdings row back to available (decrement reserved_quantity; quantity
+// unchanged), under a row lock, and reports the post-release reserved count.
+func releaseFundHoldingReserved(tx *gorm.DB, fundHoldingID uint64, remaining int64) (int64, error) {
+	var fh model.FundHolding
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&fh, fundHoldingID).Error; err != nil {
+		return 0, err
+	}
+	fh.ReservedQuantity -= remaining
+	if fh.ReservedQuantity < 0 {
+		fh.ReservedQuantity = 0
+	}
+	if err := shared.CheckRowsAffected(tx.Save(&fh)); err != nil {
+		return 0, err
+	}
+	return fh.ReservedQuantity, nil
 }
 
 // PartialSettle commits a partial fill: decrements both ReservedQuantity and
@@ -239,11 +393,6 @@ func (s *HoldingReservationService) PartialSettle(
 			return status.Errorf(codes.FailedPrecondition, "reservation status=%s", res.Status)
 		}
 
-		var holding model.Holding
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
-			return err
-		}
-
 		settled, err := s.resRepo.WithTx(tx).SumSettlements(res.ID)
 		if err != nil {
 			return err
@@ -267,29 +416,48 @@ func (s *HoldingReservationService) PartialSettle(
 		if createResult.Error != nil {
 			return createResult.Error
 		}
-		if createResult.RowsAffected == 0 {
-			// Replay of a settlement that already landed. Return current
-			// holding state without mutating.
-			out = &PartialSettleHoldingResult{
-				SettledQuantity:   qty,
-				RemainingReserved: holding.ReservedQuantity,
-				QuantityAfter:     holding.Quantity,
+		replay := createResult.RowsAffected == 0
+
+		// The shares physically leave the locked position on a first-time
+		// settle. A fund sell draws down fund_holdings; a bank/user sell draws
+		// down holdings. On replay we only read current state without mutating.
+		var reservedAfter, quantityAfter int64
+		if res.FundHoldingID != nil {
+			var fh model.FundHolding
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&fh, *res.FundHoldingID).Error; err != nil {
+				return err
 			}
-			return nil
+			if !replay {
+				fh.ReservedQuantity -= qty
+				if fh.ReservedQuantity < 0 {
+					fh.ReservedQuantity = 0
+				}
+				fh.Quantity -= qty
+				if err := shared.CheckRowsAffected(tx.Save(&fh)); err != nil {
+					return err
+				}
+			}
+			reservedAfter, quantityAfter = fh.ReservedQuantity, fh.Quantity
+		} else {
+			var holding model.Holding
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+				return err
+			}
+			if !replay {
+				holding.ReservedQuantity -= qty
+				if holding.ReservedQuantity < 0 {
+					holding.ReservedQuantity = 0
+				}
+				holding.Quantity -= qty
+				if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+					return err
+				}
+			}
+			reservedAfter, quantityAfter = holding.ReservedQuantity, holding.Quantity
 		}
 
-		// First-time settle: the shares physically leave the holding.
-		holding.ReservedQuantity -= qty
-		if holding.ReservedQuantity < 0 {
-			holding.ReservedQuantity = 0
-		}
-		holding.Quantity -= qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
-		}
-
-		// Fully filled? Transition reservation status to settled.
-		if settled+qty == res.Quantity {
+		// Fully filled? Transition reservation status to settled (first-time only).
+		if !replay && settled+qty == res.Quantity {
 			res.Status = model.HoldingReservationStatusSettled
 			res.UpdatedAt = time.Now()
 			if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
@@ -299,8 +467,8 @@ func (s *HoldingReservationService) PartialSettle(
 
 		out = &PartialSettleHoldingResult{
 			SettledQuantity:   qty,
-			RemainingReserved: holding.ReservedQuantity,
-			QuantityAfter:     holding.Quantity,
+			RemainingReserved: reservedAfter,
+			QuantityAfter:     quantityAfter,
 		}
 		return nil
 	})
@@ -386,10 +554,30 @@ func (s *HoldingReservationService) ReserveForPeerOptionContract(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -460,10 +648,30 @@ func (s *HoldingReservationService) ReserveForOTCContract(
 			}
 			return nil
 		}
-		holding.ReservedQuantity += qty
-		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
-			return err
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
 		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
 		out = &ReserveHoldingResult{
 			ReservationID:     res.ID,
 			ReservedQuantity:  holding.ReservedQuantity,
@@ -614,6 +822,64 @@ func (s *HoldingReservationService) ConsumeForOTCContract(
 	return out, nil
 }
 
+// RestoreForOTCContract reverses ConsumeForOTCContract: it returns the
+// consumed shares to the seller's holding (restoring both Quantity and
+// ReservedQuantity), deletes the settlement row keyed by syntheticTxnID, and
+// reactivates the reservation if it had been marked settled. This is the
+// backward compensator for the exercise saga's consume_seller_holding step
+// (pivot removal — 2026-05-29): once it exists, a failure in any later step
+// can fully unwind the share transfer instead of being treated as
+// irrecoverable.
+//
+// Idempotent: if no settlement row exists for syntheticTxnID (the consume
+// never ran, or this restore already ran) it is a no-op, so the saga's
+// backward pass can be retried until success per the SAGA spec.
+func (s *HoldingReservationService) RestoreForOTCContract(
+	ctx context.Context,
+	otcContractID uint64,
+	syntheticTxnID uint64,
+) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var settlement model.HoldingReservationSettlement
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("order_transaction_id = ?", syntheticTxnID).
+			First(&settlement).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // nothing consumed under this key — idempotent no-op
+		}
+		if err != nil {
+			return err
+		}
+		res, err := s.resRepo.WithTx(tx).GetByOTCContractIDForUpdate(otcContractID)
+		if err != nil {
+			return err
+		}
+		var holding model.Holding
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+			return err
+		}
+		// Reverse the consume: shares (and their reservation) return to the seller.
+		holding.Quantity += settlement.Quantity
+		holding.ReservedQuantity += settlement.Quantity
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+			return err
+		}
+		if err := tx.Delete(&settlement).Error; err != nil {
+			return err
+		}
+		// A fully-consumed reservation was marked Settled; reactivate it so the
+		// contract can be exercised again after this compensation.
+		if res.Status == model.HoldingReservationStatusSettled {
+			res.Status = model.HoldingReservationStatusActive
+			res.UpdatedAt = time.Now()
+			if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Cross-bank OTC option-contract variants (Celina-5 SI-TX exercise)
 // ---------------------------------------------------------------------------
@@ -686,6 +952,7 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 				RemainingReserved:  holding.ReservedQuantity,
 				QuantityAfter:      holding.Quantity,
 				AveragePriceBefore: holding.AveragePrice,
+				AlreadySettled:     true,
 			}
 			return nil
 		}
@@ -779,13 +1046,207 @@ func (s *HoldingReservationService) ReleaseForPeerOptionContract(ctx context.Con
 	return out, nil
 }
 
+// ReserveForCrossBankNewTx locks `qty` shares of the seller's stock holding at
+// SI-TX NEW_TX (vote) time, keyed on the cross-bank transaction identity
+// (crossbankTxID = "<peerCode>:<idem>") because the peer_option_contracts row
+// does not exist yet — it is minted only at COMMIT_TX. This is the spec's
+// "rezervacija hartija" step (Celina-5 OTC SAGA step 2): the seller's shares
+// must be HELD when the bank votes YES, not merely checked, so they cannot be
+// sold in the window before COMMIT. Mirror of ReserveForPeerOptionContract,
+// keyed on CrossbankTxID; idempotent on the identity.
+//
+// At COMMIT the reservation is linked to the contract via
+// AttachCrossBankReservationToContract; on ROLLBACK it is released via
+// ReleaseForCrossBankNewTx.
+func (s *HoldingReservationService) ReserveForCrossBankNewTx(
+	ctx context.Context,
+	sellerOwnerType model.OwnerType,
+	sellerOwnerID *uint64,
+	securityType, ticker, crossbankTxID string,
+	qty int64,
+) (*ReserveHoldingResult, error) {
+	if qty <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	if crossbankTxID == "" {
+		return nil, status.Error(codes.InvalidArgument, "crossbankTxID required")
+	}
+	// Tickers across banks may arrive in mixed case via SI-TX; normalize for
+	// the holdings lookup (same as ReserveForPeerOptionContract, Fix #4).
+	ticker = strings.ToUpper(ticker)
+	var out *ReserveHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var holding model.Holding
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("security_type = ? AND ticker = ?", securityType, ticker)
+		if sellerOwnerID == nil {
+			q = q.Where("owner_type = ? AND owner_id IS NULL", sellerOwnerType)
+		} else {
+			q = q.Where("owner_type = ? AND owner_id = ?", sellerOwnerType, *sellerOwnerID)
+		}
+		err := q.First(&holding).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "holding not found")
+			}
+			return err
+		}
+		available := holding.Quantity - holding.ReservedQuantity
+		if available < qty {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: have %d, need %d", available, qty)
+		}
+		ctxID := crossbankTxID
+		res := &model.HoldingReservation{
+			HoldingID:     holding.ID,
+			CrossbankTxID: &ctxID,
+			Quantity:      qty,
+			Status:        model.HoldingReservationStatusActive,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		inserted, existing, err := s.resRepo.WithTx(tx).InsertIfAbsent(res)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			out = &ReserveHoldingResult{
+				ReservationID:     existing.ID,
+				ReservedQuantity:  holding.ReservedQuantity,
+				AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+			}
+			return nil
+		}
+		// Atomic guarded increment: re-check availability inside the UPDATE's
+		// WHERE so two concurrent reservers can't over-commit shares even if the
+		// FOR UPDATE read above did not serialise them (observed: two simultaneous
+		// cross-bank accepts each passed the read-time check and over-reserved a
+		// 5-share holding to 6). Postgres row-locks during the UPDATE and
+		// re-evaluates the WHERE against the latest committed state, so the loser
+		// matches 0 rows → the whole tx rolls back (undoing InsertIfAbsent too).
+		// Raw UPDATE (bypasses the Holding BeforeUpdate optimistic-lock hook,
+		// which would otherwise inject a stale `version = 0` predicate from the
+		// zero-value model and match nothing). The availability re-check lives in
+		// the WHERE so it is evaluated atomically against the latest committed
+		// row state: Postgres row-locks during the UPDATE, so a concurrent loser
+		// re-reads the bumped reserved_quantity and matches 0 rows.
+		upd := tx.Exec(
+			"UPDATE holdings SET reserved_quantity = reserved_quantity + ?, version = version + 1, updated_at = ? WHERE id = ? AND quantity - reserved_quantity >= ?",
+			qty, time.Now(), holding.ID, qty)
+		if upd.Error != nil {
+			return upd.Error
+		}
+		if upd.RowsAffected == 0 {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: need %d (concurrent reservation won the race)", qty)
+		}
+		holding.ReservedQuantity += qty
+		out = &ReserveHoldingResult{
+			ReservationID:     res.ID,
+			ReservedQuantity:  holding.ReservedQuantity,
+			AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AttachCrossBankReservationToContract links a vote-time crossbank_tx_id
+// reservation to the peer_option_contracts row minted at COMMIT_TX, by setting
+// its PeerOptionContractID. After this, the existing consume/release-by-
+// contract-id settlement & exercise paths operate on the same reservation
+// unchanged — no shares move here, the hold is simply re-keyed.
+//
+// Idempotent: a no-op if the reservation is already attached to this contract,
+// or if no crossbank reservation exists (returns NotFound so the caller can
+// fall back to reserve-at-commit during rollout). Runs under FOR UPDATE.
+func (s *HoldingReservationService) AttachCrossBankReservationToContract(ctx context.Context, crossbankTxID string, peerOptionContractID uint64) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		res, err := s.resRepo.WithTx(tx).GetByCrossbankTxIDForUpdate(crossbankTxID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// Map to a gRPC NotFound so the COMMIT caller can detect "no
+				// vote-time hold" and fall back to reserve-at-commit.
+				return status.Error(codes.NotFound, "no vote-time share reservation for this crossbank_tx_id")
+			}
+			return err
+		}
+		if res.PeerOptionContractID != nil && *res.PeerOptionContractID == peerOptionContractID {
+			return nil // already attached — idempotent
+		}
+		cid := peerOptionContractID
+		res.PeerOptionContractID = &cid
+		res.UpdatedAt = time.Now()
+		return s.resRepo.WithTx(tx).UpdateStatus(res)
+	})
+}
+
+// ReleaseForCrossBankNewTx releases a vote-time crossbank_tx_id share
+// reservation (used on SI-TX ROLLBACK_TX when the trade voted YES but never
+// committed, so no peer_option_contracts row was minted). Mirror of
+// ReleaseForPeerOptionContract keyed on CrossbankTxID. No-op (released=0) when
+// the reservation is missing or already non-active, so rollback is idempotent.
+func (s *HoldingReservationService) ReleaseForCrossBankNewTx(ctx context.Context, crossbankTxID string) (*ReleaseHoldingResult, error) {
+	var out *ReleaseHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		res, err := s.resRepo.WithTx(tx).GetByCrossbankTxIDForUpdate(crossbankTxID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}
+				return nil
+			}
+			return err
+		}
+		if res.Status != model.HoldingReservationStatusActive {
+			out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}
+			return nil
+		}
+		settled, err := s.resRepo.WithTx(tx).SumSettlements(res.ID)
+		if err != nil {
+			return err
+		}
+		remaining := res.Quantity - settled
+		if remaining < 0 {
+			remaining = 0
+		}
+		var holding model.Holding
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+			return err
+		}
+		holding.ReservedQuantity -= remaining
+		if holding.ReservedQuantity < 0 {
+			holding.ReservedQuantity = 0
+		}
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+			return err
+		}
+		res.Status = model.HoldingReservationStatusReleased
+		res.UpdatedAt = time.Now()
+		if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
+			return err
+		}
+		out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: holding.ReservedQuantity}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CreditBuyerHoldingForPeerOption credits the buyer's holding when a
 // cross-bank exercise lands on the buyer's bank. Finds an existing
 // holding by (owner, ticker) and increments quantity, or creates a
 // new holding row when the buyer didn't previously hold the stock.
-// Idempotency relies on the caller — peer_option_contracts row
-// status="exercised" + the COMMIT_TX idempotency record together
-// prevent double-credits across replays.
+//
+// NOTE: this is the raw, NON-idempotent credit (each call adds qty). The
+// exercise flow must go through ExerciseBuyerCreditForPeerOption, which
+// guards it with the peer_option_contracts status under a row lock so a
+// replayed exercise can't double-credit. This bare method is retained as a
+// building block and for unit tests of the crediting math.
 //
 // strikePrice is the per-share price the buyer paid on exercise and
 // becomes the new holding's AveragePrice (when this is the buyer's
@@ -805,51 +1266,138 @@ func (s *HoldingReservationService) CreditBuyerHoldingForPeerOption(
 		return status.Error(codes.InvalidArgument, "qty must be > 0")
 	}
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		var holding model.Holding
-		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("security_type = ? AND ticker = ?", "stock", ticker)
-		if ownerID == nil {
-			q = q.Where("owner_type = ? AND owner_id IS NULL", ownerType)
-		} else {
-			q = q.Where("owner_type = ? AND owner_id = ?", ownerType, *ownerID)
-		}
-		err := q.First(&holding).Error
-		if err == nil {
-			// Existing position: weighted-average cost basis across the
-			// pre-existing shares and the strike-priced shares we're
-			// crediting now. Mirrors HoldingRepository.Upsert math so
-			// the cross-bank exercise produces the same cost basis a
-			// matching market buy at the strike would have.
-			oldTotal := holding.AveragePrice.Mul(decimal.NewFromInt(holding.Quantity))
-			newTotal := strikePrice.Mul(decimal.NewFromInt(qty))
-			totalQty := holding.Quantity + qty
-			holding.AveragePrice = oldTotal.Add(newTotal).Div(decimal.NewFromInt(totalQty))
-			holding.Quantity = totalQty
-			return shared.CheckRowsAffected(tx.Save(&holding))
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return creditBuyerHoldingTx(tx, ownerType, ownerID, ticker, qty, strikePrice)
+	})
+}
+
+// ExerciseBuyerCreditForPeerOption credits the buyer's gained shares AND
+// transitions the peer_option_contracts row to "exercised" in a single
+// transaction, using the contract status (read under a row lock) as the
+// idempotency guard. A replayed cross-bank exercise (duplicate COMMIT_TX)
+// finds status="exercised" and is a no-op, so the buyer's shares are never
+// credited twice. This closes the gap where the bare credit and a separate
+// status flip could be interrupted between the two, double-crediting on retry.
+func (s *HoldingReservationService) ExerciseBuyerCreditForPeerOption(
+	ctx context.Context,
+	peerOptionContractID uint64,
+	ownerType model.OwnerType,
+	ownerID *uint64,
+	ticker string,
+	qty int64,
+	strikePrice decimal.Decimal,
+) error {
+	if qty <= 0 {
+		return status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// The cross-bank contract now lives in the unified option_contracts table
+		// as a REMOTE row (routing_number != OwnRouting()); peerOptionContractID is
+		// its surrogate primary key. Lock the row, read status off the shared
+		// Status column (which carries the PEER vocabulary "active"/"exercising"/
+		// "exercised" on remote rows).
+		//
+		// Defense-in-depth: scope the lookup to remote rows (local = false) so
+		// a caller who passes a LOCAL contract's id (e.g. by mistake or via a
+		// confused caller) cannot trigger the buyer-credit path on a local row —
+		// it would be treated as not-found rather than silently exercised.
+		var contract model.OptionContract
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("local = ?", false).
+			First(&contract, peerOptionContractID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "peer option contract not found (must be a remote/cross-bank contract)")
+			}
 			return err
 		}
-		// New holding row — populate the required scaffolding so the
-		// row passes existing not-null + unique constraints. Listing
-		// id and security id default to 0 here; subsequent reads will
-		// resolve them when the user interacts with the holding via
-		// portfolio endpoints. AveragePrice = strike: the user paid
-		// the strike per share to acquire these, so later sells use
-		// the strike as cost basis (premium tracked separately via
-		// the option CG row written at acceptance).
-		newHolding := model.Holding{
-			OwnerType:        ownerType,
-			OwnerID:          ownerID,
-			SecurityType:     "stock",
-			SecurityID:       0,
-			ListingID:        0,
-			Ticker:           ticker,
-			Name:             ticker,
-			Quantity:         qty,
-			ReservedQuantity: 0,
-			AveragePrice:     strikePrice,
+		if contract.Status == "exercised" {
+			return nil // already credited + exercised by a prior committed attempt
 		}
-		return tx.Create(&newHolding).Error
+		// "exercising" is the buyer-side claim set at InitiateOptionExercise to
+		// serialise concurrent exercises; "active" covers the unclaimed path.
+		if contract.Status != "active" && contract.Status != "exercising" {
+			return status.Errorf(codes.FailedPrecondition, "cannot exercise contract in status %q", contract.Status)
+		}
+		if err := creditBuyerHoldingTx(tx, ownerType, ownerID, ticker, qty, strikePrice); err != nil {
+			return err
+		}
+		// SkipHooks: targeted status flip on a REMOTE row — BeforeSave's
+		// ValidateOwner would reject the zero-value struct's owner columns and
+		// BeforeUpdate's version guard is irrelevant for this column-scoped update.
+		return tx.Session(&gorm.Session{SkipHooks: true}).
+			Model(&model.OptionContract{}).
+			Where("id = ?", contract.ID).
+			Updates(map[string]any{"status": "exercised", "updated_at": time.Now().UTC()}).Error
 	})
+}
+
+// creditBuyerHoldingTx performs the buyer holding credit (weighted-average
+// cost basis, or a new holding row) inside the caller's transaction.
+// Extracted so the bare CreditBuyerHoldingForPeerOption and the idempotent
+// ExerciseBuyerCreditForPeerOption share identical crediting math.
+func creditBuyerHoldingTx(
+	tx *gorm.DB,
+	ownerType model.OwnerType,
+	ownerID *uint64,
+	ticker string,
+	qty int64,
+	strikePrice decimal.Decimal,
+) error {
+	var holding model.Holding
+	q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("security_type = ? AND ticker = ?", "stock", ticker)
+	if ownerID == nil {
+		q = q.Where("owner_type = ? AND owner_id IS NULL", ownerType)
+	} else {
+		q = q.Where("owner_type = ? AND owner_id = ?", ownerType, *ownerID)
+	}
+	err := q.First(&holding).Error
+	if err == nil {
+		// Existing position: weighted-average cost basis across the
+		// pre-existing shares and the strike-priced shares we're
+		// crediting now. Mirrors HoldingRepository.Upsert math so
+		// the cross-bank exercise produces the same cost basis a
+		// matching market buy at the strike would have.
+		oldTotal := holding.AveragePrice.Mul(decimal.NewFromInt(holding.Quantity))
+		newTotal := strikePrice.Mul(decimal.NewFromInt(qty))
+		totalQty := holding.Quantity + qty
+		holding.AveragePrice = oldTotal.Add(newTotal).Div(decimal.NewFromInt(totalQty))
+		holding.Quantity = totalQty
+		return shared.CheckRowsAffected(tx.Save(&holding))
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	// New holding row. Resolve the real security_id from this bank's synced
+	// securities catalog by ticker — it MUST NOT default to 0, because the
+	// unique index idx_holding_per_owner_security is on
+	// (owner_type, owner_id, security_type, security_id): two different
+	// cross-bank tickers both stamped security_id=0 collide, so a buyer who
+	// exercises options on a SECOND ticker would fail with a duplicate-key
+	// error (verified: MA then XOM → 23505). The catalog is synced across the
+	// cohort, so even a security this bank doesn't actively list is resolvable;
+	// fall back to a deterministic ticker-derived id only if truly absent so
+	// distinct tickers still get distinct security_ids. AveragePrice = strike
+	// (premium tracked separately as an option CG row at acceptance).
+	var secID uint64
+	// Best-effort catalog resolve. On any error (catalog table absent in a
+	// minimal context) or a miss, fall back to a deterministic ticker-unique
+	// synthetic id — both paths yield a security_id that is distinct per ticker,
+	// satisfying the unique index; only the cosmetic catalog linkage differs.
+	_ = tx.Table("stocks").Select("id").Where("ticker = ?", ticker).Limit(1).Scan(&secID).Error
+	if secID == 0 {
+		secID = syntheticSecurityID(ticker)
+	}
+	newHolding := model.Holding{
+		OwnerType:        ownerType,
+		OwnerID:          ownerID,
+		SecurityType:     "stock",
+		SecurityID:       secID,
+		ListingID:        0,
+		Ticker:           ticker,
+		Name:             ticker,
+		Quantity:         qty,
+		ReservedQuantity: 0,
+		AveragePrice:     strikePrice,
+	}
+	return tx.Create(&newHolding).Error
 }

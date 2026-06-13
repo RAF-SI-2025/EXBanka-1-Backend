@@ -104,7 +104,7 @@ func TestSetClientLimits_RecordsChangelogWhenOldLimitExists(t *testing.T) {
 	limitRepo := newMockClientLimitRepo()
 	cl := &mockChangelogRepo{}
 	empSvc := &mockEmployeeLimitSvc{maxClientDaily: "1000000", maxClientMonthly: "10000000"}
-	svc := NewClientLimitService(limitRepo, empSvc, nil, cl)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil, cl)
 
 	limit := model.ClientLimit{
 		ClientID:      1,
@@ -125,7 +125,7 @@ func TestSetClientLimits_RecordsChangelogWhenOldLimitExists(t *testing.T) {
 func TestSetClientLimits_InvalidMaxDailyDecimal(t *testing.T) {
 	limitRepo := newMockClientLimitRepo()
 	empSvc := &mockEmployeeLimitSvc{maxClientDaily: "not-a-number", maxClientMonthly: "1000000"}
-	svc := NewClientLimitService(limitRepo, empSvc, nil)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil)
 	limit := model.ClientLimit{
 		ClientID:      1,
 		DailyLimit:    decimal.NewFromInt(100),
@@ -140,7 +140,7 @@ func TestSetClientLimits_InvalidMaxDailyDecimal(t *testing.T) {
 func TestSetClientLimits_InvalidMaxMonthlyDecimal(t *testing.T) {
 	limitRepo := newMockClientLimitRepo()
 	empSvc := &mockEmployeeLimitSvc{maxClientDaily: "1000000", maxClientMonthly: "not-a-number"}
-	svc := NewClientLimitService(limitRepo, empSvc, nil)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil)
 	limit := model.ClientLimit{
 		ClientID:      1,
 		DailyLimit:    decimal.NewFromInt(100),
@@ -210,7 +210,7 @@ func TestSetClientLimits_RepoUpsertFailure(t *testing.T) {
 	failingRepo := failingUpsertLimitRepo{
 		mockClientLimitRepo: *newMockClientLimitRepo(),
 	}
-	svc := NewClientLimitService(&failingRepo, nil, nil)
+	svc := NewClientLimitService(&failingRepo, nil, nil, nil)
 	_, err := svc.SetClientLimits(context.Background(), model.ClientLimit{
 		ClientID: 1, DailyLimit: decimal.NewFromInt(1), MonthlyLimit: decimal.NewFromInt(2),
 	}, 0)
@@ -228,7 +228,7 @@ func (f *failingUpsertLimitRepo) Upsert(_ *model.ClientLimit) error {
 func TestSetClientLimits_EmptyEmployeeLimits(t *testing.T) {
 	limitRepo := newMockClientLimitRepo()
 	empSvc := &mockEmployeeLimitSvc{maxClientDaily: "", maxClientMonthly: ""}
-	svc := NewClientLimitService(limitRepo, empSvc, nil)
+	svc := NewClientLimitService(limitRepo, empSvc, nil, nil)
 	limit := model.ClientLimit{
 		ClientID:      1,
 		DailyLimit:    decimal.NewFromInt(1),
@@ -246,7 +246,7 @@ func TestSetClientLimits_EmptyEmployeeLimits(t *testing.T) {
 // Ensures NewClientLimitService variadic optional args don't panic when
 // no changelog repo is supplied.
 func TestNewClientLimitService_NoOptionalChangelogRepo(t *testing.T) {
-	svc := NewClientLimitService(newMockClientLimitRepo(), nil, nil)
+	svc := NewClientLimitService(newMockClientLimitRepo(), nil, nil, nil)
 	require.NotNil(t, svc)
 }
 

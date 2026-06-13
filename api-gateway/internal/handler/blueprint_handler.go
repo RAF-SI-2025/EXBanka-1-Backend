@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/exbanka/api-gateway/internal/middleware"
+	clientpb "github.com/exbanka/contract/clientpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
@@ -33,12 +34,13 @@ type applyBlueprintBody struct {
 
 // BlueprintHandler handles REST endpoints for limit blueprints.
 type BlueprintHandler struct {
-	client userpb.BlueprintServiceClient
+	client            userpb.BlueprintServiceClient
+	clientLimitClient clientpb.ClientLimitServiceClient
 }
 
 // NewBlueprintHandler constructs a BlueprintHandler.
-func NewBlueprintHandler(client userpb.BlueprintServiceClient) *BlueprintHandler {
-	return &BlueprintHandler{client: client}
+func NewBlueprintHandler(client userpb.BlueprintServiceClient, clientLimitClient clientpb.ClientLimitServiceClient) *BlueprintHandler {
+	return &BlueprintHandler{client: client, clientLimitClient: clientLimitClient}
 }
 
 // ListBlueprints godoc
@@ -211,9 +213,16 @@ func (h *BlueprintHandler) DeleteBlueprint(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// clientBlueprintValues holds the limit values parsed from a client-type blueprint's ValuesJson.
+type clientBlueprintValues struct {
+	DailyLimit    string `json:"daily_limit"`
+	MonthlyLimit  string `json:"monthly_limit"`
+	TransferLimit string `json:"transfer_limit"`
+}
+
 // ApplyBlueprint godoc
 // @Summary      Apply a blueprint to a target
-// @Description  Copies blueprint limit values to the target entity (employee, actuary, or client based on blueprint type)
+// @Description  Copies blueprint limit values to the target entity (employee, actuary, or client based on blueprint type). Client-type blueprints are applied directly via client-service; employee/actuary types go through user-service.
 // @Tags         blueprints
 // @Accept       json
 // @Produce      json
@@ -244,10 +253,32 @@ func (h *BlueprintHandler) ApplyBlueprint(c *gin.Context) {
 		return
 	}
 
-	_, err = h.client.ApplyBlueprint(middleware.GRPCContextWithChangedBy(c), &userpb.ApplyBlueprintRequest{
-		BlueprintId: id,
-		TargetId:    body.TargetID,
-	})
+	bp, err := h.client.GetBlueprint(c.Request.Context(), &userpb.GetBlueprintRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	switch bp.GetType() {
+	case "client":
+		var vals clientBlueprintValues
+		if jsonErr := json.Unmarshal([]byte(bp.GetValuesJson()), &vals); jsonErr != nil {
+			apiError(c, 500, ErrInternal, "failed to parse blueprint values")
+			return
+		}
+		_, err = h.clientLimitClient.SetClientLimits(middleware.GRPCContextWithChangedBy(c), &clientpb.SetClientLimitRequest{
+			ClientId:      body.TargetID,
+			DailyLimit:    vals.DailyLimit,
+			MonthlyLimit:  vals.MonthlyLimit,
+			TransferLimit: vals.TransferLimit,
+		})
+	default:
+		_, err = h.client.ApplyBlueprint(middleware.GRPCContextWithChangedBy(c), &userpb.ApplyBlueprintRequest{
+			BlueprintId: id,
+			TargetId:    body.TargetID,
+		})
+	}
+
 	if err != nil {
 		handleGRPCError(c, err)
 		return

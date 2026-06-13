@@ -84,7 +84,9 @@ func (s *stubLoanSvc) GetLoan(id uint64) (*model.Loan, error) {
 	if s.getFn != nil {
 		return s.getFn(id)
 	}
-	return nil, gorm.ErrRecordNotFound
+	// Default: loan resolves (client 1). OWN-1 ownership checks pass for the
+	// identity-less (→ service) test caller. Not-found tests override via getFn.
+	return &model.Loan{ID: id, ClientID: 1}, nil
 }
 
 func (s *stubLoanSvc) ListLoansByClient(clientID uint64, page, pageSize int) ([]model.Loan, int64, error) {

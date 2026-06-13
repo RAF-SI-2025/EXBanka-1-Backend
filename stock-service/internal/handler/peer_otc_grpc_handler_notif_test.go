@@ -77,12 +77,11 @@ func TestCreateNegotiation_NotifiesLocalSeller(t *testing.T) {
 	}
 }
 
-// TestCreateNegotiation_BankSeller_NoNotif — seller is the local bank
-// (not a client) → no notification fires. Post-Fix #7/#9 the seller's
-// routing MUST be local, so this is the only "no notif on Create" path
-// left (pre-fix this was paired with "neither party local", which is
-// now rejected up front by the routing assertion).
-func TestCreateNegotiation_BankSeller_NoNotif(t *testing.T) {
+// TestCreateNegotiation_BankSeller_EmployeeNotif — seller is the local bank
+// (id "bank"). A remote bid on a bank-owned listing now notifies the bank on the
+// shared employee inbox (system_type="employee") so the bank's employees see it,
+// rather than dropping the notification.
+func TestCreateNegotiation_BankSeller_EmployeeNotif(t *testing.T) {
 	h, _, _, _ := newPeerOtcHandler(t)
 	notif := &peerNotifCapture{}
 	h = h.WithNotifier(notif)
@@ -101,8 +100,12 @@ func TestCreateNegotiation_BankSeller_NoNotif(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if got := notif.snapshot(); len(got) != 0 {
-		t.Errorf("bank seller should mean no client notif, got %+v", got)
+	got := notif.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("bank seller should be notified on the employee inbox, got %+v", got)
+	}
+	if got[0].SystemType != "employee" {
+		t.Errorf("system_type = %q, want employee", got[0].SystemType)
 	}
 }
 

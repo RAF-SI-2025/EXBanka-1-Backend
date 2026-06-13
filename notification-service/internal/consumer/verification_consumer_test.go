@@ -36,7 +36,7 @@ func TestVerificationConsumer_EmailDelivery_HappyPath(t *testing.T) {
 		DeliveryChannel: "email",
 		ExpiresAt:       futureRFC3339(5 * time.Minute),
 	}
-	c.handleMessage(context.Background(), mustMarshal(t, event))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 
 	require.Equal(t, 1, sender.sentCount())
 	got, ok := sender.lastCall()
@@ -67,7 +67,7 @@ func TestVerificationConsumer_EmailDelivery_MissingEmailIsSkipped(t *testing.T) 
 		DeliveryChannel: "email",
 		ExpiresAt:       futureRFC3339(5 * time.Minute),
 	}
-	c.handleMessage(context.Background(), mustMarshal(t, event))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 
 	assert.Equal(t, 0, sender.sentCount())
 	assert.Empty(t, repo.created)
@@ -94,7 +94,7 @@ func TestVerificationConsumer_EmailDelivery_SendErrorDoesNotPanic(t *testing.T) 
 		ExpiresAt:       futureRFC3339(5 * time.Minute),
 	}
 	require.NotPanics(t, func() {
-		c.handleMessage(context.Background(), mustMarshal(t, event))
+		_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 	})
 	assert.Equal(t, 1, sender.sentCount())
 }
@@ -121,7 +121,7 @@ func TestVerificationConsumer_MobileDelivery_HappyPath(t *testing.T) {
 		ExpiresAt:       expiresAt,
 	}
 
-	c.handleMessage(context.Background(), mustMarshal(t, event))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 
 	// Inbox row created with all fields populated.
 	require.Len(t, repo.created, 1)
@@ -132,14 +132,9 @@ func TestVerificationConsumer_MobileDelivery_HappyPath(t *testing.T) {
 	assert.JSONEq(t, string(display), string(item.DisplayData))
 	assert.WithinDuration(t, mustParseRFC(t, expiresAt), item.ExpiresAt, time.Second)
 
-	// One push message published on the mobile-push topic.
-	require.Equal(t, 1, pub.callCount())
-	assert.Equal(t, kafkamsg.TopicMobilePush, pub.topics[0])
-	pushMsg, ok := pub.payloads[0].(kafkamsg.MobilePushMessage)
-	require.True(t, ok, "expected MobilePushMessage payload")
-	assert.Equal(t, uint64(11), pushMsg.UserID)
-	assert.Equal(t, "verification_challenge", pushMsg.Type)
-	assert.NotEmpty(t, pushMsg.Payload)
+	// No mobile-push publish — the inbox row is the sole delivery channel; the
+	// WebSocket "push nudge" (notification.mobile-push) was removed 2026-06-11.
+	assert.Equal(t, 0, pub.callCount())
 
 	// Email path untouched.
 	assert.Equal(t, 0, sender.sentCount())
@@ -159,7 +154,7 @@ func TestVerificationConsumer_MobileDelivery_InvalidExpiresAt(t *testing.T) {
 		DeliveryChannel: "mobile",
 		ExpiresAt:       "not-a-date",
 	}
-	c.handleMessage(context.Background(), mustMarshal(t, event))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 
 	assert.Empty(t, repo.created)
 	assert.Equal(t, 0, pub.callCount())
@@ -179,7 +174,7 @@ func TestVerificationConsumer_MobileDelivery_RepoErrorSkipsPush(t *testing.T) {
 		DeliveryChannel: "mobile",
 		ExpiresAt:       futureRFC3339(2 * time.Minute),
 	}
-	c.handleMessage(context.Background(), mustMarshal(t, event))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 
 	assert.Empty(t, repo.created)
 	assert.Equal(t, 0, pub.callCount(), "push must not be published if inbox create failed")
@@ -200,7 +195,7 @@ func TestVerificationConsumer_MobileDelivery_PushFailureDoesNotPanic(t *testing.
 		ExpiresAt:       futureRFC3339(2 * time.Minute),
 	}
 	require.NotPanics(t, func() {
-		c.handleMessage(context.Background(), mustMarshal(t, event))
+		_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 	})
 	require.Len(t, repo.created, 1, "inbox row created even when push publish fails")
 }
@@ -219,7 +214,7 @@ func TestVerificationConsumer_HandleMessage_UnknownChannel(t *testing.T) {
 		DeliveryChannel: "carrier_pigeon",
 		ExpiresAt:       futureRFC3339(time.Minute),
 	}
-	c.handleMessage(context.Background(), mustMarshal(t, event))
+	_ = c.handleMessage(context.Background(), mustMarshal(t, event))
 
 	assert.Equal(t, 0, sender.sentCount())
 	assert.Empty(t, repo.created)
@@ -232,7 +227,7 @@ func TestVerificationConsumer_HandleMessage_MalformedJSON(t *testing.T) {
 	repo := &stubInboxItemCreator{}
 	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
-	c.handleMessage(context.Background(), []byte("{this is not"))
+	_ = c.handleMessage(context.Background(), []byte("{this is not"))
 
 	assert.Equal(t, 0, sender.sentCount())
 	assert.Empty(t, repo.created)

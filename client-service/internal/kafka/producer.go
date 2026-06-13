@@ -34,3 +34,9 @@ func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage)
 func (p *Producer) PublishClientLimitsUpdated(ctx context.Context, msg kafkamsg.ClientLimitsUpdatedMessage) error {
 	return p.inner.Publish(ctx, kafkamsg.TopicClientLimitsUpdated, msg)
 }
+
+// PublishGeneralNotification emits an in-app (push/inbox) notification to a
+// client. Consumed by notification-service's general-notification consumer.
+func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error {
+	return p.inner.Publish(ctx, kafkamsg.TopicGeneralNotification, msg)
+}

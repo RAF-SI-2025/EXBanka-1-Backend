@@ -1,0 +1,44 @@
+{
+  "idempotenceKey": {
+    "routingNumber": 111,
+    "locallyGeneratedKey": "k-coffee-1"
+  },
+  "messageType": "NEW_TX",
+  "message": {
+    "postings": [
+      {
+        "account": {
+          "type": "ACCOUNT",
+          "num": "444000100182503611"
+        },
+        "amount": -260,
+        "asset": {
+          "type": "MONAS",
+          "asset": {
+            "currency": "RSD"
+          }
+        }
+      },
+      {
+        "account": {
+          "type": "ACCOUNT",
+          "num": "111000141215476411"
+        },
+        "amount": 260,
+        "asset": {
+          "type": "MONAS",
+          "asset": {
+            "currency": "RSD"
+          }
+        }
+      }
+    ],
+    "transactionId": {
+      "routingNumber": 111,
+      "id": "k-coffee-1"
+    },
+    "message": "coffee",
+    "paymentCode": "289",
+    "paymentPurpose": "debt"
+  }
+}

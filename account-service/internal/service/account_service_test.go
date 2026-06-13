@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -148,7 +149,7 @@ func TestCreateAccount_DuplicateNameForSameOwner(t *testing.T) {
 	}
 	err := svc.CreateAccount(second)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	assert.ErrorIs(t, err, ErrAccountNameDuplicate)
 }
 
 func TestCreateAccount_MaintenanceFeeByType(t *testing.T) {
@@ -305,7 +306,7 @@ func TestUpdateAccountName_DuplicateForSameClient(t *testing.T) {
 	// Try to rename second to same name as first.
 	err := svc.UpdateAccountName(second.ID, 42, "Alpha", 0)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	assert.ErrorIs(t, err, ErrAccountNameDuplicate)
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +523,9 @@ func TestUpdateBalance_InsufficientFunds(t *testing.T) {
 
 	err := svc.UpdateBalance("111000100000003011", decimal.NewFromInt(-200), true)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "insufficient funds")
+	// Coded sentinel (FailedPrecondition→409), not a raw 500 leaking the balance.
+	assert.ErrorIs(t, err, ErrInsufficientBalance)
+	assert.NotContains(t, err.Error(), "111000100000003011", "must not leak the account number")
 }
 
 func TestUpdateBalance_NotFound(t *testing.T) {
@@ -532,6 +535,23 @@ func TestUpdateBalance_NotFound(t *testing.T) {
 
 	err := svc.UpdateBalance("000000000000000000", decimal.NewFromInt(100), true)
 	assert.Error(t, err)
+	// Coded sentinel (404), not a raw gorm error → 500.
+	assert.ErrorIs(t, err, ErrAccountNotFound)
+}
+
+func TestUpdateBalance_SpendingLimitExceeded(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	svc := NewAccountService(repo, db, nil)
+
+	// Plenty of balance, but a low daily limit.
+	seedAccount(t, db, "111000100000009011", decimal.NewFromInt(1_000_000), decimal.NewFromInt(500))
+
+	err := svc.UpdateBalance("111000100000009011", decimal.NewFromInt(-600), true)
+	require.Error(t, err)
+	// Maps to ResourceExhausted (429), not a 500 leaking the account number/limits.
+	assert.ErrorIs(t, err, ErrSpendingLimitExceeded)
+	assert.NotContains(t, err.Error(), "111000100000009011", "must not leak the account number")
 }
 
 // ---------------------------------------------------------------------------
@@ -665,7 +685,7 @@ func TestCreateBankAccount_DuplicateName(t *testing.T) {
 
 	_, err = svc.CreateBankAccount("EUR", "foreign", "Bank Main", decimal.Zero)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	assert.ErrorIs(t, err, ErrAccountNameDuplicate)
 }
 
 func TestListBankAccounts(t *testing.T) {
@@ -698,4 +718,74 @@ func TestGetBankRSDAccount_NoneExists(t *testing.T) {
 	_, err := svc.GetBankRSDAccount()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no bank RSD account")
+}
+
+// ---------------------------------------------------------------------------
+// ApplyClientLimitPolicy (SP-5)
+// ---------------------------------------------------------------------------
+
+func TestApplyClientLimitPolicy_SetsLimitsOnBothAccounts(t *testing.T) {
+	svc := newAccountService(t)
+	const clientID uint64 = 77
+	const changedBy int64 = 1
+
+	// Create 2 non-bank accounts for the client.
+	a1 := &model.Account{
+		OwnerID:      clientID,
+		CurrencyCode: "RSD",
+		AccountKind:  "current",
+		AccountType:  "standard",
+	}
+	require.NoError(t, svc.CreateAccount(a1))
+
+	a2 := &model.Account{
+		OwnerID:      clientID,
+		CurrencyCode: "EUR",
+		AccountKind:  "foreign",
+		AccountType:  "standard",
+	}
+	require.NoError(t, svc.CreateAccount(a2))
+
+	err := svc.ApplyClientLimitPolicy(context.Background(), clientID,
+		decimal.NewFromInt(1000), decimal.NewFromInt(10000), changedBy)
+	require.NoError(t, err)
+
+	got1, err := svc.GetAccount(a1.ID)
+	require.NoError(t, err)
+	assert.True(t, got1.DailyLimit.Equal(decimal.NewFromInt(1000)), "a1 daily limit must be 1000: got %s", got1.DailyLimit)
+	assert.True(t, got1.MonthlyLimit.Equal(decimal.NewFromInt(10000)), "a1 monthly limit must be 10000: got %s", got1.MonthlyLimit)
+
+	got2, err := svc.GetAccount(a2.ID)
+	require.NoError(t, err)
+	assert.True(t, got2.DailyLimit.Equal(decimal.NewFromInt(1000)), "a2 daily limit must be 1000: got %s", got2.DailyLimit)
+	assert.True(t, got2.MonthlyLimit.Equal(decimal.NewFromInt(10000)), "a2 monthly limit must be 10000: got %s", got2.MonthlyLimit)
+}
+
+func TestApplyClientLimitPolicy_ZeroValuesSkipped(t *testing.T) {
+	svc := newAccountService(t)
+	const clientID uint64 = 78
+
+	a := &model.Account{
+		OwnerID:      clientID,
+		CurrencyCode: "RSD",
+		AccountKind:  "current",
+		AccountType:  "standard",
+	}
+	require.NoError(t, svc.CreateAccount(a))
+
+	// Capture the limits as created (model has non-zero defaults: 1000000/10000000).
+	created, err := svc.GetAccount(a.ID)
+	require.NoError(t, err)
+	originalDaily := created.DailyLimit
+	originalMonthly := created.MonthlyLimit
+
+	// Both zero — must be a no-op (returns nil, limits unchanged from creation defaults)
+	err = svc.ApplyClientLimitPolicy(context.Background(), clientID,
+		decimal.Zero, decimal.Zero, 1)
+	require.NoError(t, err)
+
+	got, err := svc.GetAccount(a.ID)
+	require.NoError(t, err)
+	assert.True(t, got.DailyLimit.Equal(originalDaily), "daily limit must remain unchanged: got %s, want %s", got.DailyLimit, originalDaily)
+	assert.True(t, got.MonthlyLimit.Equal(originalMonthly), "monthly limit must remain unchanged: got %s, want %s", got.MonthlyLimit, originalMonthly)
 }

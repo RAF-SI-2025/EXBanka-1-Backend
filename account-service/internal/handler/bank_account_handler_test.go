@@ -14,7 +14,6 @@ import (
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 type mockBankAccountSvc struct {
@@ -68,15 +67,10 @@ func (m *mockBankAccountSvc) CreditBankAccount(ctx context.Context, currency, am
 	return &repository.BankOpResult{AccountNumber: "BANK-001", NewBalance: "0"}, nil
 }
 
-type mockBankProducer struct {
-	created []kafkamsg.AccountCreatedMessage
-	err     error
-}
-
-func (m *mockBankProducer) PublishAccountCreated(_ context.Context, msg kafkamsg.AccountCreatedMessage) error {
-	m.created = append(m.created, msg)
-	return m.err
-}
+// SetAccountCategory is a no-op in tests — the handler only calls it when
+// AccountCategory is non-empty, and the mock's CreateBankAccount already
+// returns a dummy account without persisting to a DB.
+func (m *mockBankAccountSvc) SetAccountCategory(_ uint64, _ string) error { return nil }
 
 // ---------------------------------------------------------------------------
 // CreateBankAccount
@@ -91,8 +85,7 @@ func TestBankAccountHandler_CreateBankAccount_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	prod := &mockBankProducer{}
-	h := newBankAccountHandlerForTest(svc, prod)
+	h := newBankAccountHandlerForTest(svc)
 	resp, err := h.CreateBankAccount(context.Background(), &pb.CreateBankAccountRequest{
 		CurrencyCode: "EUR", AccountKind: "current", AccountName: "Bank EUR",
 	})
@@ -102,9 +95,8 @@ func TestBankAccountHandler_CreateBankAccount_Success(t *testing.T) {
 	if resp.AccountNumber != "BANK-EUR-001" {
 		t.Errorf("unexpected account number: %s", resp.AccountNumber)
 	}
-	if len(prod.created) != 1 {
-		t.Errorf("expected 1 produced event, got %d", len(prod.created))
-	}
+	// AccountCreated is now published by the service layer (verified in
+	// service-level tests), not by this handler.
 }
 
 func TestBankAccountHandler_CreateBankAccount_ServiceError(t *testing.T) {
@@ -113,7 +105,7 @@ func TestBankAccountHandler_CreateBankAccount_ServiceError(t *testing.T) {
 			return nil, service.ErrInvalidAccount
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.CreateBankAccount(context.Background(), &pb.CreateBankAccountRequest{})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("expected InvalidArgument, got %v", status.Code(err))
@@ -133,7 +125,7 @@ func TestBankAccountHandler_ListBankAccounts_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	resp, err := h.ListBankAccounts(context.Background(), &pb.ListBankAccountsRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -149,7 +141,7 @@ func TestBankAccountHandler_ListBankAccounts_Error(t *testing.T) {
 			return nil, errors.New("db down")
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.ListBankAccounts(context.Background(), &pb.ListBankAccountsRequest{})
 	if status.Code(err) != codes.Unknown {
 		t.Errorf("expected Unknown, got %v", status.Code(err))
@@ -164,7 +156,7 @@ func TestBankAccountHandler_DeleteBankAccount_Success(t *testing.T) {
 	svc := &mockBankAccountSvc{
 		deleteFn: func(_ uint64) error { return nil },
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	resp, err := h.DeleteBankAccount(context.Background(), &pb.DeleteBankAccountRequest{Id: 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -178,7 +170,7 @@ func TestBankAccountHandler_DeleteBankAccount_NotFound(t *testing.T) {
 	svc := &mockBankAccountSvc{
 		deleteFn: func(_ uint64) error { return gorm.ErrRecordNotFound },
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.DeleteBankAccount(context.Background(), &pb.DeleteBankAccountRequest{Id: 99})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", status.Code(err))
@@ -191,7 +183,7 @@ func TestBankAccountHandler_DeleteBankAccount_Constraint(t *testing.T) {
 			return service.ErrLastBankAccount
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.DeleteBankAccount(context.Background(), &pb.DeleteBankAccountRequest{Id: 1})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("expected FailedPrecondition, got %v", status.Code(err))
@@ -208,7 +200,7 @@ func TestBankAccountHandler_GetBankRSDAccount_Success(t *testing.T) {
 			return &model.Account{ID: 1, AccountNumber: "BANK-RSD-001", CurrencyCode: "RSD"}, nil
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	resp, err := h.GetBankRSDAccount(context.Background(), &pb.GetBankRSDAccountRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -224,7 +216,7 @@ func TestBankAccountHandler_GetBankRSDAccount_NotFound(t *testing.T) {
 			return nil, errors.New("no bank RSD account configured")
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.GetBankRSDAccount(context.Background(), &pb.GetBankRSDAccountRequest{})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", status.Code(err))
@@ -241,7 +233,7 @@ func TestBankAccountHandler_DebitBankAccount_Success(t *testing.T) {
 			return &repository.BankOpResult{AccountNumber: "BANK-" + currency, NewBalance: "9000"}, nil
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	resp, err := h.DebitBankAccount(context.Background(), &pb.BankAccountOpRequest{
 		Currency: "EUR", Amount: "1000", Reference: "ref-1", Reason: "test debit",
 	})
@@ -259,7 +251,7 @@ func TestBankAccountHandler_DebitBankAccount_InsufficientLiquidity(t *testing.T)
 			return nil, repository.ErrInsufficientBankLiquidity
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.DebitBankAccount(context.Background(), &pb.BankAccountOpRequest{Currency: "EUR", Amount: "100"})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("expected FailedPrecondition, got %v", status.Code(err))
@@ -272,7 +264,7 @@ func TestBankAccountHandler_DebitBankAccount_NoBankAccount(t *testing.T) {
 			return nil, repository.ErrBankAccountNotFound
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.DebitBankAccount(context.Background(), &pb.BankAccountOpRequest{Currency: "JPY", Amount: "100"})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", status.Code(err))
@@ -285,7 +277,7 @@ func TestBankAccountHandler_DebitBankAccount_OtherError(t *testing.T) {
 			return nil, errors.New("connection lost")
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.DebitBankAccount(context.Background(), &pb.BankAccountOpRequest{Currency: "EUR", Amount: "100"})
 	if status.Code(err) != codes.Internal {
 		t.Errorf("expected Internal, got %v", status.Code(err))
@@ -302,7 +294,7 @@ func TestBankAccountHandler_CreditBankAccount_Success(t *testing.T) {
 			return &repository.BankOpResult{AccountNumber: "BANK-" + currency, NewBalance: "11000"}, nil
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	resp, err := h.CreditBankAccount(context.Background(), &pb.BankAccountOpRequest{
 		Currency: "EUR", Amount: "1000", Reference: "ref-1", Reason: "test credit",
 	})
@@ -320,7 +312,7 @@ func TestBankAccountHandler_CreditBankAccount_NoBankAccount(t *testing.T) {
 			return nil, repository.ErrBankAccountNotFound
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.CreditBankAccount(context.Background(), &pb.BankAccountOpRequest{Currency: "JPY", Amount: "100"})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", status.Code(err))
@@ -333,7 +325,7 @@ func TestBankAccountHandler_CreditBankAccount_OtherError(t *testing.T) {
 			return nil, errors.New("connection lost")
 		},
 	}
-	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
+	h := newBankAccountHandlerForTest(svc)
 	_, err := h.CreditBankAccount(context.Background(), &pb.BankAccountOpRequest{Currency: "EUR", Amount: "100"})
 	if status.Code(err) != codes.Internal {
 		t.Errorf("expected Internal, got %v", status.Code(err))

@@ -1,0 +1,21 @@
+{
+  "vote": "NO",
+  "reasons": [
+    {
+      "reason": "INSUFFICIENT_ASSET",
+      "posting": {
+        "account": {
+          "type": "ACCOUNT",
+          "num": "111000141215476411"
+        },
+        "amount": 260,
+        "asset": {
+          "type": "MONAS",
+          "asset": {
+            "currency": "RSD"
+          }
+        }
+      }
+    }
+  ]
+}

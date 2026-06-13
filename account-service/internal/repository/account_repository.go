@@ -11,6 +11,16 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// Repo-level sentinels for UpdateBalance failure modes. They are plain errors
+// (matching bank_account_repository's convention); the service layer maps them
+// onto its coded svcerr sentinels (ErrSpendingLimitExceeded / ErrInsufficientBalance)
+// so the detailed message (with account number) stays in logs and never leaks to
+// the wire. Wrapped with %w so callers match via errors.Is.
+var (
+	ErrSpendingLimit     = errors.New("spending limit exceeded")
+	ErrInsufficientFunds = errors.New("insufficient funds")
+)
+
 type AccountRepository struct {
 	db *gorm.DB
 }
@@ -227,19 +237,19 @@ func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.D
 		if isDebit && !acct.IsBankAccount {
 			debitAbs := amount.Abs()
 			if !acct.DailyLimit.IsZero() && acct.DailySpending.Add(debitAbs).GreaterThan(acct.DailyLimit) {
-				return fmt.Errorf("limit_exceeded: daily spending limit exceeded on account %s: current %s + debit %s > limit %s",
-					accountNumber, acct.DailySpending.StringFixed(4), debitAbs.StringFixed(4), acct.DailyLimit.StringFixed(4))
+				return fmt.Errorf("daily spending limit exceeded on account %s: current %s + debit %s > limit %s: %w",
+					accountNumber, acct.DailySpending.StringFixed(4), debitAbs.StringFixed(4), acct.DailyLimit.StringFixed(4), ErrSpendingLimit)
 			}
 			if !acct.MonthlyLimit.IsZero() && acct.MonthlySpending.Add(debitAbs).GreaterThan(acct.MonthlyLimit) {
-				return fmt.Errorf("limit_exceeded: monthly spending limit exceeded on account %s: current %s + debit %s > limit %s",
-					accountNumber, acct.MonthlySpending.StringFixed(4), debitAbs.StringFixed(4), acct.MonthlyLimit.StringFixed(4))
+				return fmt.Errorf("monthly spending limit exceeded on account %s: current %s + debit %s > limit %s: %w",
+					accountNumber, acct.MonthlySpending.StringFixed(4), debitAbs.StringFixed(4), acct.MonthlyLimit.StringFixed(4), ErrSpendingLimit)
 			}
 		}
 
 		// Check sufficient funds for debits.
 		if isDebit && acct.AvailableBalance.Add(amount).IsNegative() {
-			return fmt.Errorf("insufficient funds on account %s: available %s, debit %s",
-				accountNumber, acct.AvailableBalance.StringFixed(4), amount.Abs().StringFixed(4))
+			return fmt.Errorf("insufficient funds on account %s: available %s, debit %s: %w",
+				accountNumber, acct.AvailableBalance.StringFixed(4), amount.Abs().StringFixed(4), ErrInsufficientFunds)
 		}
 
 		balanceBefore := acct.Balance
@@ -299,6 +309,15 @@ func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.D
 		return nil
 	})
 	return entry, err
+}
+
+// ListNonBankByOwner returns all NON-bank accounts owned by the given client.
+// Used by SP-5 client-limit propagation to apply the client's policy to every
+// account they own.
+func (r *AccountRepository) ListNonBankByOwner(ownerID uint64) ([]model.Account, error) {
+	var accounts []model.Account
+	err := r.db.Where("owner_id = ? AND is_bank_account = ?", ownerID, false).Find(&accounts).Error
+	return accounts, err
 }
 
 // UpdateSpending increments daily_spending and monthly_spending by the given amount.

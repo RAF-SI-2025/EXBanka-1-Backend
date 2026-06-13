@@ -40,32 +40,32 @@ func TestGeneralNotificationRepository_CRUD(t *testing.T) {
 		t.Fatalf("create2: %v", err)
 	}
 
-	all, total, err := r.ListByUser(1, nil, 1, 10)
+	all, total, err := r.ListByUser(1, "client", nil, 1, 10)
 	if err != nil || total != 2 || len(all) != 2 {
 		t.Fatalf("list all: %v %d %d", err, total, len(all))
 	}
-	unread, total, err := r.ListByUser(1, boolPtr(false), 1, 10)
+	unread, total, err := r.ListByUser(1, "client", boolPtr(false), 1, 10)
 	if err != nil || total != 1 || len(unread) != 1 {
 		t.Fatalf("list unread: %v %d %d", err, total, len(unread))
 	}
-	read, total, err := r.ListByUser(1, boolPtr(true), 1, 10)
+	read, total, err := r.ListByUser(1, "client", boolPtr(true), 1, 10)
 	if err != nil || total != 1 || len(read) != 1 {
 		t.Fatalf("list read: %v %d %d", err, total, len(read))
 	}
 
-	if c, err := r.UnreadCount(1); err != nil || c != 1 {
+	if c, err := r.UnreadCount(1, "client"); err != nil || c != 1 {
 		t.Fatalf("unread count: %v %d", err, c)
 	}
 
 	// MarkRead the unread one
-	if err := r.MarkRead(unread[0].ID, 1); err != nil {
+	if err := r.MarkRead(unread[0].ID, 1, "client"); err != nil {
 		t.Fatalf("markread: %v", err)
 	}
-	if c, _ := r.UnreadCount(1); c != 0 {
+	if c, _ := r.UnreadCount(1, "client"); c != 0 {
 		t.Fatalf("unread should be 0, got %d", c)
 	}
 	// MarkRead missing
-	if err := r.MarkRead(99999, 1); err == nil {
+	if err := r.MarkRead(99999, 1, "client"); err == nil {
 		t.Fatal("want missing err")
 	}
 
@@ -75,7 +75,7 @@ func TestGeneralNotificationRepository_CRUD(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create3: %v", err)
 	}
-	count, err := r.MarkAllRead(2)
+	count, err := r.MarkAllRead(2, "client")
 	if err != nil || count != 1 {
 		t.Fatalf("markallread: %v %d", err, count)
 	}

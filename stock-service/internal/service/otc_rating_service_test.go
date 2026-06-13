@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
@@ -40,9 +39,6 @@ func seedAcceptedOffer(t *testing.T, offers *repository.OTCOfferRepository, init
 		Status:                model.OTCOfferStatusAccepted,
 		Direction:             "sell_initiated",
 		Quantity:              decimal.NewFromInt(1),
-		StrikePrice:           decimal.NewFromInt(10),
-		Premium:               decimal.NewFromInt(1),
-		SettlementDate:        time.Now().Add(30 * 24 * time.Hour),
 	}
 	if err := offers.Create(o); err != nil {
 		t.Fatalf("seed offer: %v", err)

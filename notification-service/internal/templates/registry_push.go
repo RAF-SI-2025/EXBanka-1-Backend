@@ -175,6 +175,79 @@ var pushDefs = []Definition{
 		DefaultSubject: "OTC contract failed",
 		DefaultBody:    "An OTC contract could not be completed: {{failure_reason}}.",
 	},
+	// ── Watchlist ─────────────────────────────────────────────────────────────
+	{
+		Type: "WATCHLIST_PRICE_MOVE", Channel: "push",
+		Description: "Daily alert: a ticker on the user's watchlist moved more than ±5% in one day.",
+		Variables: []Variable{
+			{"ticker", "Security ticker", "AAPL"},
+			{"percent_move", "Daily percent change (signed)", "-6.42"},
+			{"current_price", "Current price", "148.50"},
+		},
+		DefaultSubject: "Watchlist alert: {{ticker}} moved {{percent_move}}%",
+		DefaultBody:    "{{ticker}} is on your watchlist and moved {{percent_move}}% today. Current price: {{current_price}}.",
+	},
+	// ── Price alerts ─────────────────────────────────────────────────────────
+	{
+		Type: "RECURRING_ORDER_EXECUTED", Channel: "push",
+		Description: "Fired when a recurring-order tick successfully placed a Market order.",
+		Variables: []Variable{
+			{"listing_id", "Listing ID for the executed order", "42"},
+			{"quantity", "Number of units placed", "10"},
+			{"side", "Order side", "buy"},
+		},
+		DefaultSubject: "Recurring order executed",
+		DefaultBody:    "Your recurring {{side}} order placed {{quantity}} units of listing {{listing_id}}.",
+	},
+	{
+		Type: "RECURRING_ORDER_SKIPPED", Channel: "push",
+		Description: "Fired when a recurring-order tick could not place an order (e.g. insufficient funds). NextRun still advances.",
+		Variables: []Variable{
+			{"listing_id", "Listing ID for the skipped order", "42"},
+			{"quantity", "Intended quantity", "10"},
+			{"side", "Order side", "buy"},
+			{"reason", "Reason the order was skipped", "insufficient funds"},
+		},
+		DefaultSubject: "Recurring order skipped",
+		DefaultBody:    "Your recurring {{side}} order for {{quantity}} units of listing {{listing_id}} was skipped: {{reason}}.",
+	},
+	{
+		Type: "FUND_RECURRING_EXECUTED", Channel: "push",
+		Description: "Fired when a recurring fund investment tick successfully contributed to the fund.",
+		Variables: []Variable{
+			{"fund_id", "Investment fund ID", "7"},
+			{"amount", "Amount invested", "1000.00"},
+			{"currency", "Source currency", "RSD"},
+		},
+		DefaultSubject: "Recurring fund investment executed",
+		DefaultBody:    "Your recurring investment of {{amount}} {{currency}} into fund {{fund_id}} was processed.",
+	},
+	{
+		Type: "FUND_RECURRING_SKIPPED", Channel: "push",
+		Description: "Fired when a recurring fund investment tick could not contribute. NextRun still advances.",
+		Variables: []Variable{
+			{"fund_id", "Investment fund ID", "7"},
+			{"amount", "Intended amount", "1000.00"},
+			{"currency", "Source currency", "RSD"},
+			{"reason", "Reason the contribution was skipped", "insufficient funds"},
+		},
+		DefaultSubject: "Recurring fund investment skipped",
+		DefaultBody:    "Your recurring investment of {{amount}} {{currency}} into fund {{fund_id}} was skipped: {{reason}}.",
+	},
+	{
+		Type: "PRICE_ALERT_TRIGGERED", Channel: "push",
+		Description: "Fired when a user's price alert condition is met.",
+		Variables: []Variable{
+			{"ticker", "Security ticker", "AAPL"},
+			{"security_type", "Security type", "stock"},
+			{"condition", "Alert condition", "daily_change_pct_lte"},
+			{"threshold", "Alert threshold", "-5.0000"},
+			{"price", "Current price", "148.5000"},
+			{"daily_change_percent", "Daily change percent", "-6.2000"},
+		},
+		DefaultSubject: "Price alert triggered",
+		DefaultBody:    "Your price alert for {{ticker}} was triggered — current price {{price}} (daily change {{daily_change_percent}}%, threshold {{threshold}}).",
+	},
 	// ── Money movement ───────────────────────────────────────────────────────
 	{
 		Type: "PAYMENT_SENT", Channel: "push",
@@ -414,5 +487,39 @@ var pushDefs = []Definition{
 		},
 		DefaultSubject: "Card request rejected",
 		DefaultBody:    "Your card request was rejected: {{reason}}.",
+	},
+	{
+		Type: "LIMIT_CHANGED", Channel: "push",
+		Description: "A client's transaction limits were changed (SP5 D1).",
+		Variables: []Variable{
+			{"daily_limit", "New daily limit", "200000.00"},
+			{"monthly_limit", "New monthly limit", "2000000.00"},
+			{"transfer_limit", "New per-transfer limit", "100000.00"},
+			{"currency", "Currency code", "RSD"},
+		},
+		DefaultSubject: "Limits updated",
+		DefaultBody:    "Your limits were updated: daily {{daily_limit}}, monthly {{monthly_limit}}, per-transfer {{transfer_limit}} {{currency}}.",
+	},
+	{
+		Type: "OTC_CONTRACT_EXPIRING_SOON", Channel: "push",
+		Description: "An OTC option contract is approaching its settlement date (SP5 E).",
+		Variables: []Variable{
+			{"ticker", "Underlying ticker", "AAPL"},
+			{"settlement_date", "Settlement date", "2026-07-15"},
+			{"days_remaining", "Days until settlement", "3"},
+		},
+		DefaultSubject: "OTC contract expiring soon",
+		DefaultBody:    "Your OTC option on {{ticker}} expires in {{days_remaining}} day(s) ({{settlement_date}}).",
+	},
+	// ── Auth ─────────────────────────────────────────────────────────────────
+	{
+		Type: "MOBILE_ACTIVATION_REQUESTED", Channel: "push",
+		Description: "A mobile device activation code was requested (also delivered by email).",
+		Variables: []Variable{
+			{"code", "The activation code", "123456"},
+			{"expires_in", "How long the code stays valid", "15 minutes"},
+		},
+		DefaultSubject: "Mobile activation code",
+		DefaultBody:    "Your mobile activation code is {{code}}. It expires in {{expires_in}}. If you did not request this, contact support immediately.",
 	},
 }

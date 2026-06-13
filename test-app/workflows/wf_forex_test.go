@@ -126,15 +126,16 @@ func TestWF_Forex_BuyDebitsQuoteCreditsBase(t *testing.T) {
 		t.Fatalf("get portfolio: %v", err)
 	}
 	helpers.RequireStatus(t, portfolioResp, 200)
-	if holdings, ok := portfolioResp.Body["holdings"].([]interface{}); ok {
-		for _, h := range holdings {
-			m, ok := h.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if st, _ := m["security_type"].(string); st == "forex" {
-				t.Errorf("forex order created a portfolio holding; expected 0 (forex must not accumulate)")
-			}
+	// Phase-8: holdings live under securities.positions[] keyed by asset_type
+	// (not a flat "holdings" array keyed by security_type). Assert no forex
+	// position accumulated.
+	for _, p := range stockPositions(t, portfolioResp.Body) {
+		m, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if at, _ := m["asset_type"].(string); at == "forex" {
+			t.Errorf("forex order created a portfolio position; expected 0 (forex must not accumulate)")
 		}
 	}
 

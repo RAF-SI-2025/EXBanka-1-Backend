@@ -8,6 +8,7 @@ import (
 
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
@@ -24,15 +25,17 @@ type MaintenanceCronService struct {
 	accountRepo *repository.AccountRepository
 	ledgerSvc   *LedgerService
 	producer    maintenanceProducer
+	entry       *cronreg.Entry
 }
 
-func NewMaintenanceCronService(accountRepo *repository.AccountRepository, ledgerSvc *LedgerService, producer maintenanceProducer) *MaintenanceCronService {
+func NewMaintenanceCronService(accountRepo *repository.AccountRepository, ledgerSvc *LedgerService, producer maintenanceProducer, registry *cronreg.Registry) *MaintenanceCronService {
 	s := &MaintenanceCronService{accountRepo: accountRepo, ledgerSvc: ledgerSvc}
 	// Typed-nil guard: only assign when non-nil to avoid the
 	// non-nil-interface-holding-nil-pointer panic at the call site.
 	if producer != nil {
 		s.producer = producer
 	}
+	s.entry = registry.Register("monthly-maintenance-charge", "Charge monthly maintenance fees on 1st of month", 0)
 	return s
 }
 
@@ -52,8 +55,19 @@ func (s *MaintenanceCronService) runMonthlyCharge(ctx context.Context) {
 			timer.Stop()
 			return
 		case <-timer.C:
+			timer.Stop()
+			if !s.entry.BeginRun() {
+				continue
+			}
+			s.chargeMaintenanceFees(ctx)
+			s.entry.EndRun(nil)
+		case <-s.entry.TriggerChan():
+			if !s.entry.BeginRun() {
+				continue
+			}
+			s.chargeMaintenanceFees(ctx)
+			s.entry.EndRun(nil)
 		}
-		s.chargeMaintenanceFees(ctx)
 	}
 }
 

@@ -21,7 +21,17 @@ const (
 func UnaryClientSagaContextInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{},
 		cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		md := metadata.MD{}
+		// MERGE onto any existing outgoing metadata — do NOT start fresh, or we
+		// clobber metadata other layers already appended (the OWN-1 caller
+		// identity x-principal-type/-id and the x-changed-by audit key). A fresh
+		// metadata.MD{} + NewOutgoingContext drops them, which silently disabled
+		// service-side ownership enforcement (and audit attribution).
+		md, ok := metadata.FromOutgoingContext(ctx)
+		if ok {
+			md = md.Copy()
+		} else {
+			md = metadata.MD{}
+		}
 		if id, ok := saga.SagaIDFromContext(ctx); ok {
 			md.Set(mdSagaID, id)
 		}
@@ -30,6 +40,13 @@ func UnaryClientSagaContextInterceptor() grpc.UnaryClientInterceptor {
 		}
 		if acting, ok := saga.ActingEmployeeIDFromContext(ctx); ok {
 			md.Set(mdActingID, strconv.FormatUint(acting, 10))
+		}
+		// Forward X-Saga-* fault directives (test builds only; dead code when
+		// saga.FaultsEnabled is the production false constant).
+		if saga.FaultsEnabled {
+			for k, v := range faultHeadersFrom(ctx) {
+				md.Set(k, v)
+			}
 		}
 		ctx = metadata.NewOutgoingContext(ctx, md)
 		return invoker(ctx, method, req, reply, cc, opts...)
@@ -51,6 +68,21 @@ func UnarySagaContextInterceptor() grpc.UnaryServerInterceptor {
 			if v := md.Get(mdActingID); len(v) > 0 {
 				if n, err := strconv.ParseUint(v[0], 10, 64); err == nil {
 					ctx = saga.WithActingEmployeeID(ctx, n)
+				}
+			}
+			// Extract X-Saga-* fault directives into a FaultSpec on the context
+			// (test builds only; dead code when saga.FaultsEnabled is false).
+			if saga.FaultsEnabled {
+				fh := make(map[string]string, len(faultHeaderNames))
+				for _, k := range faultHeaderNames {
+					if v := md.Get(k); len(v) > 0 {
+						fh[k] = v[0]
+					}
+				}
+				if len(fh) > 0 {
+					if spec := saga.ParseFaultSpec(fh); spec.HasAny() {
+						ctx = saga.WithFaultSpec(ctx, spec)
+					}
 				}
 			}
 		}

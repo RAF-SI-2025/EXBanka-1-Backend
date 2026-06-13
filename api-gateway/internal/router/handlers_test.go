@@ -39,7 +39,7 @@ func TestNewHandlers_AssemblesEveryHandler(t *testing.T) {
 	if h.PeerTx == nil || h.PeerBankAdmin == nil || h.PeerAuthMW == nil {
 		t.Fatal("peer wiring nil")
 	}
-	if h.PeerOTC == nil || h.PeerUser == nil || h.PeerOTCInitiate == nil {
+	if h.PeerOTC == nil || h.PeerUser == nil {
 		t.Fatal("peer otc wiring nil")
 	}
 }

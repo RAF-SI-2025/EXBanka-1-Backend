@@ -8,6 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 )
@@ -15,10 +16,38 @@ import (
 type LedgerService struct {
 	ledgerRepo *repository.LedgerRepository
 	db         *gorm.DB
+	// cache, when non-nil, is invalidated after every balance mutation so the
+	// next GetAccount / GetAccountByNumber read reflects the new balance.
+	// Direct ledger credits/debits (OTC premium, cross-bank settlement credit,
+	// fees, interest) flow through here — without this eviction a cached account
+	// row would keep serving a stale balance until its TTL. nil ⇒ no-op
+	// (graceful degradation when Redis is down).
+	cache *cache.RedisCache
 }
 
 func NewLedgerService(ledgerRepo *repository.LedgerRepository, db *gorm.DB) *LedgerService {
 	return &LedgerService{ledgerRepo: ledgerRepo, db: db}
+}
+
+// WithCache wires the Redis cache so balance mutations invalidate the cached
+// account. Returns the service for chaining (mirrors the reservation services).
+func (s *LedgerService) WithCache(c *cache.RedisCache) *LedgerService {
+	s.cache = c
+	return s
+}
+
+// evict drops the cached account (by id AND by number) after a balance mutation.
+// The id is resolved from the number via a direct, cache-independent DB read so
+// BOTH cache keys (account:id:N and account:num:S) are cleared — a read by id
+// (e.g. GET /me/accounts/:id) would otherwise keep serving a stale balance.
+func (s *LedgerService) evict(ctx context.Context, accountNumber string) {
+	if s.cache == nil || accountNumber == "" {
+		return
+	}
+	var id uint64
+	_ = s.db.WithContext(ctx).Model(&model.Account{}).
+		Select("id").Where("account_number = ?", accountNumber).Scan(&id).Error
+	evictAccountCache(s.cache, id, accountNumber)
 }
 
 // Transfer moves amount from fromAccount to toAccount atomically.
@@ -36,6 +65,9 @@ func (s *LedgerService) Transfer(ctx context.Context, fromAccount, toAccount str
 	if err == nil {
 		AccountBalanceOperationsTotal.WithLabelValues("debit").Inc()
 		AccountBalanceOperationsTotal.WithLabelValues("credit").Inc()
+		// Both sides changed — evict both cached accounts (after commit).
+		s.evict(ctx, fromAccount)
+		s.evict(ctx, toAccount)
 	}
 	return err
 }
@@ -48,6 +80,7 @@ func (s *LedgerService) Credit(ctx context.Context, accountNumber string, amount
 	})
 	if err == nil {
 		AccountBalanceOperationsTotal.WithLabelValues("credit").Inc()
+		s.evict(ctx, accountNumber)
 	}
 	return err
 }
@@ -60,6 +93,7 @@ func (s *LedgerService) Debit(ctx context.Context, accountNumber string, amount 
 	})
 	if err == nil {
 		AccountBalanceOperationsTotal.WithLabelValues("debit").Inc()
+		s.evict(ctx, accountNumber)
 	}
 	return err
 }

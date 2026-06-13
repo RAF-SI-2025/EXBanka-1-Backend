@@ -149,7 +149,7 @@ func TestOptionContractRepository_Save_SurfacesOptimisticLock(t *testing.T) {
 	uid := uint64(7)
 	settlement, _ := time.Parse("2006-01-02", "2026-12-31")
 	c := &model.OptionContract{
-		OfferID:         100,
+		OfferID:         uint64Ptr(100),
 		BuyerOwnerType:  model.OwnerClient,
 		BuyerOwnerID:    &uid,
 		SellerOwnerType: model.OwnerBank,

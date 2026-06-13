@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
 )
@@ -94,6 +95,9 @@ func (m *mockAccountClientForRequest) ReleaseIncoming(_ context.Context, _ *acco
 func (m *mockAccountClientForRequest) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForRequest) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 // --- helpers ------------------------------------------------------------------
 
@@ -123,7 +127,7 @@ func buildLoanRequestSvc(t *testing.T, accountClient accountpb.AccountServiceCli
 	marginRepo := repository.NewBankMarginRepository(db)
 	rateConfigSvc := NewRateConfigService(tierRepo, marginRepo, db)
 	require.NoError(t, rateConfigSvc.SeedDefaults())
-	svc := NewLoanRequestService(loanReqRepo, loanRepo, installRepo, nil, accountClient, rateConfigSvc, db)
+	svc := NewLoanRequestService(loanReqRepo, loanRepo, installRepo, nil, accountClient, rateConfigSvc, db, nil)
 	return svc, db
 }
 
@@ -319,4 +323,103 @@ func TestRejectLoanRequest_AlreadyRejected(t *testing.T) {
 	_, err := svc.RejectLoanRequest(req.ID, 0, "")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrLoanRequestNotPending))
+}
+
+func (*mockAccountClientForRequest) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClientForRequest) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockAccountClientForRequest) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}
+
+// --- SP-2 replica stubs -------------------------------------------------------
+
+// stubLimitReplica is a configurable in-memory employeeLimitReader for unit tests.
+type stubLimitReplica struct {
+	row          model.EmployeeLimitReplica
+	err          error // returned by GetByEmployeeID; nil means hit
+	upsertCalls  int
+	upsertedRows []model.EmployeeLimitReplica
+}
+
+func (s *stubLimitReplica) GetByEmployeeID(_ context.Context, id uint64) (model.EmployeeLimitReplica, error) {
+	if s.err != nil {
+		return model.EmployeeLimitReplica{}, s.err
+	}
+	return s.row, nil
+}
+
+func (s *stubLimitReplica) Upsert(_ context.Context, in model.EmployeeLimitReplica) error {
+	s.upsertCalls++
+	s.upsertedRows = append(s.upsertedRows, in)
+	return nil
+}
+
+// countingLimitClient wraps userpb.EmployeeLimitServiceClient to count calls.
+type countingLimitClient struct {
+	userpb.EmployeeLimitServiceClient
+	resp  *userpb.EmployeeLimitResponse
+	calls int
+}
+
+func (c *countingLimitClient) GetEmployeeLimits(_ context.Context, _ *userpb.EmployeeLimitRequest, _ ...grpc.CallOption) (*userpb.EmployeeLimitResponse, error) {
+	c.calls++
+	return c.resp, nil
+}
+
+// buildResolveTestSvc creates a minimal LoanRequestService wired with the given
+// limitReplica stub and limitClient stub, backed by an in-memory SQLite DB.
+func buildResolveTestSvc(t *testing.T, replica employeeLimitReader, lc userpb.EmployeeLimitServiceClient) *LoanRequestService {
+	t.Helper()
+	db := newLoanRequestTestDB(t)
+	loanReqRepo := repository.NewLoanRequestRepository(db)
+	loanRepo := repository.NewLoanRepository(db)
+	installRepo := repository.NewInstallmentRepository(db)
+	tierRepo := repository.NewInterestRateTierRepository(db)
+	marginRepo := repository.NewBankMarginRepository(db)
+	rateConfigSvc := NewRateConfigService(tierRepo, marginRepo, db)
+	require.NoError(t, rateConfigSvc.SeedDefaults())
+	return NewLoanRequestService(loanReqRepo, loanRepo, installRepo, lc, nil, rateConfigSvc, db, replica)
+}
+
+// --- TestResolveMaxLoanApproval -----------------------------------------------
+
+func TestResolveMaxLoanApproval_ReplicaHit_NoGRPC(t *testing.T) {
+	replica := &stubLimitReplica{
+		row: model.EmployeeLimitReplica{
+			EmployeeID:            42,
+			MaxLoanApprovalAmount: decimal.NewFromInt(50000),
+			Version:               1,
+		},
+	}
+	grpcStub := &countingLimitClient{
+		resp: &userpb.EmployeeLimitResponse{MaxLoanApprovalAmount: "99999"},
+	}
+
+	svc := buildResolveTestSvc(t, replica, grpcStub)
+	max, ok := svc.resolveMaxLoanApproval(context.Background(), 42)
+
+	assert.True(t, ok, "expected ok=true on replica hit")
+	assert.True(t, max.Equal(decimal.NewFromInt(50000)), "expected MaxLoanApprovalAmount=50000 from replica, got %s", max)
+	assert.Equal(t, 0, grpcStub.calls, "gRPC GetEmployeeLimits must NOT be called on replica hit")
+}
+
+func TestResolveMaxLoanApproval_Miss_FallsBackAndBackfills(t *testing.T) {
+	replica := &stubLimitReplica{
+		err: repository.ErrEmployeeLimitReplicaNotFound,
+	}
+	grpcStub := &countingLimitClient{
+		resp: &userpb.EmployeeLimitResponse{MaxLoanApprovalAmount: "50000.0000"},
+	}
+
+	svc := buildResolveTestSvc(t, replica, grpcStub)
+	max, ok := svc.resolveMaxLoanApproval(context.Background(), 7)
+
+	assert.True(t, ok, "expected ok=true after gRPC fallback")
+	assert.True(t, max.Equal(decimal.NewFromInt(50000)), "expected MaxLoanApprovalAmount=50000 from gRPC, got %s", max)
+	assert.Equal(t, 1, grpcStub.calls, "expected exactly 1 gRPC call on replica miss")
+	assert.Equal(t, 1, replica.upsertCalls, "expected exactly 1 backfill Upsert after gRPC fallback")
 }

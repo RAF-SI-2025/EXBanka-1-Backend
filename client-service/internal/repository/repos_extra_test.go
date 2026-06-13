@@ -125,6 +125,63 @@ func TestClientLimitRepository_GetUpsert(t *testing.T) {
 	}
 }
 
+// TestClientLimitRepository_VersionMonotonic guards the SP-5 invariant: every
+// Upsert must increment Version so account-service replica consumers can order
+// events correctly. Against unfixed code this test fails because version stays 1.
+func TestClientLimitRepository_VersionMonotonic(t *testing.T) {
+	db := newDB(t)
+	r := NewClientLimitRepository(db)
+
+	limit := &model.ClientLimit{
+		ClientID: 1, DailyLimit: decimal.NewFromInt(10000),
+		MonthlyLimit: decimal.NewFromInt(100000), TransferLimit: decimal.NewFromInt(5000),
+		SetByEmployee: 1,
+	}
+	// First insert: version should be 1 (DB column default).
+	if err := r.Upsert(limit); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got1, err := r.GetByClientID(1)
+	if err != nil {
+		t.Fatalf("get after insert: %v", err)
+	}
+	if got1.Version != 1 {
+		t.Fatalf("after first insert: want Version=1, got %d", got1.Version)
+	}
+
+	// Second upsert (update): version must increment to 2.
+	limit.DailyLimit = decimal.NewFromInt(20000)
+	if err := r.Upsert(limit); err != nil {
+		t.Fatalf("upsert update1: %v", err)
+	}
+	got2, err := r.GetByClientID(1)
+	if err != nil {
+		t.Fatalf("get after update1: %v", err)
+	}
+	if got2.Version != 2 {
+		t.Fatalf("after second upsert: want Version=2, got %d", got2.Version)
+	}
+	if !got2.DailyLimit.Equal(decimal.NewFromInt(20000)) {
+		t.Fatalf("after second upsert: want DailyLimit=20000, got %s", got2.DailyLimit)
+	}
+
+	// Third upsert: version must increment to 3.
+	limit.DailyLimit = decimal.NewFromInt(30000)
+	if err := r.Upsert(limit); err != nil {
+		t.Fatalf("upsert update2: %v", err)
+	}
+	got3, err := r.GetByClientID(1)
+	if err != nil {
+		t.Fatalf("get after update2: %v", err)
+	}
+	if got3.Version != 3 {
+		t.Fatalf("after third upsert: want Version=3, got %d", got3.Version)
+	}
+	if !got3.DailyLimit.Equal(decimal.NewFromInt(30000)) {
+		t.Fatalf("after third upsert: want DailyLimit=30000, got %s", got3.DailyLimit)
+	}
+}
+
 func TestChangelogRepository_CRUD(t *testing.T) {
 	db := newDB(t)
 	r := NewChangelogRepository(db)

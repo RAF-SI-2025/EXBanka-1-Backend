@@ -1,78 +1,69 @@
 package handler_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/exbanka/api-gateway/internal/handler"
-	clientpb "github.com/exbanka/contract/clientpb"
-	userpb "github.com/exbanka/contract/userpb"
 	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"google.golang.org/grpc"
+
+	"github.com/exbanka/api-gateway/internal/handler"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
-// Reuses stubClientClient and stubUserClient defined in mocks_test.go.
-// Each shared stub already implements the broader gRPC client interface;
-// these tests only override the GetClient / GetEmployee fns.
+// testBankDisplayName is the display name interbank-service returns; the gateway
+// echoes it through verbatim as bankDisplayName (§9).
+const testBankDisplayName = "EXBanka Test"
 
-func setupPeerUserRouter(cc clientpb.ClientServiceClient, uc userpb.UserServiceClient, ownRouting int64) *gin.Engine {
+// stubPeerUserClient is a fake interbank PeerUserService client. It embeds the
+// interface (nil) so it satisfies the type; only ResolvePeerUser is overridden.
+type stubPeerUserClient struct {
+	transactionpb.PeerUserServiceClient
+	resp   *transactionpb.ResolvePeerUserResponse
+	err    error
+	gotReq *transactionpb.ResolvePeerUserRequest
+}
+
+func (s *stubPeerUserClient) ResolvePeerUser(_ context.Context, in *transactionpb.ResolvePeerUserRequest, _ ...grpc.CallOption) (*transactionpb.ResolvePeerUserResponse, error) {
+	s.gotReq = in
+	return s.resp, s.err
+}
+
+func setupPeerUserRouter(c transactionpb.PeerUserServiceClient) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := handler.NewPeerUserHandler(cc, uc, ownRouting)
+	h := handler.NewPeerUserHandler(c)
 	r.GET("/user/:rid/:id", h.GetUser)
 	return r
 }
 
-func TestPeerUser_OwnClient_Found(t *testing.T) {
-	cc := &stubClientClient{
-		getFn: func(in *clientpb.GetClientRequest) (*clientpb.ClientResponse, error) {
-			return &clientpb.ClientResponse{Id: in.Id, FirstName: "Marko", LastName: "Marković"}, nil
-		},
-	}
-	uc := &stubUserClient{
-		getEmployeeFn: func(in *userpb.GetEmployeeRequest) (*userpb.EmployeeResponse, error) {
-			return nil, status.Error(codes.NotFound, "not found")
-		},
-	}
-	r := setupPeerUserRouter(cc, uc, 111)
+// found ⇒ 200 with {bankDisplayName, displayName}; rid+id are forwarded to interbank.
+func TestPeerUser_Found(t *testing.T) {
+	stub := &stubPeerUserClient{resp: &transactionpb.ResolvePeerUserResponse{
+		Found: true, BankDisplayName: testBankDisplayName, DisplayName: "Marko Marković",
+	}}
+	r := setupPeerUserRouter(stub)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/user/111/client-7", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
 	}
+	if stub.gotReq.GetRoutingNumber() != 111 || stub.gotReq.GetId() != "client-7" {
+		t.Errorf("forwarded req = %+v, want rid=111 id=client-7", stub.gotReq)
+	}
 	var got map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
-	if got["firstName"] != "Marko" {
-		t.Errorf("got %+v", got)
+	if got["bankDisplayName"] != testBankDisplayName || got["displayName"] != "Marko Marković" {
+		t.Errorf("body = %+v", got)
 	}
 }
 
-func TestPeerUser_ForeignRid_404(t *testing.T) {
-	cc := &stubClientClient{}
-	uc := &stubUserClient{}
-	r := setupPeerUserRouter(cc, uc, 111)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/user/222/client-7", nil))
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status: %d", w.Code)
-	}
-}
-
+// interbank reports found=false (unknown user OR foreign routing) ⇒ 404.
 func TestPeerUser_NotFound_404(t *testing.T) {
-	cc := &stubClientClient{
-		getFn: func(in *clientpb.GetClientRequest) (*clientpb.ClientResponse, error) {
-			return nil, status.Error(codes.NotFound, "not found")
-		},
-	}
-	uc := &stubUserClient{
-		getEmployeeFn: func(in *userpb.GetEmployeeRequest) (*userpb.EmployeeResponse, error) {
-			return nil, status.Error(codes.NotFound, "not found")
-		},
-	}
-	r := setupPeerUserRouter(cc, uc, 111)
+	r := setupPeerUserRouter(&stubPeerUserClient{resp: &transactionpb.ResolvePeerUserResponse{Found: false}})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/user/111/client-999", nil))
 	if w.Code != http.StatusNotFound {
@@ -81,9 +72,7 @@ func TestPeerUser_NotFound_404(t *testing.T) {
 }
 
 func TestPeerUser_BadRid_400(t *testing.T) {
-	cc := &stubClientClient{}
-	uc := &stubUserClient{}
-	r := setupPeerUserRouter(cc, uc, 111)
+	r := setupPeerUserRouter(&stubPeerUserClient{})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/user/notnumeric/client-7", nil))
 	if w.Code != http.StatusBadRequest {

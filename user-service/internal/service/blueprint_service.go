@@ -22,7 +22,6 @@ type BlueprintService struct {
 	blueprintRepo LimitBlueprintRepo
 	limitRepo     EmployeeLimitRepo
 	actuaryRepo   ActuaryRepo
-	clientClient  ClientLimitClient
 	producer      *kafkaprod.Producer
 	changelogRepo ChangelogRepo
 }
@@ -31,7 +30,6 @@ func NewBlueprintService(
 	blueprintRepo LimitBlueprintRepo,
 	limitRepo EmployeeLimitRepo,
 	actuaryRepo ActuaryRepo,
-	clientClient ClientLimitClient,
 	producer *kafkaprod.Producer,
 	changelogRepo ChangelogRepo,
 ) *BlueprintService {
@@ -39,7 +37,6 @@ func NewBlueprintService(
 		blueprintRepo: blueprintRepo,
 		limitRepo:     limitRepo,
 		actuaryRepo:   actuaryRepo,
-		clientClient:  clientClient,
 		producer:      producer,
 		changelogRepo: changelogRepo,
 	}
@@ -131,7 +128,7 @@ func (s *BlueprintService) DeleteBlueprint(ctx context.Context, id uint64) error
 // targetID is interpreted based on blueprint type:
 //   - employee: employee ID -> EmployeeLimit
 //   - actuary:  employee ID -> ActuaryLimit
-//   - client:   client ID   -> ClientLimit (via client-service gRPC)
+//   - client:   rejected — client-type blueprints are applied by client-service directly
 func (s *BlueprintService) ApplyBlueprint(ctx context.Context, blueprintID uint64, targetID int64, appliedBy int64) error {
 	bp, err := s.blueprintRepo.GetByID(blueprintID)
 	if err != nil {
@@ -147,7 +144,7 @@ func (s *BlueprintService) ApplyBlueprint(ctx context.Context, blueprintID uint6
 	case model.BlueprintTypeActuary:
 		return s.applyActuaryBlueprint(ctx, bp, targetID, appliedBy)
 	case model.BlueprintTypeClient:
-		return s.applyClientBlueprint(ctx, bp, targetID, appliedBy)
+		return fmt.Errorf("ApplyBlueprint(id=%d): %w", blueprintID, ErrClientBlueprintNotApplicable)
 	default:
 		return fmt.Errorf("unknown blueprint type: %s", bp.Type)
 	}
@@ -201,24 +198,6 @@ func (s *BlueprintService) applyActuaryBlueprint(ctx context.Context, bp *model.
 
 	s.recordChangelog(appliedBy, "actuary_limit", employeeID, bp.Name)
 	s.publishAppliedEvent(ctx, bp, employeeID)
-	return nil
-}
-
-func (s *BlueprintService) applyClientBlueprint(ctx context.Context, bp *model.LimitBlueprint, clientID int64, appliedBy int64) error {
-	var vals model.ClientBlueprintValues
-	if err := json.Unmarshal(bp.Values, &vals); err != nil {
-		return fmt.Errorf("failed to parse client blueprint values: %w", err)
-	}
-
-	if s.clientClient == nil {
-		return errors.New("client-service gRPC client not configured")
-	}
-	if err := s.clientClient.SetClientLimits(ctx, clientID, vals.DailyLimit, vals.MonthlyLimit, vals.TransferLimit, appliedBy); err != nil {
-		return fmt.Errorf("failed to apply client limits: %w", err)
-	}
-
-	s.recordChangelog(appliedBy, "client_limit", clientID, bp.Name)
-	s.publishAppliedEvent(ctx, bp, clientID)
 	return nil
 }
 

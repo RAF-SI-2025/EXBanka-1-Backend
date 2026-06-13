@@ -7,9 +7,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/exbanka/contract/cronreg"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/credit-service/internal/model"
 )
+
+// nilRegistry returns a no-op Registry suitable for unit tests that don't
+// need pause/trigger control (nil PauseStore is explicitly allowed).
+func nilRegistry() *cronreg.Registry {
+	return cronreg.NewRegistry("test", nil)
+}
 
 // recordingCronNotifier captures every GeneralNotificationMessage published by
 // CronService so tests can assert on Type, UserID, Data, RefType, and RefID.

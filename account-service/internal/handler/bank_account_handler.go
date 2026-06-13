@@ -9,17 +9,16 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 // bankAccountSvcFacade is the subset of *service.AccountService used by BankAccountGRPCHandler.
 type bankAccountSvcFacade interface {
 	CreateBankAccount(currencyCode, accountKind, accountName string, initialBalance decimal.Decimal) (*model.Account, error)
+	SetAccountCategory(accountID uint64, category string) error
 	ListBankAccounts() ([]model.Account, error)
 	DeleteBankAccount(id uint64) error
 	GetBankRSDAccount() (*model.Account, error)
@@ -27,25 +26,19 @@ type bankAccountSvcFacade interface {
 	CreditBankAccount(ctx context.Context, currency, amountStr, reference, reason string) (*repository.BankOpResult, error)
 }
 
-// bankProducer is the subset of *kafkaprod.Producer used by BankAccountGRPCHandler.
-type bankProducer interface {
-	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
-}
-
 type BankAccountGRPCHandler struct {
 	pb.UnimplementedBankAccountServiceServer
 	accountSvc bankAccountSvcFacade
-	producer   bankProducer
 }
 
-func NewBankAccountGRPCHandler(accountSvc *service.AccountService, producer *kafkaprod.Producer) *BankAccountGRPCHandler {
-	return &BankAccountGRPCHandler{accountSvc: accountSvc, producer: producer}
+func NewBankAccountGRPCHandler(accountSvc *service.AccountService) *BankAccountGRPCHandler {
+	return &BankAccountGRPCHandler{accountSvc: accountSvc}
 }
 
 // newBankAccountHandlerForTest constructs a BankAccountGRPCHandler with
 // interface-typed dependencies for use in unit tests.
-func newBankAccountHandlerForTest(accountSvc bankAccountSvcFacade, producer bankProducer) *BankAccountGRPCHandler {
-	return &BankAccountGRPCHandler{accountSvc: accountSvc, producer: producer}
+func newBankAccountHandlerForTest(accountSvc bankAccountSvcFacade) *BankAccountGRPCHandler {
+	return &BankAccountGRPCHandler{accountSvc: accountSvc}
 }
 
 func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.CreateBankAccountRequest) (*pb.AccountResponse, error) {
@@ -53,12 +46,18 @@ func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.
 	if err != nil {
 		return nil, err
 	}
-	_ = h.producer.PublishAccountCreated(ctx, kafkamsg.AccountCreatedMessage{
-		AccountNumber: account.AccountNumber,
-		OwnerID:       account.OwnerID,
-		AccountKind:   account.AccountKind,
-		CurrencyCode:  account.CurrencyCode,
-	})
+	// Stamp the optional account_category (e.g. "investment_fund") so
+	// downstream services can inspect it without a cross-service lookup.
+	if req.AccountCategory != "" {
+		account.AccountCategory = req.AccountCategory
+		if saveErr := h.accountSvc.SetAccountCategory(account.ID, req.AccountCategory); saveErr != nil {
+			// Non-fatal: log and continue. The account was created; a missing
+			// category tag is better than rolling back the whole create.
+			_ = saveErr
+		}
+	}
+	// AccountCreated is published by the service layer (CreateBankAccount →
+	// emitAccountCreated).
 	return toAccountResponse(account), nil
 }
 

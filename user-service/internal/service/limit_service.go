@@ -10,7 +10,6 @@ import (
 
 	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
-	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/shopspring/decimal"
 )
@@ -20,11 +19,11 @@ type LimitService struct {
 	limitRepo     EmployeeLimitRepo
 	templateRepo  LimitTemplateRepo
 	empRepo       HierarchyEmpRepo
-	producer      *kafkaprod.Producer
+	producer      LimitEventPublisher
 	changelogRepo ChangelogRepo
 }
 
-func NewLimitService(limitRepo EmployeeLimitRepo, templateRepo LimitTemplateRepo, empRepo HierarchyEmpRepo, producer *kafkaprod.Producer, changelogRepo ...ChangelogRepo) *LimitService {
+func NewLimitService(limitRepo EmployeeLimitRepo, templateRepo LimitTemplateRepo, empRepo HierarchyEmpRepo, producer LimitEventPublisher, changelogRepo ...ChangelogRepo) *LimitService {
 	svc := &LimitService{
 		limitRepo:    limitRepo,
 		templateRepo: templateRepo,
@@ -126,8 +125,14 @@ func (s *LimitService) SetEmployeeLimits(ctx context.Context, limit model.Employ
 
 	if s.producer != nil {
 		if pubErr := s.producer.PublishEmployeeLimitsUpdated(ctx, kafkamsg.EmployeeLimitsUpdatedMessage{
-			EmployeeID: limit.EmployeeID,
-			Action:     "set",
+			EmployeeID:            limit.EmployeeID,
+			Action:                "set",
+			MaxLoanApprovalAmount: result.MaxLoanApprovalAmount.StringFixed(4),
+			MaxSingleTransaction:  result.MaxSingleTransaction.StringFixed(4),
+			MaxDailyTransaction:   result.MaxDailyTransaction.StringFixed(4),
+			MaxClientDailyLimit:   result.MaxClientDailyLimit.StringFixed(4),
+			MaxClientMonthlyLimit: result.MaxClientMonthlyLimit.StringFixed(4),
+			Version:               result.Version,
 		}); pubErr != nil {
 			log.Printf("warn: failed to publish employee-limits-updated event: %v", pubErr)
 		}
@@ -167,8 +172,14 @@ func (s *LimitService) ApplyTemplate(ctx context.Context, employeeID int64, temp
 	}
 	if s.producer != nil {
 		if pubErr := s.producer.PublishEmployeeLimitsUpdated(ctx, kafkamsg.EmployeeLimitsUpdatedMessage{
-			EmployeeID: employeeID,
-			Action:     "template_applied",
+			EmployeeID:            employeeID,
+			Action:                "template_applied",
+			MaxLoanApprovalAmount: result.MaxLoanApprovalAmount.StringFixed(4),
+			MaxSingleTransaction:  result.MaxSingleTransaction.StringFixed(4),
+			MaxDailyTransaction:   result.MaxDailyTransaction.StringFixed(4),
+			MaxClientDailyLimit:   result.MaxClientDailyLimit.StringFixed(4),
+			MaxClientMonthlyLimit: result.MaxClientMonthlyLimit.StringFixed(4),
+			Version:               result.Version,
 		}); pubErr != nil {
 			log.Printf("warn: failed to publish employee-limits-updated event: %v", pubErr)
 		}

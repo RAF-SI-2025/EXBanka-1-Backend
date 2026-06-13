@@ -23,9 +23,11 @@ type GeneralNotificationConsumer struct {
 	reader    *kafkago.Reader
 	notifRepo generalNotificationCreator
 	templates templateRenderer
+	dlq       DeadLetterWriter
+	dedup     Deduper
 }
 
-func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService) *GeneralNotificationConsumer {
+func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService, dlq DeadLetterWriter, dedup Deduper) *GeneralNotificationConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  strings.Split(brokers, ","),
 		Topic:    kafkamsg.TopicGeneralNotification,
@@ -33,7 +35,7 @@ func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.Genera
 		MinBytes: 1,
 		MaxBytes: 10e6,
 	})
-	return &GeneralNotificationConsumer{reader: reader, notifRepo: notifRepo, templates: templateSvc}
+	return &GeneralNotificationConsumer{reader: reader, notifRepo: notifRepo, templates: templateSvc, dlq: dlq, dedup: dedup}
 }
 
 // newGeneralNotificationConsumerForTest constructs a consumer without a Kafka reader.
@@ -42,53 +44,40 @@ func newGeneralNotificationConsumerForTest(repo generalNotificationCreator, r te
 }
 
 func (c *GeneralNotificationConsumer) Start(ctx context.Context) {
-	go func() {
-		log.Println("general notification consumer started, listening on", kafkamsg.TopicGeneralNotification)
-		for {
-			msg, err := c.reader.ReadMessage(ctx)
-			if err != nil {
-				if ctx.Err() != nil {
-					log.Println("general notification consumer shutting down")
-					return
-				}
-				log.Printf("general notification consumer: read error: %v", err)
-				continue
-			}
-			c.handleMessage(msg.Value)
-		}
-	}()
+	go runConsumer(ctx, "general_notification", c.reader, c.dlq, c.dedup, c.handleMessage)
 }
 
-func (c *GeneralNotificationConsumer) handleMessage(data []byte) {
+func (c *GeneralNotificationConsumer) handleMessage(_ context.Context, data []byte) error {
 	var event kafkamsg.GeneralNotificationMessage
 	if err := json.Unmarshal(data, &event); err != nil {
-		log.Printf("general notification consumer: unmarshal error: %v", err)
-		return
+		log.Printf("general notification consumer: dropping malformed message: %v", err)
+		return nil // not retryable
 	}
 
 	title, body := event.Title, event.Message
 	if len(event.Data) > 0 {
 		subject, rendered, err := c.templates.Render(event.Type, "push", event.Data)
 		if err != nil {
-			log.Printf("general notification consumer: render %q failed, dropping: %v", event.Type, err)
-			return
+			log.Printf("general notification consumer: render %q failed, dropping (not retryable): %v", event.Type, err)
+			return nil
 		}
 		title, body = subject, rendered
 	}
 
 	notif := &model.GeneralNotification{
-		UserID:  event.UserID,
-		Type:    event.Type,
-		Title:   title,
-		Message: body,
-		RefType: event.RefType,
-		RefID:   event.RefID,
+		UserID:     event.UserID,
+		SystemType: event.SystemType, // "" (legacy/client) or "employee"; read scoping treats empty as client
+		Type:       event.Type,
+		Title:      title,
+		Message:    body,
+		RefType:    event.RefType,
+		RefID:      event.RefID,
 	}
 	if err := c.notifRepo.Create(notif); err != nil {
-		log.Printf("general notification consumer: create error: %v", err)
-		return
+		return err // transient DB failure — retry then dead-letter
 	}
 	service.NotificationGeneralCreatedTotal.Inc()
+	return nil
 }
 
 func (c *GeneralNotificationConsumer) Close() error {

@@ -41,7 +41,11 @@ const (
 	AccountService_ReserveIncoming_FullMethodName          = "/account.AccountService/ReserveIncoming"
 	AccountService_CommitIncoming_FullMethodName           = "/account.AccountService/CommitIncoming"
 	AccountService_ReleaseIncoming_FullMethodName          = "/account.AccountService/ReleaseIncoming"
+	AccountService_ReserveOutgoing_FullMethodName          = "/account.AccountService/ReserveOutgoing"
+	AccountService_SettleOutgoing_FullMethodName           = "/account.AccountService/SettleOutgoing"
+	AccountService_ReleaseOutgoing_FullMethodName          = "/account.AccountService/ReleaseOutgoing"
 	AccountService_ListChangelog_FullMethodName            = "/account.AccountService/ListChangelog"
+	AccountService_ListAllChangelogs_FullMethodName        = "/account.AccountService/ListAllChangelogs"
 )
 
 // AccountServiceClient is the client API for AccountService service.
@@ -80,9 +84,22 @@ type AccountServiceClient interface {
 	CommitIncoming(ctx context.Context, in *CommitIncomingRequest, opts ...grpc.CallOption) (*CommitIncomingResponse, error)
 	// idempotent
 	ReleaseIncoming(ctx context.Context, in *ReleaseIncomingRequest, opts ...grpc.CallOption) (*ReleaseIncomingResponse, error)
+	// Debit-side reservation lifecycle for inter-bank OUTBOUND transfers
+	// (Celina-5 SI-TX reserve-then-settle: hold at NEW_TX, debit at COMMIT_TX,
+	// release on NO/ROLLBACK/timeout). String-keyed mirror of the Incoming trio.
+	// ReserveOutgoing reduces AvailableBalance (not Balance); SettleOutgoing
+	// reduces Balance + writes the debit ledger entry; ReleaseOutgoing restores
+	// AvailableBalance. All idempotent on reservation_key.
+	ReserveOutgoing(ctx context.Context, in *ReserveOutgoingRequest, opts ...grpc.CallOption) (*ReserveOutgoingResponse, error)
+	SettleOutgoing(ctx context.Context, in *SettleOutgoingRequest, opts ...grpc.CallOption) (*SettleOutgoingResponse, error)
+	ReleaseOutgoing(ctx context.Context, in *ReleaseOutgoingRequest, opts ...grpc.CallOption) (*ReleaseOutgoingResponse, error)
 	// Audit-trail reads. Returns changelog rows scoped by entity_type +
 	// entity_id; pagination matches list endpoints (1-based page).
 	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
+	// ListAllChangelogs returns every changelog row for this service (global
+	// audit view, admin-only). Supports optional filters: since/until (unix
+	// seconds), actor_id (changed_by), action string, and pagination.
+	ListAllChangelogs(ctx context.Context, in *ListAllChangelogsRequest, opts ...grpc.CallOption) (*ListAllChangelogsResponse, error)
 }
 
 type accountServiceClient struct {
@@ -313,10 +330,50 @@ func (c *accountServiceClient) ReleaseIncoming(ctx context.Context, in *ReleaseI
 	return out, nil
 }
 
+func (c *accountServiceClient) ReserveOutgoing(ctx context.Context, in *ReserveOutgoingRequest, opts ...grpc.CallOption) (*ReserveOutgoingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReserveOutgoingResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReserveOutgoing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) SettleOutgoing(ctx context.Context, in *SettleOutgoingRequest, opts ...grpc.CallOption) (*SettleOutgoingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SettleOutgoingResponse)
+	err := c.cc.Invoke(ctx, AccountService_SettleOutgoing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ReleaseOutgoing(ctx context.Context, in *ReleaseOutgoingRequest, opts ...grpc.CallOption) (*ReleaseOutgoingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseOutgoingResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReleaseOutgoing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *accountServiceClient) ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListChangelogResponse)
 	err := c.cc.Invoke(ctx, AccountService_ListChangelog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ListAllChangelogs(ctx context.Context, in *ListAllChangelogsRequest, opts ...grpc.CallOption) (*ListAllChangelogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAllChangelogsResponse)
+	err := c.cc.Invoke(ctx, AccountService_ListAllChangelogs_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -359,9 +416,22 @@ type AccountServiceServer interface {
 	CommitIncoming(context.Context, *CommitIncomingRequest) (*CommitIncomingResponse, error)
 	// idempotent
 	ReleaseIncoming(context.Context, *ReleaseIncomingRequest) (*ReleaseIncomingResponse, error)
+	// Debit-side reservation lifecycle for inter-bank OUTBOUND transfers
+	// (Celina-5 SI-TX reserve-then-settle: hold at NEW_TX, debit at COMMIT_TX,
+	// release on NO/ROLLBACK/timeout). String-keyed mirror of the Incoming trio.
+	// ReserveOutgoing reduces AvailableBalance (not Balance); SettleOutgoing
+	// reduces Balance + writes the debit ledger entry; ReleaseOutgoing restores
+	// AvailableBalance. All idempotent on reservation_key.
+	ReserveOutgoing(context.Context, *ReserveOutgoingRequest) (*ReserveOutgoingResponse, error)
+	SettleOutgoing(context.Context, *SettleOutgoingRequest) (*SettleOutgoingResponse, error)
+	ReleaseOutgoing(context.Context, *ReleaseOutgoingRequest) (*ReleaseOutgoingResponse, error)
 	// Audit-trail reads. Returns changelog rows scoped by entity_type +
 	// entity_id; pagination matches list endpoints (1-based page).
 	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
+	// ListAllChangelogs returns every changelog row for this service (global
+	// audit view, admin-only). Supports optional filters: since/until (unix
+	// seconds), actor_id (changed_by), action string, and pagination.
+	ListAllChangelogs(context.Context, *ListAllChangelogsRequest) (*ListAllChangelogsResponse, error)
 	mustEmbedUnimplementedAccountServiceServer()
 }
 
@@ -438,8 +508,20 @@ func (UnimplementedAccountServiceServer) CommitIncoming(context.Context, *Commit
 func (UnimplementedAccountServiceServer) ReleaseIncoming(context.Context, *ReleaseIncomingRequest) (*ReleaseIncomingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseIncoming not implemented")
 }
+func (UnimplementedAccountServiceServer) ReserveOutgoing(context.Context, *ReserveOutgoingRequest) (*ReserveOutgoingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReserveOutgoing not implemented")
+}
+func (UnimplementedAccountServiceServer) SettleOutgoing(context.Context, *SettleOutgoingRequest) (*SettleOutgoingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SettleOutgoing not implemented")
+}
+func (UnimplementedAccountServiceServer) ReleaseOutgoing(context.Context, *ReleaseOutgoingRequest) (*ReleaseOutgoingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseOutgoing not implemented")
+}
 func (UnimplementedAccountServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
+}
+func (UnimplementedAccountServiceServer) ListAllChangelogs(context.Context, *ListAllChangelogsRequest) (*ListAllChangelogsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAllChangelogs not implemented")
 }
 func (UnimplementedAccountServiceServer) mustEmbedUnimplementedAccountServiceServer() {}
 func (UnimplementedAccountServiceServer) testEmbeddedByValue()                        {}
@@ -858,6 +940,60 @@ func _AccountService_ReleaseIncoming_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccountService_ReserveOutgoing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReserveOutgoingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReserveOutgoing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReserveOutgoing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReserveOutgoing(ctx, req.(*ReserveOutgoingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_SettleOutgoing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SettleOutgoingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).SettleOutgoing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_SettleOutgoing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).SettleOutgoing(ctx, req.(*SettleOutgoingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ReleaseOutgoing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseOutgoingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReleaseOutgoing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReleaseOutgoing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReleaseOutgoing(ctx, req.(*ReleaseOutgoingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AccountService_ListChangelog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListChangelogRequest)
 	if err := dec(in); err != nil {
@@ -872,6 +1008,24 @@ func _AccountService_ListChangelog_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AccountServiceServer).ListChangelog(ctx, req.(*ListChangelogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ListAllChangelogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAllChangelogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ListAllChangelogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ListAllChangelogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ListAllChangelogs(ctx, req.(*ListAllChangelogsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -972,8 +1126,24 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AccountService_ReleaseIncoming_Handler,
 		},
 		{
+			MethodName: "ReserveOutgoing",
+			Handler:    _AccountService_ReserveOutgoing_Handler,
+		},
+		{
+			MethodName: "SettleOutgoing",
+			Handler:    _AccountService_SettleOutgoing_Handler,
+		},
+		{
+			MethodName: "ReleaseOutgoing",
+			Handler:    _AccountService_ReleaseOutgoing_Handler,
+		},
+		{
 			MethodName: "ListChangelog",
 			Handler:    _AccountService_ListChangelog_Handler,
+		},
+		{
+			MethodName: "ListAllChangelogs",
+			Handler:    _AccountService_ListAllChangelogs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

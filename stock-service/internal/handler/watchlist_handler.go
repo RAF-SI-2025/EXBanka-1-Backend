@@ -29,11 +29,11 @@ func (h *WatchlistHandler) AddItem(ctx context.Context, req *pb.AddWatchlistItem
 	if req.GetListingId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "listing_id is required")
 	}
-	if err := h.svc.Add(ownerType, ownerID, req.GetListingId()); err != nil {
+	if err := h.svc.Add(ownerType, ownerID, req.GetWatchlistId(), req.GetListingId()); err != nil {
 		return nil, err
 	}
 	// Re-fetch the enriched entry so the caller gets the same shape as List.
-	items, err := h.svc.List(ownerType, ownerID, "")
+	items, err := h.svc.List(ownerType, ownerID, req.GetWatchlistId(), "")
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (h *WatchlistHandler) RemoveItem(ctx context.Context, req *pb.RemoveWatchli
 	if req.GetListingId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "listing_id is required")
 	}
-	if err := h.svc.Remove(ownerType, ownerID, req.GetListingId()); err != nil {
+	if err := h.svc.Remove(ownerType, ownerID, req.GetWatchlistId(), req.GetListingId()); err != nil {
 		return nil, err
 	}
 	return &pb.RemoveWatchlistItemResponse{Removed: true}, nil
@@ -64,7 +64,7 @@ func (h *WatchlistHandler) ListMy(ctx context.Context, req *pb.ListMyWatchlistRe
 	if err != nil {
 		return nil, err
 	}
-	items, err := h.svc.List(ownerType, ownerID, req.GetListingType())
+	items, err := h.svc.List(ownerType, ownerID, req.GetWatchlistId(), req.GetListingType())
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +73,54 @@ func (h *WatchlistHandler) ListMy(ctx context.Context, req *pb.ListMyWatchlistRe
 		out.Items = append(out.Items, entryToProto(it))
 	}
 	return out, nil
+}
+
+// CreateWatchlist creates a named list for the owner (SP6).
+func (h *WatchlistHandler) CreateWatchlist(ctx context.Context, req *pb.CreateWatchlistRequest) (*pb.WatchlistResponse, error) {
+	ownerType, ownerID, err := ownerFromRequest(req.GetOwnerType(), req.GetOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	w, err := h.svc.CreateWatchlist(ownerType, ownerID, req.GetName())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.WatchlistResponse{Id: w.ID, Name: w.Name, ItemCount: 0, CreatedAt: w.CreatedAt.Format("2006-01-02T15:04:05Z07:00")}, nil
+}
+
+// ListWatchlists returns the owner's named lists with item counts (SP6).
+func (h *WatchlistHandler) ListWatchlists(ctx context.Context, req *pb.ListWatchlistsRequest) (*pb.ListWatchlistsResponse, error) {
+	ownerType, ownerID, err := ownerFromRequest(req.GetOwnerType(), req.GetOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	lists, err := h.svc.ListWatchlists(ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	out := &pb.ListWatchlistsResponse{Watchlists: make([]*pb.WatchlistResponse, 0, len(lists))}
+	for _, l := range lists {
+		out.Watchlists = append(out.Watchlists, &pb.WatchlistResponse{
+			Id: l.ID, Name: l.Name, ItemCount: l.ItemCount,
+			CreatedAt: l.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return out, nil
+}
+
+// DeleteWatchlist removes an owner's named list and its items (SP6).
+func (h *WatchlistHandler) DeleteWatchlist(ctx context.Context, req *pb.DeleteWatchlistRequest) (*pb.DeleteWatchlistResponse, error) {
+	ownerType, ownerID, err := ownerFromRequest(req.GetOwnerType(), req.GetOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	if req.GetWatchlistId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "watchlist_id is required")
+	}
+	if err := h.svc.DeleteWatchlist(ownerType, ownerID, req.GetWatchlistId()); err != nil {
+		return nil, err
+	}
+	return &pb.DeleteWatchlistResponse{Removed: true}, nil
 }
 
 // ownerFromRequest interprets the wire (owner_type, owner_id) into the

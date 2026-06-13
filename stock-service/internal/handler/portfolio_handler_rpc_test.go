@@ -24,7 +24,6 @@ import (
 type mockPortfolioSvc struct {
 	listFn       func(ownerType model.OwnerType, ownerID *uint64, filter service.HoldingFilter) ([]model.Holding, int64, error)
 	priceFn      func(listingID uint64) (decimal.Decimal, error)
-	makePubFn    func(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error)
 	exerciseFn   func(holdingID uint64, ownerType model.OwnerType, ownerID *uint64) (*service.ExerciseResult, error)
 	listTxFn     func(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
 	exByOptionFn func(ctx context.Context, optionID uint64, ownerType model.OwnerType, ownerID *uint64, holdingID uint64) (*service.ExerciseResult, error)
@@ -42,13 +41,6 @@ func (m *mockPortfolioSvc) GetCurrentPrice(listingID uint64) (decimal.Decimal, e
 		return m.priceFn(listingID)
 	}
 	return decimal.Zero, nil
-}
-
-func (m *mockPortfolioSvc) MakePublic(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error) {
-	if m.makePubFn != nil {
-		return m.makePubFn(holdingID, ownerType, ownerID, quantity)
-	}
-	return &model.Holding{ID: holdingID, PublicQuantity: quantity}, nil
 }
 
 func (m *mockPortfolioSvc) ExerciseOption(holdingID uint64, ownerType model.OwnerType, ownerID *uint64) (*service.ExerciseResult, error) {
@@ -96,7 +88,7 @@ func TestPortfolioHandler_ListHoldings_Success(t *testing.T) {
 	psvc := &mockPortfolioSvc{
 		listFn: func(_ model.OwnerType, _ *uint64, _ service.HoldingFilter) ([]model.Holding, int64, error) {
 			return []model.Holding{
-				{ID: 1, SecurityType: "stock", Ticker: "AAPL", Name: "Apple", Quantity: 10, PublicQuantity: 0, AccountID: 100, UpdatedAt: now},
+				{ID: 1, SecurityType: "stock", Ticker: "AAPL", Name: "Apple", Quantity: 10, AccountID: 100, UpdatedAt: now},
 			}, 1, nil
 		},
 	}
@@ -215,69 +207,6 @@ func TestPortfolioHandler_GetPortfolioSummary_TaxError(t *testing.T) {
 	_, err := h.GetPortfolioSummary(context.Background(), &pb.GetPortfolioSummaryRequest{UserId: 5, SystemType: "client"})
 	if status.Code(err) != codes.Internal {
 		t.Errorf("expected Internal, got %v", status.Code(err))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// MakePublic
-// ---------------------------------------------------------------------------
-
-func TestPortfolioHandler_MakePublic_Success(t *testing.T) {
-	now := time.Now()
-	psvc := &mockPortfolioSvc{
-		makePubFn: func(holdingID uint64, _ model.OwnerType, _ *uint64, qty int64) (*model.Holding, error) {
-			return &model.Holding{
-				ID: holdingID, SecurityType: "stock", Ticker: "AAPL", Name: "Apple",
-				Quantity: 10, AveragePrice: decimal.NewFromInt(150), PublicQuantity: qty, AccountID: 100, UpdatedAt: now,
-			}, nil
-		},
-	}
-	h := newPortfolioHandlerForTest(psvc, &mockTaxSvc{})
-	resp, err := h.MakePublic(context.Background(), &pb.MakePublicRequest{HoldingId: 1, UserId: 5, SystemType: "client", Quantity: 5})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.PublicQuantity != 5 {
-		t.Errorf("expected PublicQuantity=5, got %d", resp.PublicQuantity)
-	}
-}
-
-func TestPortfolioHandler_MakePublic_NotFound(t *testing.T) {
-	psvc := &mockPortfolioSvc{
-		makePubFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ int64) (*model.Holding, error) {
-			return nil, fmt.Errorf("holding not found: %w", service.ErrHoldingNotFound)
-		},
-	}
-	h := newPortfolioHandlerForTest(psvc, &mockTaxSvc{})
-	_, err := h.MakePublic(context.Background(), &pb.MakePublicRequest{HoldingId: 9, UserId: 5, SystemType: "client", Quantity: 5})
-	if status.Code(err) != codes.NotFound {
-		t.Errorf("expected NotFound, got %v", status.Code(err))
-	}
-}
-
-func TestPortfolioHandler_MakePublic_PermissionDenied(t *testing.T) {
-	psvc := &mockPortfolioSvc{
-		makePubFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ int64) (*model.Holding, error) {
-			return nil, fmt.Errorf("holding does not belong to user: %w", service.ErrHoldingOwnership)
-		},
-	}
-	h := newPortfolioHandlerForTest(psvc, &mockTaxSvc{})
-	_, err := h.MakePublic(context.Background(), &pb.MakePublicRequest{HoldingId: 1, UserId: 99, SystemType: "client", Quantity: 5})
-	if status.Code(err) != codes.PermissionDenied {
-		t.Errorf("expected PermissionDenied, got %v", status.Code(err))
-	}
-}
-
-func TestPortfolioHandler_MakePublic_FailedPrecondition(t *testing.T) {
-	psvc := &mockPortfolioSvc{
-		makePubFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ int64) (*model.Holding, error) {
-			return nil, fmt.Errorf("only stocks can be made public for OTC trading: %w", service.ErrPublicOnlyStocks)
-		},
-	}
-	h := newPortfolioHandlerForTest(psvc, &mockTaxSvc{})
-	_, err := h.MakePublic(context.Background(), &pb.MakePublicRequest{HoldingId: 1, UserId: 5, SystemType: "client", Quantity: 5})
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Errorf("expected FailedPrecondition, got %v", status.Code(err))
 	}
 }
 

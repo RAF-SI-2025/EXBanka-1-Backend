@@ -29,21 +29,18 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
 
 	accountpb "github.com/exbanka/contract/accountpb"
-	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/contract/shared/orderkind"
-	"github.com/exbanka/contract/shared/saga"
+	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/stock-service/internal/model"
-	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // MintFromNegotiationInput drives MintContractFromAcceptedNegotiation.
@@ -55,6 +52,11 @@ type MintFromNegotiationInput struct {
 	AcceptorAccountID  uint64
 	ActorPrincipalType string
 	ActorPrincipalID   uint64
+	// OnBehalfOfFundID, when non-zero, tags the minted contract so that on
+	// exercise the acquired shares land in fund_holdings. The fund manager
+	// enforcement and account-ID match are verified by the caller before
+	// this input is constructed.
+	OnBehalfOfFundID uint64
 }
 
 // MintContractFromAcceptedNegotiation runs the contract-formation saga
@@ -69,12 +71,12 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 	parent := in.Parent
 	neg := in.Negotiation
 	if parent == nil || neg == nil {
-		return nil, errors.New("parent and negotiation are required")
+		return nil, svcerr.New(codes.Internal, "parent and negotiation are required")
 	}
 	// Settlement must still be in the future. If the parent has aged
 	// out between create and accept, refuse to mint.
 	if !neg.SettlementDate.After(time.Now().UTC().Truncate(24 * time.Hour)) {
-		return nil, errors.New("settlement_date is not in the future")
+		return nil, ErrOTCSettlementNotFuture
 	}
 
 	// Resolve buyer/seller from parent.Direction. The PARENT POSTER
@@ -113,142 +115,54 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 		sellerAccountID = in.AcceptorAccountID
 	}
 	if buyerAccountID == 0 || sellerAccountID == 0 {
-		return nil, errors.New("both buyer and seller accounts must be bound")
+		return nil, ErrOTCAccountsNotBound
 	}
 
-	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: buyerAccountID})
-	if err != nil {
-		return nil, fmt.Errorf("get buyer account: %w", err)
-	}
+	// Seller's account currency denominates the premium; capture it on the
+	// contract (PremiumCurrency/StrikeCurrency). buildAcceptSaga re-fetches both
+	// accounts and re-derives the FX/buyer-side amounts from the contract, so the
+	// saga can be rebuilt identically on crash recovery.
 	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: sellerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
-
-	// Premium denomination follows seller's account currency. Cross-
-	// currency: convert the buyer-side debit to the buyer's currency
-	// via exchange-service; seller credit stays in their currency.
-	premiumSellerCcy := neg.Premium
 	premiumCcy := sellerAcct.CurrencyCode
-	premiumBuyerCcy := premiumSellerCcy
-	buyerCcy := buyerAcct.CurrencyCode
-	if buyerCcy != premiumCcy {
-		if s.exchange == nil {
-			return nil, errors.New("cross-currency OTC accept requires exchange client")
-		}
-		conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
-			FromCurrency: premiumCcy, ToCurrency: buyerCcy,
-			Amount: premiumSellerCcy.String(),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("FX premium convert: %w", err)
-		}
-		converted, err := decimal.NewFromString(conv.ConvertedAmount)
-		if err != nil {
-			return nil, fmt.Errorf("FX premium convert: parse %q: %w", conv.ConvertedAmount, err)
-		}
-		premiumBuyerCcy = converted
-	}
 
 	sagaID := uuid.NewString()
-	qty := neg.Quantity.IntPart()
 
-	contract := &model.OptionContract{
-		OfferID:         parent.ID,
-		BuyerOwnerType:  buyerOwnerType,
-		BuyerOwnerID:    buyerOwnerID,
-		SellerOwnerType: sellerOwnerType,
-		SellerOwnerID:   sellerOwnerID,
-		StockID:         parent.StockID,
-		Ticker:          parent.Ticker,
-		Quantity:        neg.Quantity,
-		StrikePrice:     neg.StrikePrice,
-		PremiumPaid:     neg.Premium,
-		PremiumCurrency: premiumCcy,
-		StrikeCurrency:  premiumCcy,
-		SettlementDate:  neg.SettlementDate,
-		Status:          model.OptionContractStatusActive,
-		SagaID:          sagaID,
-		PremiumPaidAt:   time.Now().UTC(),
-		BuyerAccountID:  buyerAccountID,
-		SellerAccountID: sellerAccountID,
+	var onBehalfFundPtr *uint64
+	if in.OnBehalfOfFundID != 0 {
+		fid := in.OnBehalfOfFundID
+		onBehalfFundPtr = &fid
 	}
 
-	settleMemo := "OTC premium for contract"
-	idemSeller := ""
-	creditMemo := ""
+	parentOfferID := parent.ID
+	contract := &model.OptionContract{
+		OfferID:          &parentOfferID,
+		BuyerOwnerType:   buyerOwnerType,
+		BuyerOwnerID:     buyerOwnerID,
+		SellerOwnerType:  sellerOwnerType,
+		SellerOwnerID:    sellerOwnerID,
+		StockID:          parent.StockID,
+		Ticker:           parent.Ticker,
+		Quantity:         neg.Quantity,
+		StrikePrice:      neg.StrikePrice,
+		PremiumPaid:      neg.Premium,
+		PremiumCurrency:  premiumCcy,
+		StrikeCurrency:   premiumCcy,
+		SettlementDate:   neg.SettlementDate,
+		Status:           model.OptionContractStatusActive,
+		SagaID:           sagaID,
+		PremiumPaidAt:    time.Now().UTC(),
+		BuyerAccountID:   buyerAccountID,
+		SellerAccountID:  sellerAccountID,
+		OnBehalfOfFundID: onBehalfFundPtr, // E2: nil for personal, non-nil for fund
+	}
 
-	state := saga.NewState()
-	state.Set("step:reserve_and_contract:amount", neg.Quantity)
-	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
-	state.Set("step:reserve_premium:currency", buyerCcy)
-	state.Set("step:settle_premium_buyer:amount", premiumBuyerCcy)
-	state.Set("step:settle_premium_buyer:currency", buyerCcy)
-	state.Set("step:credit_premium_seller:amount", premiumSellerCcy)
-	state.Set("step:credit_premium_seller:currency", premiumCcy)
-
-	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(saga.Step{
-			Name: saga.StepReserveAndContract,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				if err := s.contracts.Create(contract); err != nil {
-					return err
-				}
-				// THIS is the seller-can-deliver check + lock. Reserves
-				// the underlying shares on the seller's holding; fails
-				// if the seller no longer has enough free shares.
-				if _, err := s.holdingRes.ReserveForOTCContract(ctx, sellerOwnerType, sellerOwnerID, "stock", parent.StockID, contract.ID, qty); err != nil {
-					_ = s.contracts.Delete(contract.ID)
-					return err
-				}
-				settleMemo = fmt.Sprintf("OTC premium for contract #%d (negotiation #%d)", contract.ID, neg.ID)
-				idemSeller = fmt.Sprintf("otc-accept-neg-%d-seller", contract.ID)
-				creditMemo = fmt.Sprintf("OTC premium credit for contract #%d", contract.ID)
-				return nil
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, _ = s.holdingRes.ReleaseForOTCContract(ctx, contract.ID)
-				return s.contracts.Delete(contract.ID)
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepReservePremium,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				// THIS is the buyer-has-cash check + lock. Reserves
-				// the premium on the buyer's account; fails if balance
-				// is insufficient.
-				_, e := s.accounts.ReserveFunds(ctx, buyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium), orderkind.OTCPremium)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReleaseReservation(ctx, contract.ID,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium)+":compensate", orderkind.OTCPremium)
-				return e
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepSettlePremiumBuyer,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo,
-					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer), orderkind.OTCPremium)
-				return e
-			},
-			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, premiumBuyerCcy,
-					fmt.Sprintf("Compensating OTC premium #%d", contract.ID),
-					fmt.Sprintf("otc-accept-neg-%d-comp-buyer", contract.ID))
-				return e
-			},
-		}).
-		Add(saga.Step{
-			Name: saga.StepCreditPremiumSeller,
-			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
-				return e
-			},
-		})
-
+	sg, state, err := s.buildAcceptSaga(ctx, sagaID, contract)
+	if err != nil {
+		return nil, err
+	}
 	if err := sg.Execute(ctx, state); err != nil {
 		return nil, err
 	}
@@ -282,5 +196,69 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
 	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
 
+	// Partial-accept re-listing: the accepted negotiation consumed the WHOLE
+	// listing (it is immutable), but the formed contract only took neg.Quantity.
+	// Re-advertise the unsold remainder (parent.Quantity - neg.Quantity) as a
+	// FRESH open listing so it keeps trading as a NEW negotiation surface — a bid
+	// on it starts a new chain, not a continuation of the consumed listing.
+	// Best-effort, after the contract formed.
+	s.relistAcceptRemainder(ctx, parent, neg.Quantity)
+
 	return contract, nil
+}
+
+// relistAcceptRemainder re-advertises the seller's unsold quantity after a
+// PARTIAL accept. The accepted negotiation consumed the original (immutable)
+// listing for its WHOLE quantity, but the formed contract only took `accepted`
+// units — the seller still holds (parent.Quantity - accepted) free shares. Those
+// are re-listed as a brand-new OPEN offer (fresh id, fresh negotiation chains)
+// so the remainder keeps trading instead of vanishing. Best-effort: a failure
+// logs and leaves the remainder unlisted (the seller can re-post manually).
+// No-op when the listing was fully taken (remainder <= 0) or the parent is a
+// remote mirror (only the listing's host bank re-lists its own inventory).
+func (s *OTCOfferService) relistAcceptRemainder(ctx context.Context, parent *model.OTCOffer, accepted decimal.Decimal) {
+	_ = ctx
+	if parent == nil || !parent.Local {
+		return
+	}
+	remainder := parent.Quantity.Sub(accepted)
+	if !remainder.IsPositive() {
+		return
+	}
+	fresh := &model.OTCOffer{
+		InitiatorOwnerType:          parent.InitiatorOwnerType,
+		InitiatorOwnerID:            parent.InitiatorOwnerID,
+		CounterpartyOwnerType:       parent.CounterpartyOwnerType,
+		CounterpartyOwnerID:         parent.CounterpartyOwnerID,
+		Direction:                   parent.Direction,
+		StockID:                     parent.StockID,
+		Ticker:                      parent.Ticker,
+		Quantity:                    remainder,
+		Status:                      model.OTCOfferStatusPending,
+		LastModifiedByPrincipalType: parent.LastModifiedByPrincipalType,
+		LastModifiedByPrincipalID:   parent.LastModifiedByPrincipalID,
+		InitiatorAccountID:          parent.InitiatorAccountID,
+		ActingEmployeeID:            parent.ActingEmployeeID,
+		Public:                      parent.Public,
+		Private:                     parent.Private,
+		PrivateToBankCode:           parent.PrivateToBankCode,
+	}
+	if err := s.offers.Create(fresh); err != nil {
+		log.Printf("WARN: OTC partial-accept relist (ticker=%s remainder=%s) failed: %v", parent.Ticker, remainder, err)
+		return
+	}
+	if err := s.revisions.Append(&model.OTCOfferRevision{
+		OfferID:                 fresh.ID,
+		RevisionNumber:          1,
+		Quantity:                fresh.Quantity,
+		StrikePrice:             decimal.Zero,
+		Premium:                 decimal.Zero,
+		SettlementDate:          time.Time{},
+		ModifiedByPrincipalType: fresh.LastModifiedByPrincipalType,
+		ModifiedByPrincipalID:   fresh.LastModifiedByPrincipalID,
+		Action:                  model.OTCActionCreate,
+	}); err != nil {
+		log.Printf("WARN: OTC partial-accept relist revision (offer=%d) failed: %v", fresh.ID, err)
+	}
+	log.Printf("OTC partial-accept: re-listed remainder %s %s as fresh offer %d (parent %d consumed)", remainder, parent.Ticker, fresh.ID, parent.ID)
 }

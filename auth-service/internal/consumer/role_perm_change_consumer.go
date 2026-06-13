@@ -13,7 +13,7 @@ import (
 
 // RevokeCache is the narrow Redis surface the handler needs.
 type RevokeCache interface {
-	SetUserRevokedAt(ctx context.Context, userID int64, atUnix int64, ttl time.Duration) error
+	SetUserRevokedAt(ctx context.Context, principalType string, userID int64, atUnix int64, ttl time.Duration) error
 }
 
 // RefreshTokenRevoker revokes all refresh tokens for a given principal so the
@@ -40,7 +40,7 @@ func (h *RolePermChangeHandler) Handle(ctx context.Context, raw []byte) error {
 		return err
 	}
 	for _, empID := range msg.AffectedEmployeeIDs {
-		if err := h.cache.SetUserRevokedAt(ctx, empID, msg.ChangedAt, h.epochTTL); err != nil {
+		if err := h.cache.SetUserRevokedAt(ctx, "employee", empID, msg.ChangedAt, h.epochTTL); err != nil {
 			log.Printf("WARN: role-perm-change: set epoch for employee %d: %v", empID, err)
 		}
 		if err := h.tokens.RevokeAllForPrincipal("employee", empID); err != nil {

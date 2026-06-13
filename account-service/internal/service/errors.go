@@ -18,8 +18,15 @@ import (
 )
 
 var (
-	// ErrAccountNotFound — the account does not exist.
+	// ErrAccountNotFound — the account does not exist. Also returned to a client
+	// that asks for an account it does not own (OWN-1: existence must not leak
+	// across tenants, so 404 not 403).
 	ErrAccountNotFound = svcerr.New(codes.NotFound, "account not found")
+
+	// ErrForbidden — the caller is authenticated but not permitted to access the
+	// requested resource set (OWN-1: e.g. a client listing another client's
+	// accounts).
+	ErrForbidden = svcerr.New(codes.PermissionDenied, "forbidden")
 
 	// ErrInsufficientBalance — debit / reservation requires more funds than
 	// the account has available.
@@ -52,6 +59,10 @@ var (
 	// ErrCompanyDuplicate — caller supplied a company registration / tax
 	// number that already exists.
 	ErrCompanyDuplicate = svcerr.New(codes.AlreadyExists, "company already exists")
+
+	// ErrAccountNameDuplicate — the client already has an account with the
+	// requested name (app-level uniqueness; account name has no DB unique index).
+	ErrAccountNameDuplicate = svcerr.New(codes.AlreadyExists, "account name already exists")
 
 	// ErrInvalidStatus — caller supplied an unknown account status.
 	ErrInvalidStatus = svcerr.New(codes.InvalidArgument, "invalid account status")

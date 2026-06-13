@@ -30,9 +30,7 @@ func sampleSellOffer(uid uint64, stockID uint64, qty int64, status string) *mode
 	return &model.OTCOffer{
 		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &uid2,
 		Direction: model.OTCDirectionSellInitiated, StockID: stockID,
-		Quantity: decimal.NewFromInt(qty), StrikePrice: decimal.NewFromInt(150),
-		Premium:                     decimal.NewFromInt(20),
-		SettlementDate:              time.Now().Add(30 * 24 * time.Hour),
+		Quantity:                    decimal.NewFromInt(qty),
 		Status:                      status,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   uid,
@@ -97,21 +95,6 @@ func TestOTCOfferRepository_ListByOwner(t *testing.T) {
 	}
 }
 
-func TestOTCOfferRepository_ListExpiringOffers(t *testing.T) {
-	r, _ := newOTCOfferDB(t)
-	o := sampleSellOffer(7, 42, 10, model.OTCOfferStatusPending)
-	o.SettlementDate = time.Now().Add(-24 * time.Hour) // expired yesterday
-	_ = r.Create(o)
-	today := time.Now().Format("2006-01-02")
-	rows, err := r.ListExpiringOffers(today, 100)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Errorf("expected 1 expired, got %d", len(rows))
-	}
-}
-
 func TestOTCOfferRepository_SumActiveQuantityForSeller(t *testing.T) {
 	r, _ := newOTCOfferDB(t)
 	uid := uint64(7)
@@ -137,8 +120,8 @@ func TestOTCOfferRevisionRepository_AppendAndList(t *testing.T) {
 	_ = r.Create(o)
 	rev := &model.OTCOfferRevision{
 		OfferID: o.ID, RevisionNumber: 1,
-		Quantity: o.Quantity, StrikePrice: o.StrikePrice,
-		Premium: o.Premium, SettlementDate: o.SettlementDate,
+		Quantity: o.Quantity, StrikePrice: decimal.Zero,
+		Premium: decimal.Zero, SettlementDate: time.Time{},
 		ModifiedByPrincipalType: "client", ModifiedByPrincipalID: 7,
 		Action: model.OTCActionCreate,
 	}
@@ -221,6 +204,48 @@ func TestTaxCollectionRepository_Ops(t *testing.T) {
 	}
 	if total != 1 || len(rows) != 1 {
 		t.Errorf("got %d/%d", total, len(rows))
+	}
+}
+
+// TestListOwnersWithGains_ExcludesBankOwners verifies the Profit Banke
+// exemption: bank-owned capital gains (actuary trading on behalf of the bank)
+// must never be returned for tax collection. Spec
+// docs/superpowers/specs/2026-06-04-options-premium-tax-design.md §3.2.
+func TestListOwnersWithGains_ExcludesBankOwners(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&model.CapitalGain{}, &model.TaxCollection{}, &model.Holding{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	repo := NewTaxCollectionRepository(db)
+	cgRepo := NewCapitalGainRepository(db)
+
+	clientID := uint64(5)
+	if err := cgRepo.Create(&model.CapitalGain{
+		OwnerType: model.OwnerClient, OwnerID: &clientID, OTC: true, SecurityType: "option",
+		Ticker: "AAPL", Quantity: 50, BuyPricePerUnit: decimal.Zero, SellPricePerUnit: decimal.NewFromInt(23),
+		TotalGain: decimal.NewFromInt(1150), Currency: "USD", AccountID: 11, TaxYear: 2026, TaxMonth: 6,
+	}); err != nil {
+		t.Fatalf("seed client: %v", err)
+	}
+	if err := cgRepo.Create(&model.CapitalGain{
+		OwnerType: model.OwnerBank, OwnerID: nil, OTC: true, SecurityType: "option",
+		Ticker: "AAPL", Quantity: 50, BuyPricePerUnit: decimal.Zero, SellPricePerUnit: decimal.NewFromInt(23),
+		TotalGain: decimal.NewFromInt(1150), Currency: "USD", AccountID: 12, TaxYear: 2026, TaxMonth: 6,
+	}); err != nil {
+		t.Fatalf("seed bank: %v", err)
+	}
+
+	rows, _, err := repo.ListOwnersWithGains(2026, 6, TaxFilter{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, r := range rows {
+		if r.OwnerType == string(model.OwnerBank) {
+			t.Fatalf("bank owner must be excluded from tax collection, got %+v", r)
+		}
+	}
+	if len(rows) != 1 || rows[0].OwnerType != string(model.OwnerClient) {
+		t.Fatalf("expected exactly the client owner, got %+v", rows)
 	}
 }
 

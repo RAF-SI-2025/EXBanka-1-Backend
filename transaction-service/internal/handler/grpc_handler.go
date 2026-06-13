@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -15,8 +16,16 @@ import (
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/transaction-service/internal/model"
+	"github.com/exbanka/transaction-service/internal/repository"
 	"github.com/exbanka/transaction-service/internal/service"
 )
+
+// sagaLogReader is the subset of *repository.SagaLogRepository the admin audit
+// endpoint needs. Optional (wired via WithSagaLogReader); when nil the
+// ListSagaLogs RPC returns Unimplemented.
+type sagaLogReader interface {
+	ListSagaLogs(f repository.SagaLogFilter) ([]model.SagaLog, int64, error)
+}
 
 // paymentFacade is the subset of *service.PaymentService used by the gRPC handler.
 type paymentFacade interface {
@@ -65,6 +74,15 @@ type TransactionGRPCHandler struct {
 	recipientSvc       recipientFacade
 	verificationClient verificationpb.VerificationGRPCServiceClient
 	producer           txProducer
+	sagaLogs           sagaLogReader // optional; admin audit saga-log reads
+}
+
+// WithSagaLogReader wires the saga-log repository so the ListSagaLogs admin
+// audit RPC can serve transfer/payment saga execution logs. Returns the
+// handler for chaining.
+func (h *TransactionGRPCHandler) WithSagaLogReader(r sagaLogReader) *TransactionGRPCHandler {
+	h.sagaLogs = r
+	return h
 }
 
 func NewTransactionGRPCHandler(
@@ -186,6 +204,10 @@ func (h *TransactionGRPCHandler) GetPayment(ctx context.Context, req *pb.GetPaym
 	payment, err := h.paymentSvc.GetPayment(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "payment not found: %v", err)
+	}
+	// OWN-1: a client may only read its own payment (others → 404, no leak).
+	if !ownsTxn(ctx, payment.ClientID) {
+		return nil, service.ErrPaymentNotFound
 	}
 	return paymentToProto(payment), nil
 }
@@ -318,6 +340,10 @@ func (h *TransactionGRPCHandler) GetTransfer(ctx context.Context, req *pb.GetTra
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "transfer not found: %v", err)
 	}
+	// OWN-1: a client may only read its own transfer (others → 404, no leak).
+	if !ownsTxn(ctx, transfer.ClientID) {
+		return nil, service.ErrTransferNotFound
+	}
 	return transferToProto(transfer), nil
 }
 
@@ -331,6 +357,10 @@ func (h *TransactionGRPCHandler) GetTransferStatus(ctx context.Context, req *pb.
 	transfer, err := h.transferSvc.GetTransfer(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "transfer not found: %v", err)
+	}
+	// OWN-1: a client may only read its own transfer's status (others → 404).
+	if !ownsTxn(ctx, transfer.ClientID) {
+		return nil, service.ErrTransferNotFound
 	}
 	clientStatus := mapTransferStatusToClient(transfer.Status)
 	var lastChanged int64
@@ -402,6 +432,10 @@ func (h *TransactionGRPCHandler) GetPaymentRecipient(ctx context.Context, req *p
 	if err != nil {
 		return nil, err
 	}
+	// OWN-1: a client may only read its own recipient (others → 404, no leak).
+	if !ownsTxn(ctx, pr.ClientID) {
+		return nil, service.ErrPaymentRecipientNotFound
+	}
 	return recipientToProto(pr), nil
 }
 
@@ -419,6 +453,14 @@ func (h *TransactionGRPCHandler) ListPaymentRecipients(ctx context.Context, req 
 }
 
 func (h *TransactionGRPCHandler) UpdatePaymentRecipient(ctx context.Context, req *pb.UpdatePaymentRecipientRequest) (*pb.PaymentRecipientResponse, error) {
+	// OWN-1: verify ownership before mutating (foreign/absent → 404, no leak).
+	existing, err := h.recipientSvc.GetByID(req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if !ownsTxn(ctx, existing.ClientID) {
+		return nil, service.ErrPaymentRecipientNotFound
+	}
 	pr, err := h.recipientSvc.Update(req.GetId(), req.RecipientName, req.AccountNumber)
 	if err != nil {
 		return nil, err
@@ -427,6 +469,14 @@ func (h *TransactionGRPCHandler) UpdatePaymentRecipient(ctx context.Context, req
 }
 
 func (h *TransactionGRPCHandler) DeletePaymentRecipient(ctx context.Context, req *pb.DeletePaymentRecipientRequest) (*pb.DeletePaymentRecipientResponse, error) {
+	// OWN-1: verify ownership before deleting (foreign/absent → 404, no leak).
+	existing, err := h.recipientSvc.GetByID(req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if !ownsTxn(ctx, existing.ClientID) {
+		return nil, service.ErrPaymentRecipientNotFound
+	}
 	if err := h.recipientSvc.Delete(req.GetId()); err != nil {
 		return nil, err
 	}
@@ -476,4 +526,57 @@ func recipientToProto(r *model.PaymentRecipient) *pb.PaymentRecipientResponse {
 		AccountNumber: r.AccountNumber,
 		CreatedAt:     r.CreatedAt.String(),
 	}
+}
+
+// ListSagaLogs serves the admin audit saga-log listing: transfer/payment saga
+// execution and compensation history, filterable and paginated. Returns
+// Unimplemented when no saga-log reader was wired.
+func (h *TransactionGRPCHandler) ListSagaLogs(ctx context.Context, req *pb.ListSagaLogsRequest) (*pb.ListSagaLogsResponse, error) {
+	if h.sagaLogs == nil {
+		return nil, status.Error(codes.Unimplemented, "saga log reader not wired")
+	}
+	f := repository.SagaLogFilter{
+		SagaID:          req.GetSagaId(),
+		Status:          req.GetStatus(),
+		TransactionType: req.GetTransactionType(),
+		Page:            int(req.GetPage()),
+		PageSize:        int(req.GetPageSize()),
+	}
+	if req.GetSince() > 0 {
+		f.Since = time.Unix(req.GetSince(), 0)
+	}
+	if req.GetUntil() > 0 {
+		f.Until = time.Unix(req.GetUntil(), 0)
+	}
+	logs, total, err := h.sagaLogs.ListSagaLogs(f)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list saga logs: %v", err)
+	}
+	out := &pb.ListSagaLogsResponse{Total: total, Logs: make([]*pb.SagaLogEntry, 0, len(logs))}
+	for i := range logs {
+		l := &logs[i]
+		entry := &pb.SagaLogEntry{
+			Id:              l.ID,
+			SagaId:          l.SagaID,
+			TransactionId:   l.TransactionID,
+			TransactionType: l.TransactionType,
+			StepNumber:      int32(l.StepNumber),
+			StepName:        l.StepName,
+			Status:          l.Status,
+			IsCompensation:  l.IsCompensation,
+			AccountNumber:   l.AccountNumber,
+			Amount:          l.Amount.String(),
+			ErrorMessage:    l.ErrorMessage,
+			RetryCount:      int32(l.RetryCount),
+			CreatedAt:       l.CreatedAt.Unix(),
+		}
+		if l.CompensationOf != nil {
+			entry.CompensationOf = *l.CompensationOf
+		}
+		if l.CompletedAt != nil {
+			entry.CompletedAt = l.CompletedAt.Unix()
+		}
+		out.Logs = append(out.Logs, entry)
+	}
+	return out, nil
 }

@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/exbanka/card-service/internal/model"
+	"github.com/exbanka/card-service/internal/repository"
 	"github.com/exbanka/card-service/internal/service"
 	pb "github.com/exbanka/contract/cardpb"
 	clientpb "github.com/exbanka/contract/clientpb"
@@ -579,4 +580,67 @@ func TestGetAuthorizedPerson_GenericError(t *testing.T) {
 func TestMaskCardNumber_LastFourDigits(t *testing.T) {
 	assert.Equal(t, "1234", maskCardNumber("4111111111111234"))
 	assert.Equal(t, "abc", maskCardNumber("abc"), "short string returned unchanged")
+}
+
+// ---------------------------------------------------------------------------
+// resolveClientEmail — SP-1 replica-with-fallback helper
+// ---------------------------------------------------------------------------
+
+// stubReplicaRepo is a test double for clientReplicaReader used in resolver tests.
+type stubReplicaRepo struct {
+	row     model.ClientReplica
+	missing bool
+	upserts int
+}
+
+func (s *stubReplicaRepo) GetByID(_ context.Context, id uint64) (model.ClientReplica, error) {
+	if s.missing {
+		return model.ClientReplica{}, repository.ErrReplicaNotFound
+	}
+	return s.row, nil
+}
+
+func (s *stubReplicaRepo) Upsert(_ context.Context, in model.ClientReplica) error {
+	s.upserts++
+	return nil
+}
+
+// countingClientClient wraps the full clientpb.ClientServiceClient interface
+// and counts GetClient calls.
+type countingClientClient struct {
+	clientpb.ClientServiceClient
+	email string
+	calls int
+}
+
+func (c *countingClientClient) GetClient(_ context.Context, req *clientpb.GetClientRequest, _ ...grpc.CallOption) (*clientpb.ClientResponse, error) {
+	c.calls++
+	return &clientpb.ClientResponse{Id: req.Id, Email: c.email, FirstName: "L", LastName: "C"}, nil
+}
+
+func TestResolveClientEmail_ReplicaHit_NoGRPC(t *testing.T) {
+	repo := &stubReplicaRepo{row: model.ClientReplica{ID: 1, Email: "cached@b.com"}}
+	gc := &countingClientClient{}
+	h := &CardGRPCHandler{clientClient: gc, clientReplica: repo}
+	if got := h.resolveClientEmail(context.Background(), 1); got != "cached@b.com" {
+		t.Fatalf("want cached@b.com got %q", got)
+	}
+	if gc.calls != 0 {
+		t.Fatalf("expected no gRPC fallback, got %d", gc.calls)
+	}
+}
+
+func TestResolveClientEmail_Miss_FallsBackAndBackfills(t *testing.T) {
+	repo := &stubReplicaRepo{missing: true}
+	gc := &countingClientClient{email: "live@b.com"}
+	h := &CardGRPCHandler{clientClient: gc, clientReplica: repo}
+	if got := h.resolveClientEmail(context.Background(), 1); got != "live@b.com" {
+		t.Fatalf("want live@b.com got %q", got)
+	}
+	if gc.calls != 1 {
+		t.Fatalf("expected one fallback call, got %d", gc.calls)
+	}
+	if repo.upserts != 1 {
+		t.Fatalf("expected one backfill upsert, got %d", repo.upserts)
+	}
 }

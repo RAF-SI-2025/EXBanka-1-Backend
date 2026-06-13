@@ -108,10 +108,9 @@ func TestSentinel_Passthrough_ClientHandler(t *testing.T) {
 		{"ErrClientAlreadyExists", service.ErrClientAlreadyExists, codes.AlreadyExists},
 		{"ErrInvalidJMBG", service.ErrInvalidJMBG, codes.InvalidArgument},
 		{"ErrInvalidEmail", service.ErrInvalidEmail, codes.InvalidArgument},
-		{"ErrInvalidCredentials", service.ErrInvalidCredentials, codes.Unauthenticated},
-		{"ErrAccountNotActivated", service.ErrAccountNotActivated, codes.FailedPrecondition},
 		{"ErrLimitsExceedEmployee", service.ErrLimitsExceedEmployee, codes.FailedPrecondition},
 		{"ErrEmployeeLookupFailed", service.ErrEmployeeLookupFailed, codes.Unavailable},
+		{"ErrLimitPersistFailed", service.ErrLimitPersistFailed, codes.Internal},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

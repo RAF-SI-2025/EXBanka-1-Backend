@@ -22,9 +22,6 @@ func TestOTCOffer_InitiatorAccountID_Persists(t *testing.T) {
 		Direction:                   OTCDirectionSellInitiated,
 		StockID:                     1,
 		Quantity:                    decimal.NewFromInt(10),
-		StrikePrice:                 decimal.NewFromInt(5),
-		Premium:                     decimal.NewFromInt(1),
-		SettlementDate:              time.Now().Add(48 * time.Hour),
 		Status:                      OTCOfferStatusPending,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   1,
@@ -52,9 +49,6 @@ func TestOTCOffer_Ticker_Persists(t *testing.T) {
 		StockID:                     1,
 		Ticker:                      "AAPL",
 		Quantity:                    decimal.NewFromInt(1),
-		StrikePrice:                 decimal.NewFromInt(1),
-		Premium:                     decimal.NewFromInt(1),
-		SettlementDate:              time.Now().Add(48 * time.Hour),
 		Status:                      OTCOfferStatusPending,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   1,
@@ -75,8 +69,9 @@ func TestOptionContract_AccountIDs_Persist(t *testing.T) {
 	db := testutil.SetupTestDB(t, &OptionContract{})
 	buyer := uint64(1)
 	seller := uint64(2)
+	offerID := uint64(1)
 	c := &OptionContract{
-		OfferID:         1,
+		OfferID:         &offerID,
 		BuyerOwnerType:  OwnerClient,
 		BuyerOwnerID:    &buyer,
 		SellerOwnerType: OwnerClient,
@@ -149,6 +144,33 @@ func TestOTCOffer_BeforeSave_BankCounterpartyOK(t *testing.T) {
 	}
 }
 
+func TestOTCOffer_BeforeSave_ActingEmployeeID_BankOK(t *testing.T) {
+	// bank-owned offer with a non-nil acting employee id is allowed.
+	emp := uint64(17)
+	o := &OTCOffer{InitiatorOwnerType: OwnerBank, ActingEmployeeID: &emp}
+	if err := o.BeforeSave(nil); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+}
+
+func TestOTCOffer_BeforeSave_ActingEmployeeID_BankNilOK(t *testing.T) {
+	// bank-owned offer MAY have a nil acting employee id (legacy/seed rows).
+	o := &OTCOffer{InitiatorOwnerType: OwnerBank, ActingEmployeeID: nil}
+	if err := o.BeforeSave(nil); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+}
+
+func TestOTCOffer_BeforeSave_ActingEmployeeID_ClientRejected(t *testing.T) {
+	// client-owned offer with a non-nil acting employee id is rejected.
+	id := uint64(1)
+	emp := uint64(17)
+	o := &OTCOffer{InitiatorOwnerType: OwnerClient, InitiatorOwnerID: &id, ActingEmployeeID: &emp}
+	if err := o.BeforeSave(nil); err == nil {
+		t.Fatal("expected error: client-owned offer cannot carry acting_employee_id")
+	}
+}
+
 func TestOTCOffer_BeforeUpdate_NilTx(t *testing.T) {
 	// OTCOffer.BeforeUpdate is nil-safe
 	o := &OTCOffer{Version: 2}
@@ -216,6 +238,49 @@ func TestOTCOffer_IsTerminal(t *testing.T) {
 		if got := o.IsTerminal(); got != c.want {
 			t.Errorf("status %q: got %v want %v", c.status, got, c.want)
 		}
+	}
+}
+
+// ----------------------------------------------------------------------------
+// OTCNegotiation
+// ----------------------------------------------------------------------------
+
+func TestOTCNegotiation_BeforeSave_OK(t *testing.T) {
+	id := uint64(1)
+	n := &OTCNegotiation{BidderOwnerType: OwnerClient, BidderOwnerID: &id}
+	if err := n.BeforeSave(nil); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+}
+
+func TestOTCNegotiation_BeforeSave_BadBidder(t *testing.T) {
+	n := &OTCNegotiation{BidderOwnerType: OwnerClient, BidderOwnerID: nil}
+	if err := n.BeforeSave(nil); err == nil {
+		t.Fatal("expected error: client bidder without id")
+	}
+}
+
+func TestOTCNegotiation_BeforeSave_ActingEmployeeID_BankOK(t *testing.T) {
+	emp := uint64(17)
+	n := &OTCNegotiation{BidderOwnerType: OwnerBank, ActingEmployeeID: &emp}
+	if err := n.BeforeSave(nil); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+}
+
+func TestOTCNegotiation_BeforeSave_ActingEmployeeID_BankNilOK(t *testing.T) {
+	n := &OTCNegotiation{BidderOwnerType: OwnerBank, ActingEmployeeID: nil}
+	if err := n.BeforeSave(nil); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+}
+
+func TestOTCNegotiation_BeforeSave_ActingEmployeeID_ClientRejected(t *testing.T) {
+	id := uint64(1)
+	emp := uint64(17)
+	n := &OTCNegotiation{BidderOwnerType: OwnerClient, BidderOwnerID: &id, ActingEmployeeID: &emp}
+	if err := n.BeforeSave(nil); err == nil {
+		t.Fatal("expected error: client-owned negotiation cannot carry acting_employee_id")
 	}
 }
 

@@ -3,7 +3,7 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -21,6 +21,7 @@ type Claims struct {
 	Roles             []string `json:"roles"`
 	Permissions       []string `json:"permissions"`
 	PrincipalType     string   `json:"principal_type"`        // was: system_type; "employee" or "client"
+	Sid               string   `json:"sid,omitempty"`         // active_session id; enables targeted (per-session) revocation
 	DeviceType        string   `json:"device_type,omitempty"` // "mobile" for mobile app tokens, empty for browser
 	DeviceID          string   `json:"device_id,omitempty"`   // UUID of registered mobile device
 	FirstName         string   `json:"first_name,omitempty"`
@@ -30,23 +31,38 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// JWTService signs and verifies access tokens with ES256 (asymmetric). The
+// private half lives here in auth-service; the public half is published to the
+// gateway via GetSigningKeys so it can verify tokens locally without a gRPC hop.
 type JWTService struct {
-	secret       []byte
+	keys         *KeyManager
 	accessExpiry time.Duration
 }
 
-func NewJWTService(secret string, accessExpiry time.Duration) *JWTService {
+// NewJWTService builds the service around a KeyManager. Tests use
+// mustTestKeyManager() to get a throwaway ES256 key.
+func NewJWTService(keys *KeyManager, accessExpiry time.Duration) *JWTService {
 	return &JWTService{
-		secret:       []byte(secret),
+		keys:         keys,
 		accessExpiry: accessExpiry,
 	}
 }
+
+// Keys exposes the key manager so the handler can serve the public JWKS.
+func (s *JWTService) Keys() *KeyManager { return s.keys }
+
+// AccessExpiry is the access-token lifetime. Used as the TTL for revocation
+// entries — a blacklisted token can never outlive its own expiry.
+func (s *JWTService) AccessExpiry() time.Duration { return s.accessExpiry }
 
 // TokenProfile holds the extra identity fields embedded in every JWT.
 type TokenProfile struct {
 	FirstName     string
 	LastName      string
 	AccountActive bool
+	// Sid is the active_session id to stamp into the token. Empty leaves the
+	// claim out (e.g. flows that do not create a session row).
+	Sid string
 }
 
 // MobileProfile extends TokenProfile with mobile-specific fields.
@@ -57,6 +73,16 @@ type MobileProfile struct {
 	BiometricsEnabled bool
 }
 
+func (s *JWTService) sign(claims *Claims) (string, error) {
+	key := s.keys.Current()
+	if key == nil {
+		return "", fmt.Errorf("no active signing key")
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header["kid"] = key.Kid
+	return token.SignedString(key.Private)
+}
+
 func (s *JWTService) GenerateAccessToken(principalID int64, email string, roles []string, permissions []string, principalType string, prof TokenProfile) (string, error) {
 	claims := &Claims{
 		PrincipalID:   principalID,
@@ -64,6 +90,7 @@ func (s *JWTService) GenerateAccessToken(principalID int64, email string, roles 
 		Roles:         roles,
 		Permissions:   permissions,
 		PrincipalType: principalType,
+		Sid:           prof.Sid,
 		FirstName:     prof.FirstName,
 		LastName:      prof.LastName,
 		AccountActive: prof.AccountActive,
@@ -73,8 +100,7 @@ func (s *JWTService) GenerateAccessToken(principalID int64, email string, roles 
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.secret)
+	return s.sign(claims)
 }
 
 func (s *JWTService) GenerateMobileAccessToken(principalID int64, email string, roles []string, permissions []string, principalType string, mp MobileProfile) (string, error) {
@@ -84,6 +110,7 @@ func (s *JWTService) GenerateMobileAccessToken(principalID int64, email string, 
 		Roles:             roles,
 		Permissions:       permissions,
 		PrincipalType:     principalType,
+		Sid:               mp.Sid,
 		DeviceType:        mp.DeviceType,
 		DeviceID:          mp.DeviceID,
 		FirstName:         mp.FirstName,
@@ -96,23 +123,27 @@ func (s *JWTService) GenerateMobileAccessToken(principalID int64, email string, 
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.secret)
+	return s.sign(claims)
 }
 
 func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+		if _, ok := t.Method.(*jwt.SigningMethodECDSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %w", ErrInvalidToken)
 		}
-		return s.secret, nil
-	})
+		kid, _ := t.Header["kid"].(string)
+		pub, ok := s.keys.PublicKeyByKid(kid)
+		if !ok {
+			return nil, fmt.Errorf("unknown key id: %w", ErrInvalidToken)
+		}
+		return pub, nil
+	}, jwt.WithValidMethods([]string{"ES256"}))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse token: %w", ErrInvalidToken)
 	}
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, errors.New("invalid token")
+		return nil, fmt.Errorf("invalid claims: %w", ErrInvalidToken)
 	}
 	return claims, nil
 }

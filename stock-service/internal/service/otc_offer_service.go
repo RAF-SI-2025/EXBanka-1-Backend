@@ -9,11 +9,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared/outbox"
+	"github.com/exbanka/contract/shared/svcerr"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -84,6 +86,26 @@ type OTCOfferService struct {
 	// when nil the saga still runs (shares + money move) and a WARN is
 	// logged. Wired via WithCapitalGain.
 	capitalGainRepo CapitalGainRepo
+
+	// fundHoldingRepo is optional (E2, Plan E). When wired and the contract
+	// has OnBehalfOfFundID set, the exercise saga credits fund_holdings
+	// instead of the buyer's personal holdings. Without it, fund-owned
+	// contracts exercise into the bank's standard holdings (fall-back).
+	fundHoldingRepo FundHoldingUpsert
+}
+
+// FundHoldingUpsert is the narrow surface the exercise saga needs to credit
+// a fund holding. Implemented by *repository.FundHoldingRepository.
+type FundHoldingUpsert interface {
+	Upsert(h *model.FundHolding) error
+	// DecrementForFundSecurity reverses an on-behalf-of-fund buyer credit
+	// (exercise-saga backward step). No-op when the row is absent.
+	DecrementForFundSecurity(fundID uint64, securityType string, securityID uint64, qty int64) error
+	// UpsertIdempotent / DecrementForFundSecurityIdempotent are the
+	// marker-guarded variants the exercise saga uses so a retry or
+	// crash-recovery replay credits the fund's shares exactly once.
+	UpsertIdempotent(h *model.FundHolding, idemKey string) error
+	DecrementForFundSecurityIdempotent(fundID uint64, securityType string, securityID uint64, qty int64, idemKey string) error
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga
@@ -126,6 +148,14 @@ type OTCAccountClient interface {
 // stamped for cross-service audit.
 type OTCHoldingMutator interface {
 	Upsert(ctx context.Context, h *model.Holding) error
+	// DecrementForOwner reverses an exercise buyer credit (exercise-saga
+	// backward step), deleting the row at zero. No-op when the row is absent.
+	DecrementForOwner(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64) error
+	// UpsertIdempotent / DecrementForOwnerIdempotent are the marker-guarded
+	// variants the exercise saga uses so a retry or crash-recovery replay
+	// credits the buyer's shares exactly once.
+	UpsertIdempotent(ctx context.Context, h *model.Holding, idemKey string) error
+	DecrementForOwnerIdempotent(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64, qty int64, idemKey string) error
 }
 
 // OTCStockMetaResolver is the narrow lookup the exercise saga uses to
@@ -171,6 +201,14 @@ func (s *OTCOfferService) WithCapitalGain(repo CapitalGainRepo) *OTCOfferService
 	return &cp
 }
 
+// WithFundHolding wires the fund-holding repository so exercise of fund-owned
+// contracts routes to fund_holdings instead of personal holdings (E2).
+func (s *OTCOfferService) WithFundHolding(repo FundHoldingUpsert) *OTCOfferService {
+	cp := *s
+	cp.fundHoldingRepo = repo
+	return &cp
+}
+
 // WithStockMeta wires the lookup used by the exercise saga to fill the
 // buyer-credit holding's display fields (Name, ListingID). Optional —
 // without it, those fields are left empty (Ticker is still populated
@@ -181,7 +219,7 @@ func (s *OTCOfferService) WithStockMeta(r OTCStockMetaResolver) *OTCOfferService
 	return &cp
 }
 
-var errOTCSagaDepsNotWired = errors.New("OTC saga dependencies not wired")
+var errOTCSagaDepsNotWired = svcerr.New(codes.Internal, "OTC saga dependencies not wired")
 
 func NewOTCOfferService(
 	offers *repository.OTCOfferRepository,
@@ -214,34 +252,32 @@ func (s *OTCOfferService) notifyOTCParty(ctx context.Context, party kafkamsg.OTC
 
 // CreateOfferInput captures the fields a new offer needs.
 type CreateOfferInput struct {
-	ActorUserID            int64
-	ActorSystemType        string
+	ActorUserID     int64
+	ActorSystemType string
+	// ActingEmployeeID is the employee principal who originated this action,
+	// threaded from the gateway (identity.ActingEmployeeID). It is captured
+	// onto the persisted OTCOffer ONLY when the resolved owner is the bank —
+	// it is the stable SI-TX wire-identity source ("employee-<N>") for a bank
+	// acting as a cross-bank OTC principal. nil for client-owned offers and
+	// for bank offers created by a non-employee/system path.
+	ActingEmployeeID       *uint64
 	Direction              string
 	StockID                uint64
 	Ticker                 string
 	Quantity               decimal.Decimal
-	StrikePrice            decimal.Decimal
-	Premium                decimal.Decimal
-	SettlementDate         time.Time
 	CounterpartyUserID     *int64
 	CounterpartySystemType *string
 	InitiatorAccountID     uint64
 }
 
 func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*model.OTCOffer, error) {
-	if !in.Quantity.IsPositive() || !in.StrikePrice.IsPositive() {
-		return nil, errors.New("quantity and strike_price must be positive")
-	}
-	if in.Premium.IsNegative() {
-		return nil, errors.New("premium must be non-negative")
-	}
-	if !in.SettlementDate.After(time.Now().UTC().Truncate(24 * time.Hour)) {
-		return nil, errors.New("settlement_date must be in the future")
+	if !in.Quantity.IsPositive() {
+		return nil, fmt.Errorf("quantity must be positive: %w", ErrOTCOfferFieldInvalid)
 	}
 	switch in.Direction {
 	case model.OTCDirectionSellInitiated, model.OTCDirectionBuyInitiated:
 	default:
-		return nil, errors.New("unknown direction")
+		return nil, fmt.Errorf("unknown direction: %w", ErrOTCOfferFieldInvalid)
 	}
 	// Phase 9 follow-up: the legacy single-chain model required a named
 	// counterparty on buy_initiated offers. The new parallel-chains
@@ -251,7 +287,7 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 	// the offer is "directed" — only the named user sees it in their
 	// list — but it's no longer required.
 	if (in.CounterpartyUserID == nil) != (in.CounterpartySystemType == nil) {
-		return nil, errors.New("counterparty user_id and system_type must both be set or both omitted")
+		return nil, fmt.Errorf("counterparty user_id and system_type must both be set or both omitted: %w", ErrOTCOfferFieldInvalid)
 	}
 
 	if in.Direction == model.OTCDirectionSellInitiated {
@@ -262,12 +298,36 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 	}
 
 	initOwnerType, initOwnerID := model.OwnerFromLegacy(uint64(in.ActorUserID), in.ActorSystemType)
+
+	// One-open-offer-per-(owner,ticker,direction) invariant. Offers are
+	// termless inventory; a duplicate open offer for the same ticker+direction
+	// is rejected here (friendlier than relying on the DB partial unique index
+	// ux_otc_offer_open_owner_ticker_dir, which is a backstop).
+	existing, err := s.offers.CountOpenByOwnerTickerDirection(initOwnerType, initOwnerID, in.Ticker, in.Direction)
+	if err != nil {
+		return nil, fmt.Errorf("duplicate check: %w", err)
+	}
+	if existing > 0 {
+		return nil, ErrOTCOfferDuplicateOpen
+	}
+
 	var cpOwnerType *model.OwnerType
 	var cpOwnerID *uint64
 	if in.CounterpartyUserID != nil {
 		t, id := model.OwnerFromLegacy(uint64(*in.CounterpartyUserID), *in.CounterpartySystemType)
 		cpOwnerType = &t
 		cpOwnerID = id
+	}
+
+	// Capture the originating employee onto bank-owned offers only. This is the
+	// stable SI-TX wire-identity source: the bank party publishes as
+	// "employee-<ActingEmployeeID>" on every later wire action, regardless of
+	// which employee performs it. nil for client-owned offers and for bank
+	// offers created by a non-employee/system path (no acting employee).
+	var actingEmployeeID *uint64
+	if initOwnerType == model.OwnerBank && in.ActingEmployeeID != nil && *in.ActingEmployeeID > 0 {
+		emp := *in.ActingEmployeeID
+		actingEmployeeID = &emp
 	}
 
 	o := &model.OTCOffer{
@@ -279,24 +339,34 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 		StockID:                     in.StockID,
 		Ticker:                      in.Ticker,
 		Quantity:                    in.Quantity,
-		StrikePrice:                 in.StrikePrice,
-		Premium:                     in.Premium,
-		SettlementDate:              in.SettlementDate,
 		Status:                      model.OTCOfferStatusPending,
 		LastModifiedByPrincipalType: in.ActorSystemType,
 		LastModifiedByPrincipalID:   uint64(in.ActorUserID),
 		InitiatorAccountID:          in.InitiatorAccountID,
+		ActingEmployeeID:            actingEmployeeID,
 	}
 	if err := s.offers.Create(o); err != nil {
+		// The partial unique index ux_otc_offer_open_owner_ticker_dir is the
+		// authoritative backstop for the one-open-offer-per-(owner,ticker,
+		// direction) invariant: the CountOpenByOwnerTickerDirection pre-check
+		// above is non-transactional, so two concurrent creates can both read 0
+		// and both reach here. Map the DB's unique violation to the same typed
+		// sentinel the pre-check returns, closing the TOCTOU.
+		if repository.IsUniqueViolation(err) {
+			return nil, ErrOTCOfferDuplicateOpen
+		}
 		return nil, err
 	}
 	if err := s.revisions.Append(&model.OTCOfferRevision{
-		OfferID:                 o.ID,
-		RevisionNumber:          1,
-		Quantity:                o.Quantity,
-		StrikePrice:             o.StrikePrice,
-		Premium:                 o.Premium,
-		SettlementDate:          o.SettlementDate,
+		OfferID:        o.ID,
+		RevisionNumber: 1,
+		Quantity:       o.Quantity,
+		// Listings are termless inventory — the CREATE revision carries no
+		// strike/premium/settlement; those are proposed later on the
+		// negotiation chain.
+		StrikePrice:             decimal.Zero,
+		Premium:                 decimal.Zero,
+		SettlementDate:          time.Time{},
 		ModifiedByPrincipalType: o.LastModifiedByPrincipalType,
 		ModifiedByPrincipalID:   o.LastModifiedByPrincipalID,
 		Action:                  model.OTCActionCreate,
@@ -313,12 +383,13 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 				OwnerType: string(o.InitiatorOwnerType),
 				OwnerID:   o.InitiatorOwnerID,
 			},
-			Counterparty:   ptrCounterparty(o),
-			StockID:        o.StockID,
-			Quantity:       o.Quantity.String(),
-			StrikePrice:    o.StrikePrice.String(),
-			Premium:        o.Premium.String(),
-			SettlementDate: o.SettlementDate.Format("2006-01-02"),
+			Counterparty: ptrCounterparty(o),
+			StockID:      o.StockID,
+			Quantity:     o.Quantity.String(),
+			// Termless listing — no preset terms on the offer-created event.
+			StrikePrice:    "",
+			Premium:        "",
+			SettlementDate: "",
 		}
 		if data, err := json.Marshal(payload); err == nil {
 			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCreated, data, "")
@@ -329,154 +400,93 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 			OwnerType: string(*o.CounterpartyOwnerType), OwnerID: o.CounterpartyOwnerID,
 		}, "OTC_OFFER_RECEIVED", "otc_offer", o.ID, map[string]string{
 			"ticker": o.Ticker, "quantity": o.Quantity.String(),
-			"strike_price": o.StrikePrice.String(), "premium": o.Premium.String(),
+			// Termless listing — no preset terms in the directed-offer notice.
+			"strike_price": "", "premium": "",
 		})
 	}
 	return o, nil
 }
 
-// CounterInput captures fields a counter call needs.
-type CounterInput struct {
-	OfferID         uint64
-	ActorUserID     int64
-	ActorSystemType string
-	Quantity        decimal.Decimal
-	StrikePrice     decimal.Decimal
-	Premium         decimal.Decimal
-	SettlementDate  time.Time
-}
-
-func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.OTCOffer, error) {
-	o, err := s.offers.GetByID(in.OfferID)
-	if err != nil {
-		return nil, err
+// UpdateQuantity sets the offer's TOTAL quantity (edit up or down). An option
+// offer is termless inventory (owner, ticker, quantity); since a user may hold
+// only ONE open offer per (owner, ticker, direction) they edit the total rather
+// than posting a second offer. Rejects a non-positive quantity, a quantity below
+// the shares already committed to formed/forming contracts on this offer
+// (OutstandingCommittedQuantityTx), or — for a sell offer — a quantity above the
+// owner's holding for the ticker (net of the owner's OTHER active commitments).
+// Owner-only; the offer must be LOCAL and open. Runs under SELECT FOR UPDATE and
+// is optimistic-lock safe (SaveTx returns ErrOptimisticLock on a version race).
+func (s *OTCOfferService) UpdateQuantity(ctx context.Context, offerID uint64, ownerType model.OwnerType, ownerID *uint64, qty decimal.Decimal) (*model.OTCOffer, error) {
+	if !qty.IsPositive() {
+		return nil, fmt.Errorf("quantity must be > 0: %w", ErrOTCOfferFieldInvalid)
 	}
-	if o.IsTerminal() {
-		return nil, errors.New("offer is in a terminal state")
-	}
-	if o.LastModifiedByPrincipalType == in.ActorSystemType && o.LastModifiedByPrincipalID == uint64(in.ActorUserID) {
-		return nil, errors.New("you cannot counter your own most recent terms")
-	}
-	if !in.Quantity.Equal(o.Quantity) {
-		// Identify the seller's owner pair from the offer to validate share
-		// availability. Seller is the initiator on sell_initiated offers,
-		// otherwise the (required) counterparty.
-		var sellerOwnerType model.OwnerType
-		var sellerOwnerID *uint64
+	var out *model.OTCOffer
+	err := s.offers.DB().Transaction(func(tx *gorm.DB) error {
+		// LockByIDTx does SELECT FOR UPDATE and treats a remote row as not-found,
+		// so only LOCAL offers reach the edit path.
+		o, err := s.offers.LockByIDTx(tx, offerID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrOTCOfferNotFound
+			}
+			return err
+		}
+		if !o.IsOpenListing() {
+			return fmt.Errorf("offer is not open for edit: %w", ErrOTCOfferFieldInvalid)
+		}
+		if o.InitiatorOwnerType != ownerType || !ownerIDEqual(o.InitiatorOwnerID, ownerID) {
+			return ErrOTCNotOwner
+		}
+		committed, err := s.offers.OutstandingCommittedQuantityTx(tx, o.ID)
+		if err != nil {
+			return err
+		}
+		if qty.LessThan(committed) {
+			return fmt.Errorf("quantity %s is below the %s shares already committed on this offer: %w", qty, committed, ErrOTCOfferFieldInvalid)
+		}
 		if o.Direction == model.OTCDirectionSellInitiated {
-			sellerOwnerType, sellerOwnerID = o.InitiatorOwnerType, o.InitiatorOwnerID
-		} else if o.CounterpartyOwnerType != nil {
-			sellerOwnerType, sellerOwnerID = *o.CounterpartyOwnerType, o.CounterpartyOwnerID
-		} else {
-			return nil, errors.New("cannot determine seller for invariant check")
+			if err := s.assertSellerHasSharesTx(tx, o.InitiatorOwnerType, o.InitiatorOwnerID, o.StockID, o.ID, qty); err != nil {
+				return err
+			}
 		}
-		if err := s.assertSellerHasShares(sellerOwnerType, sellerOwnerID, o.StockID, in.Quantity); err != nil {
-			return nil, err
+		o.Quantity = qty
+		if err := s.offers.SaveTx(tx, o); err != nil {
+			return err
 		}
-	}
-
-	revNum, err := s.revisions.NextRevisionNumber(o.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	o.Quantity = in.Quantity
-	o.StrikePrice = in.StrikePrice
-	o.Premium = in.Premium
-	o.SettlementDate = in.SettlementDate
-	o.Status = model.OTCOfferStatusCountered
-	o.LastModifiedByPrincipalType = in.ActorSystemType
-	o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
-	if err := s.offers.Save(o); err != nil {
-		return nil, err
-	}
-
-	if err := s.revisions.Append(&model.OTCOfferRevision{
-		OfferID: o.ID, RevisionNumber: revNum,
-		Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
-		ModifiedByPrincipalType: in.ActorSystemType,
-		ModifiedByPrincipalID:   uint64(in.ActorUserID),
-		Action:                  model.OTCActionCounter,
-	}); err != nil {
-		return nil, err
-	}
-
-	if s.producer != nil {
-		actorOwnerType, actorOwnerID := actorToOwnerParty(in.ActorUserID, in.ActorSystemType)
-		payload := kafkamsg.OTCOfferCounteredMessage{
-			MessageID:      uuid.NewString(),
-			OccurredAt:     time.Now().UTC().Format(time.RFC3339),
-			OfferID:        o.ID,
-			RevisionNumber: revNum,
-			ModifiedBy:     kafkamsg.OTCParty{OwnerType: actorOwnerType, OwnerID: actorOwnerID},
-			OtherParty:     otcOtherParty(o, in.ActorUserID, in.ActorSystemType),
-			Quantity:       o.Quantity.String(),
-			StrikePrice:    o.StrikePrice.String(),
-			Premium:        o.Premium.String(),
-			SettlementDate: o.SettlementDate.Format("2006-01-02"),
-			UpdatedAt:      o.UpdatedAt.Format(time.RFC3339),
-		}
-		if data, err := json.Marshal(payload); err == nil {
-			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCountered, data, "")
-		}
-	}
-	s.notifyOTCParty(ctx, otcOtherParty(o, in.ActorUserID, in.ActorSystemType), "OTC_OFFER_COUNTERED", "otc_offer", o.ID, map[string]string{
-		"ticker": o.Ticker, "quantity": o.Quantity.String(),
-		"strike_price": o.StrikePrice.String(), "premium": o.Premium.String(),
+		out = o
+		return nil
 	})
-	return o, nil
+	return out, err
 }
 
-// RejectInput captures fields a reject call needs.
-type RejectInput struct {
-	OfferID         uint64
-	ActorUserID     int64
-	ActorSystemType string
-}
-
-func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OTCOffer, error) {
-	o, err := s.offers.GetByID(in.OfferID)
+// assertSellerHasSharesTx is the tx-aware variant of assertSellerHasShares used
+// by UpdateQuantity: it reads the seller's holding and their OTHER active
+// commitments inside tx (under the offer's FOR UPDATE lock) and rejects when the
+// requested total exceeds the available shares. excludeOfferID is the offer being
+// resized, kept out of the committed sum so it never counts against itself.
+// Reuses the same sentinels as assertSellerHasShares (ErrOTCSellerNoHolding /
+// ErrOTCInsufficientShares) — no new error class is invented.
+func (s *OTCOfferService) assertSellerHasSharesTx(tx *gorm.DB, ownerType model.OwnerType, ownerID *uint64, stockID, excludeOfferID uint64, requested decimal.Decimal) error {
+	var holding model.Holding
+	q := tx.Where("security_type = ? AND security_id = ?", "stock", stockID)
+	if ownerID == nil {
+		q = q.Where("owner_type = ? AND owner_id IS NULL", ownerType)
+	} else {
+		q = q.Where("owner_type = ? AND owner_id = ?", ownerType, *ownerID)
+	}
+	if err := q.First(&holding).Error; err != nil {
+		return fmt.Errorf("seller has no holding for stock %d: %w", stockID, ErrOTCSellerNoHolding)
+	}
+	heldQty := decimal.NewFromInt(holding.Quantity)
+	committed, err := s.offers.SumActiveQuantityForSellerExcludingOfferTx(tx, ownerType, ownerID, stockID, excludeOfferID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if o.IsTerminal() {
-		return nil, errors.New("offer is in a terminal state")
+	available := heldQty.Sub(committed)
+	if requested.GreaterThan(available) {
+		return fmt.Errorf("insufficient available shares for this seller (held %s, committed %s, requested %s): %w", heldQty, committed, requested, ErrOTCInsufficientShares)
 	}
-	revNum, err := s.revisions.NextRevisionNumber(o.ID)
-	if err != nil {
-		return nil, err
-	}
-	o.Status = model.OTCOfferStatusRejected
-	o.LastModifiedByPrincipalType = in.ActorSystemType
-	o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
-	if err := s.offers.Save(o); err != nil {
-		return nil, err
-	}
-	_ = s.revisions.Append(&model.OTCOfferRevision{
-		OfferID: o.ID, RevisionNumber: revNum,
-		Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
-		ModifiedByPrincipalType: in.ActorSystemType,
-		ModifiedByPrincipalID:   uint64(in.ActorUserID),
-		Action:                  model.OTCActionReject,
-	})
-	if s.producer != nil {
-		actorOwnerType, actorOwnerID := actorToOwnerParty(in.ActorUserID, in.ActorSystemType)
-		payload := kafkamsg.OTCOfferRejectedMessage{
-			MessageID:  uuid.NewString(),
-			OccurredAt: time.Now().UTC().Format(time.RFC3339),
-			OfferID:    o.ID,
-			RejectedBy: kafkamsg.OTCParty{OwnerType: actorOwnerType, OwnerID: actorOwnerID},
-			OtherParty: otcOtherParty(o, in.ActorUserID, in.ActorSystemType),
-			UpdatedAt:  o.UpdatedAt.Format(time.RFC3339),
-		}
-		if data, err := json.Marshal(payload); err == nil {
-			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferRejected, data, "")
-		}
-	}
-	s.notifyOTCParty(ctx, otcOtherParty(o, in.ActorUserID, in.ActorSystemType), "OTC_OFFER_REJECTED", "otc_offer", o.ID, map[string]string{
-		"ticker": o.Ticker,
-	})
-	return o, nil
+	return nil
 }
 
 // ListMyOffers returns offers where the user is initiator/counterparty/either.
@@ -504,20 +514,30 @@ func (s *OTCOfferService) LastReadReceipt(userID int64, systemType string, offer
 	return s.receipts.GetReceipt(ownerType, model.OwnerIDOrZero(ownerID), offerID)
 }
 
-// GetOffer returns the offer + its revisions, scoped to participants only.
+// GetOffer returns the offer to any authenticated caller, mirroring the public
+// discovery list (GET /api/v3/otc/options) which lists every open offer to
+// everyone. The offer body itself carries no negotiation history; the handler
+// stamps me_owner=false for a non-owner. Sensitive sub-data stays gated:
+// revisions (the negotiation history) are returned ONLY to a participant
+// (empty slice otherwise), and the read-receipt is upserted only for a
+// participant. A non-participant therefore sees the offer but never its
+// counter/bid history.
 func (s *OTCOfferService) GetOffer(offerID uint64, actorUserID int64, actorSystemType string) (*model.OTCOffer, []model.OTCOfferRevision, error) {
 	o, err := s.offers.GetByID(offerID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !s.isParticipant(o, actorUserID, actorSystemType) {
-		return nil, nil, errors.New("not a participant in this offer")
+		// Public discovery: return the offer with no revisions and no
+		// mark-read. Do not reject — a caller can see this offer in the
+		// unified list, so the detail must be readable too (SP-1 me_owner).
+		return o, nil, nil
 	}
 	revs, err := s.revisions.ListByOffer(o.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Mark read.
+	// Mark read (participants only).
 	if s.receipts != nil {
 		actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(actorUserID), actorSystemType)
 		_ = s.receipts.Upsert(actorOwnerType, model.OwnerIDOrZero(actorOwnerID), o.ID, o.UpdatedAt)
@@ -539,11 +559,15 @@ func (s *OTCOfferService) isParticipant(o *model.OTCOffer, userID int64, systemT
 
 func (s *OTCOfferService) assertSellerHasShares(ownerType model.OwnerType, ownerID *uint64, stockID uint64, requested decimal.Decimal) error {
 	if s.holdings == nil {
-		return errors.New("holding lookup not configured")
+		return svcerr.New(codes.Internal, "holding lookup not configured")
 	}
 	holding, err := s.holdings.GetByOwnerAndSecurity(ownerType, ownerID, "stock", stockID)
 	if err != nil {
-		return fmt.Errorf("seller has no holding for stock %d: %w", stockID, err)
+		// No holding row (or lookup failure) for a covered-call seller is a
+		// business-rule rejection, not an internal error — surface it as a
+		// typed FailedPrecondition (→ 409) rather than leaking the raw DB
+		// record-not-found that the gateway maps to 500.
+		return fmt.Errorf("seller has no holding for stock %d: %w", stockID, ErrOTCSellerNoHolding)
 	}
 	heldQty := decimal.NewFromInt(holding.Quantity)
 	committed, err := s.offers.SumActiveQuantityForSeller(ownerType, ownerID, stockID)
@@ -552,7 +576,7 @@ func (s *OTCOfferService) assertSellerHasShares(ownerType model.OwnerType, owner
 	}
 	available := heldQty.Sub(committed)
 	if requested.GreaterThan(available) {
-		return fmt.Errorf("insufficient available shares for this seller (held %s, committed %s, requested %s)", heldQty, committed, requested)
+		return fmt.Errorf("insufficient available shares for this seller (held %s, committed %s, requested %s): %w", heldQty, committed, requested, ErrOTCInsufficientShares)
 	}
 	return nil
 }

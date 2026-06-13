@@ -97,12 +97,15 @@ type Wiper interface {
 type DailyPriceRepo interface {
 	Create(info *model.ListingDailyPriceInfo) error
 	UpsertByListingAndDate(info *model.ListingDailyPriceInfo) error
+	UpsertManyByListingAndDate(infos []model.ListingDailyPriceInfo) error
 	GetHistory(listingID uint64, from, to time.Time, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error)
+	GetHistoryBucketed(listingID uint64, from, to time.Time, bucketSeconds int) ([]model.ListingDailyPriceInfo, error)
 }
 
 type OrderRepo interface {
 	Create(order *model.Order) error
 	GetByID(id uint64) (*model.Order, error)
+	GetBySagaID(sagaID string) (*model.Order, error)
 	GetByIDWithOwner(id uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
 	Update(order *model.Order) error
 	Delete(id uint64) error
@@ -113,7 +116,9 @@ type OrderRepo interface {
 
 type OrderTransactionRepo interface {
 	Create(tx *model.OrderTransaction) error
+	GetByID(id uint64) (*model.OrderTransaction, error)
 	Update(tx *model.OrderTransaction) error
+	Delete(id uint64) error
 	ListByOrderID(orderID uint64) ([]model.OrderTransaction, error)
 }
 
@@ -130,7 +135,6 @@ type HoldingTransactionRepo interface {
 
 // Type aliases for filter/summary types defined in repository package.
 type HoldingFilter = repository.HoldingFilter
-type OTCFilter = repository.OTCFilter
 type TaxFilter = repository.TaxFilter
 type AccountGainSummary = repository.AccountGainSummary
 type TaxUserSummary = repository.TaxUserSummary
@@ -141,12 +145,14 @@ type HoldingRepo interface {
 	// by the gRPC server saga-context interceptor on incoming saga-callee
 	// RPCs) and stamped onto the row for cross-service audit.
 	Upsert(ctx context.Context, holding *model.Holding) error
+	// UpsertIdempotent is the marker-guarded Upsert the fill saga uses so a
+	// crash-recovery replay of update_holding credits the shares exactly once.
+	UpsertIdempotent(ctx context.Context, holding *model.Holding, idemKey string) error
 	GetByID(id uint64) (*model.Holding, error)
 	Update(holding *model.Holding) error
 	Delete(id uint64) error
 	GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error)
 	ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter HoldingFilter) ([]model.Holding, int64, error)
-	ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error)
 	// FindOldestLongOptionHolding returns the oldest (by created_at) holding
 	// with security_type="option", security_id=optionID, (owner_type, owner_id),
 	// quantity>0. Returns (nil, nil) when no such holding exists.
@@ -163,6 +169,11 @@ type HoldingRepo interface {
 
 type CapitalGainRepo interface {
 	Create(gain *model.CapitalGain) error
+	// DeleteByIdempotencyKey deletes the capital_gain row with the given key.
+	// Called by saga Backward closures to undo a row written in a Forward step
+	// that is being compensated. No-op (nil error) when no row matches — safe
+	// for retry.
+	DeleteByIdempotencyKey(key string) error
 	ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
 	SumByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
 	SumUncollectedByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]AccountGainSummary, error)

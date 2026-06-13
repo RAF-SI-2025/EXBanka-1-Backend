@@ -2,14 +2,16 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/exbanka/client-service/internal/cache"
-	kafkaprod "github.com/exbanka/client-service/internal/kafka"
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
@@ -59,16 +61,24 @@ func ValidateEmail(email string) error {
 	return nil
 }
 
+// clientEventProducer is a narrow interface over the Kafka producer covering
+// the two publish methods used by ClientService.  It allows tests to inject a
+// mock without depending on the concrete kafka.Producer struct.
+type clientEventProducer interface {
+	PublishClientCreated(ctx context.Context, msg kafkamsg.ClientCreatedMessage) error
+	PublishClientUpdated(ctx context.Context, msg kafkamsg.ClientCreatedMessage) error
+}
+
 // ClientService provides business logic for client management.
 type ClientService struct {
 	repo          ClientRepo
-	producer      *kafkaprod.Producer
+	producer      clientEventProducer
 	cache         *cache.RedisCache
 	changelogRepo ChangelogRepo
 }
 
 // NewClientService constructs a ClientService.
-func NewClientService(repo ClientRepo, producer *kafkaprod.Producer, cache *cache.RedisCache, changelogRepo ...ChangelogRepo) *ClientService {
+func NewClientService(repo ClientRepo, producer clientEventProducer, cache *cache.RedisCache, changelogRepo ...ChangelogRepo) *ClientService {
 	svc := &ClientService{repo: repo, producer: producer, cache: cache}
 	if len(changelogRepo) > 0 {
 		svc.changelogRepo = changelogRepo[0]
@@ -86,6 +96,11 @@ func (s *ClientService) CreateClient(ctx context.Context, client *model.Client) 
 	}
 
 	if err := s.repo.Create(client); err != nil {
+		// Duplicate email/JMBG → 409 with a clean message (the raw DB error would
+		// echo the colliding email/JMBG to the wire).
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return ErrClientAlreadyExists
+		}
 		return fmt.Errorf("create client: %w", err)
 	}
 	ClientCreatedTotal.Inc()
@@ -96,6 +111,8 @@ func (s *ClientService) CreateClient(ctx context.Context, client *model.Client) 
 			Email:     client.Email,
 			FirstName: client.FirstName,
 			LastName:  client.LastName,
+			JMBG:      client.JMBG,
+			Version:   client.Version,
 		}); err != nil {
 			log.Printf("warn: failed to publish client-created event: %v", err)
 		}
@@ -173,6 +190,10 @@ func (s *ClientService) UpdateClient(id uint64, updates map[string]interface{}, 
 		client.Address = v
 	}
 	if err := s.repo.Update(client); err != nil {
+		// Changing email to one already taken → 409 (not a raw 500 leaking the email).
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return nil, ErrClientAlreadyExists
+		}
 		return nil, err
 	}
 
@@ -192,6 +213,8 @@ func (s *ClientService) UpdateClient(id uint64, updates map[string]interface{}, 
 			Email:     client.Email,
 			FirstName: client.FirstName,
 			LastName:  client.LastName,
+			JMBG:      client.JMBG,
+			Version:   client.Version,
 		}); err != nil {
 			log.Printf("warn: failed to publish client-updated event: %v", err)
 		}

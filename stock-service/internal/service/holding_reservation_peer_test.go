@@ -3,12 +3,18 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/repository"
 )
 
 // TestHoldingReservationService_PartialSettle_BadQty exercises the
@@ -163,6 +169,115 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_NewBuyer(t *t
 	}
 }
 
+// TestHoldingReservationService_CreditBuyerHolding_TwoTickersNoCollision is the
+// regression for the duplicate-key bug: crediting a buyer two DIFFERENT
+// cross-bank tickers must create two holdings with distinct security_ids (not
+// both 0), or the (owner_type, owner_id, security_type, security_id) unique
+// index rejects the second with SQLSTATE 23505 and the exercise fails.
+func TestHoldingReservationService_CreditBuyerHolding_TwoTickersNoCollision(t *testing.T) {
+	svc, holdingRepo, _ := newHoldingReservationFixture(t)
+	buyerUID := uint64(99)
+	strike := decimal.NewFromInt(150)
+
+	require.NoError(t, svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, "ZZZA", 5, strike))
+	// Second, DIFFERENT ticker must NOT collide (was: duplicate key on security_id=0).
+	require.NoError(t, svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, "ZZZB", 7, strike),
+		"crediting a second cross-bank ticker must not collide on security_id")
+
+	a, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", "ZZZA")
+	require.NoError(t, err)
+	b, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", "ZZZB")
+	require.NoError(t, err)
+	require.Equal(t, int64(5), a.Quantity)
+	require.Equal(t, int64(7), b.Quantity)
+	require.NotEqual(t, a.SecurityID, b.SecurityID, "distinct tickers must get distinct security_ids")
+	require.NotZero(t, a.SecurityID, "security_id must not default to 0 (collision source)")
+}
+
+// TestHoldingReservationService_ExerciseBuyerCreditForPeerOption_Idempotent
+// is the Bug D regression: a replayed cross-bank exercise (duplicate
+// COMMIT_TX) must credit the buyer's shares exactly once. The contract
+// status, flipped to "exercised" in the same transaction as the credit and
+// read under a row lock, is the idempotency guard.
+func TestHoldingReservationService_ExerciseBuyerCreditForPeerOption_Idempotent(t *testing.T) {
+	// SP-2a: the cross-bank contract now lives in the unified option_contracts
+	// table as a REMOTE row (routing != OwnRouting). Set own routing 111 so the
+	// seeded remote row (routing 222) is recognised as remote.
+	model.SetOwnRouting("111")
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(
+		&model.Holding{},
+		&model.HoldingReservation{},
+		&model.HoldingReservationSettlement{},
+		&model.OptionContract{},
+	))
+	holdingRepo := repository.NewHoldingRepository(db)
+	resRepo := repository.NewHoldingReservationRepository(db)
+	svc := NewHoldingReservationService(db, holdingRepo, resRepo)
+
+	strike := decimal.NewFromInt(150)
+	// REMOTE CREDIT contract (we host the buyer 111; seller's bank 222 is the
+	// counterparty → routing_number=222).
+	native := "tx-idem:0"
+	dir := "CREDIT"
+	bbc, sbc := "111", "222"
+	bID, sID := "client-99", "client-1"
+	pIdx := int32(0)
+	cbTx := "tx-idem"
+	negRouting := int64(222)
+	negNative := "neg"
+	now := time.Now().UTC()
+	contract := &model.OptionContract{
+		RoutingNumber:             222,
+		NativeID:                  &native,
+		BuyerOwnerType:            model.OwnerBank,
+		BuyerBankCode:             &bbc,
+		SellerOwnerType:           model.OwnerBank,
+		SellerBankCode:            &sbc,
+		Ticker:                    "AAPL",
+		Quantity:                  decimal.NewFromInt(5),
+		StrikePrice:               strike,
+		PremiumPaid:               decimal.Zero,
+		PremiumCurrency:           "USD",
+		StrikeCurrency:            "USD",
+		SettlementDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Status:                    "active",
+		SagaID:                    cbTx,
+		PremiumPaidAt:             now,
+		CrossbankTxID:             &cbTx,
+		RemotePostingIndex:        &pIdx,
+		RemoteNegotiationRouting:  &negRouting,
+		RemoteNegotiationNativeID: &negNative,
+		RemoteDirection:           &dir,
+		RemoteBuyerID:             &bID,
+		RemoteSellerID:            &sID,
+		CreatedAt:                 now,
+		UpdatedAt:                 now,
+	}
+	require.NoError(t, db.Create(contract).Error)
+
+	buyer := uint64(99)
+	// First exercise: credits 5 shares and flips status to exercised.
+	require.NoError(t, svc.ExerciseBuyerCreditForPeerOption(context.Background(), contract.ID, model.OwnerClient, &buyer, "AAPL", 5, strike))
+	// Replay: must be a no-op (contract already exercised), NOT a second credit.
+	require.NoError(t, svc.ExerciseBuyerCreditForPeerOption(context.Background(), contract.ID, model.OwnerClient, &buyer, "AAPL", 5, strike))
+
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyer, "stock", "AAPL")
+	require.NoError(t, err)
+	if got.Quantity != 5 {
+		t.Errorf("buyer qty=%d want 5 — replayed exercise double-credited", got.Quantity)
+	}
+	var reloaded model.OptionContract
+	require.NoError(t, db.First(&reloaded, contract.ID).Error)
+	if reloaded.Status != "exercised" {
+		t.Errorf("contract status=%q want exercised", reloaded.Status)
+	}
+}
+
 // CreditBuyerHoldingForPeerOption with an existing holding produces a
 // weighted-average cost basis across the pre-existing shares and the
 // strike-priced shares. Without this, two cross-bank exercises into the
@@ -195,4 +310,35 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_WeightedAvera
 	if !got.AveragePrice.Equal(want) {
 		t.Errorf("buyer average_price=%s want %s (weighted avg)", got.AveragePrice, want)
 	}
+}
+
+// TestReserveForCrossBankNewTx_NoOverReservation is the regression for the
+// concurrent over-reservation bug: distinct crossbank tx ids must not reserve
+// more shares in aggregate than the holding owns. The atomic guarded UPDATE
+// re-checks availability in its WHERE, so a reserve that would exceed the
+// holding fails even with a fresh (insertable) tx id.
+func TestReserveForCrossBankNewTx_NoOverReservation(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t) // holding qty=100, ticker TEST, owner 1
+	uid := uint64(1)
+	// Force a non-zero version so the reserve must succeed against a real version
+	// — guards against the BeforeUpdate-hook regression where a zero-value model
+	// injected a stale `version = 0` predicate into the increment and matched 0 rows.
+	require.NoError(t, holdingRepo.DB().Exec("UPDATE holdings SET version = 7 WHERE id = ?", h.ID).Error)
+
+	r1, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-a", 60)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), r1.ReservedQuantity)
+
+	// Second reserve of 60 (distinct tx) must FAIL — only 40 free — and not inflate reserved.
+	_, err = svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-b", 60)
+	require.Error(t, err, "second reserve must fail: only 40 of 100 free")
+
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &uid, "stock", h.Ticker)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), got.ReservedQuantity, "reserved must stay 60, never exceed the 100 owned")
+
+	// A reserve that exactly fits the remaining 40 succeeds.
+	r3, err := svc.ReserveForCrossBankNewTx(context.Background(), model.OwnerClient, &uid, "stock", h.Ticker, "222:tx-c", 40)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), r3.ReservedQuantity)
 }

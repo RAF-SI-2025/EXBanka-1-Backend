@@ -112,6 +112,24 @@ func (s *MobileDeviceService) RequestActivation(ctx context.Context, email strin
 		},
 	})
 
+	// Beyond the email, surface the code through the persistent general-notification
+	// channel so the user's already-authenticated web and mobile sessions — both of
+	// which poll GET /api/v3/me/notifications — see it too (not email-only). Mirrors
+	// the password_changed notification in auth_account.go. Best-effort: a publish
+	// failure must not fail the activation request (the email already went out).
+	_ = s.producer.Publish(ctx, kafkamsg.TopicGeneralNotification, kafkamsg.GeneralNotificationMessage{
+		UserID: uint64(account.PrincipalID),
+		Type:   "MOBILE_ACTIVATION_REQUESTED",
+		// Data (not literal Title/Message) so notification-service renders the
+		// admin-customizable "MOBILE_ACTIVATION_REQUESTED" push template. The
+		// notification consumer drops the message if Data is set but the template
+		// type is unknown — the registry entry in registry_push.go is required.
+		Data: map[string]string{
+			"code":       code,
+			"expires_in": fmt.Sprintf("%d minutes", int(s.mobileActivationExp.Minutes())),
+		},
+	})
+
 	return nil
 }
 

@@ -148,16 +148,21 @@ func TestRedisCache_SetUserRevokedAt_GetUserRevokedAt(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now().Unix()
-	require.NoError(t, c.SetUserRevokedAt(ctx, 7, now, time.Minute))
+	require.NoError(t, c.SetUserRevokedAt(ctx, "employee", 7, now, time.Minute))
 
-	got, err := c.GetUserRevokedAt(ctx, 7)
+	got, err := c.GetUserRevokedAt(ctx, "employee", 7)
 	require.NoError(t, err)
 	assert.Equal(t, now, got)
+
+	// A same-id principal of a different type must NOT see the employee's epoch.
+	other, err := c.GetUserRevokedAt(ctx, "client", 7)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), other, "client#7 epoch must be isolated from employee#7")
 }
 
 func TestRedisCache_GetUserRevokedAt_NoEntry(t *testing.T) {
 	c, _ := newTestCache(t)
-	got, err := c.GetUserRevokedAt(context.Background(), 999)
+	got, err := c.GetUserRevokedAt(context.Background(), "employee", 999)
 	require.NoError(t, err, "missing key should not error")
 	assert.Equal(t, int64(0), got)
 }
@@ -166,9 +171,9 @@ func TestRedisCache_SetUserRevokedAt_TTLExpires(t *testing.T) {
 	c, mr := newTestCache(t)
 	ctx := context.Background()
 
-	require.NoError(t, c.SetUserRevokedAt(ctx, 8, 12345, 30*time.Second))
+	require.NoError(t, c.SetUserRevokedAt(ctx, "employee", 8, 12345, 30*time.Second))
 	mr.FastForward(31 * time.Second)
-	got, err := c.GetUserRevokedAt(ctx, 8)
+	got, err := c.GetUserRevokedAt(ctx, "employee", 8)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), got, "expired user_revoked_at should read as zero")
 }
@@ -183,8 +188,9 @@ func TestRedisCache_Close(t *testing.T) {
 }
 
 func TestUserRevokedAtKey_Format(t *testing.T) {
-	assert.Equal(t, "user_revoked_at:42", userRevokedAtKey(42))
-	assert.Equal(t, "user_revoked_at:0", userRevokedAtKey(0))
+	assert.Equal(t, "user_revoked_at:employee:42", userRevokedAtKey("employee", 42))
+	assert.Equal(t, "user_revoked_at:client:42", userRevokedAtKey("client", 42))
+	assert.Equal(t, "user_revoked_at:employee:0", userRevokedAtKey("employee", 0))
 }
 
 func TestNewRedisCache_LiveServer(t *testing.T) {

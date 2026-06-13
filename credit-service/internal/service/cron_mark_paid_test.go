@@ -94,6 +94,9 @@ func (m *mockCronAccountClient) ReleaseIncoming(_ context.Context, _ *accountpb.
 func (m *mockCronAccountClient) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }
+func (m *mockCronAccountClient) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 func newCronTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -140,7 +143,7 @@ func TestProcessInstallment_MarkPaidFailure_Compensates(t *testing.T) {
 	accountClient := &mockCronAccountClient{}
 	installSvc := NewInstallmentService(installRepo)
 	loanSvc := NewLoanService(loanRepo)
-	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, "BANK-RSD-001", db)
+	cron := NewCronService(installSvc, loanSvc, accountClient, nil, nil, nil, nil, "BANK-RSD-001", db, nilRegistry())
 
 	cron.processInstallment(context.Background(),
 		inst.ID, loan.ID,
@@ -161,4 +164,14 @@ func TestProcessInstallment_MarkPaidFailure_Compensates(t *testing.T) {
 		"bank reversal amount must be negative installment amount")
 	assert.Equal(t, "1000.0000", accountClient.calls[3].amount,
 		"client reversal amount must be positive installment amount")
+}
+
+func (*mockCronAccountClient) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockCronAccountClient) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*mockCronAccountClient) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
 }

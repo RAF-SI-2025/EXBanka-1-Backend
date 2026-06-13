@@ -138,10 +138,18 @@ func (h *CreditGRPCHandler) GetLoanRequest(ctx context.Context, req *pb.GetLoanR
 	if err != nil {
 		return nil, err
 	}
+	// OWN-1: a client may only read its own loan request (others → 404, no leak).
+	if !ownsLoan(ctx, loanReq.ClientID) {
+		return nil, service.ErrLoanRequestNotFound
+	}
 	return toLoanRequestResponse(loanReq), nil
 }
 
 func (h *CreditGRPCHandler) ListLoanRequests(ctx context.Context, req *pb.ListLoanRequestsReq) (*pb.ListLoanRequestsResponse, error) {
+	// OWN-1: a client may only list its own loan requests (must filter by self).
+	if !ownsLoan(ctx, req.ClientIdFilter) {
+		return nil, service.ErrForbidden
+	}
 	requests, total, err := h.loanRequestService.ListLoanRequests(
 		req.LoanTypeFilter, req.AccountNumberFilter, req.StatusFilter,
 		req.ClientIdFilter, int(req.Page), int(req.PageSize),
@@ -237,10 +245,18 @@ func (h *CreditGRPCHandler) GetLoan(ctx context.Context, req *pb.GetLoanReq) (*p
 	if err != nil {
 		return nil, err
 	}
+	// OWN-1: a client may only read its own loan (others → 404, no leak).
+	if !ownsLoan(ctx, loan.ClientID) {
+		return nil, service.ErrLoanNotFound
+	}
 	return toLoanResponse(loan), nil
 }
 
 func (h *CreditGRPCHandler) ListLoansByClient(ctx context.Context, req *pb.ListLoansByClientReq) (*pb.ListLoansResponse, error) {
+	// OWN-1: a client may only list its own loans.
+	if !ownsLoan(ctx, req.ClientId) {
+		return nil, service.ErrForbidden
+	}
 	loans, total, err := h.loanService.ListLoansByClient(req.ClientId, int(req.Page), int(req.PageSize))
 	if err != nil {
 		return nil, err
@@ -272,6 +288,15 @@ func (h *CreditGRPCHandler) ListAllLoans(ctx context.Context, req *pb.ListAllLoa
 }
 
 func (h *CreditGRPCHandler) GetInstallmentsByLoan(ctx context.Context, req *pb.GetInstallmentsByLoanReq) (*pb.ListInstallmentsResponse, error) {
+	// OWN-1: a client may only read installments of a loan it owns. Resolve the
+	// loan's owner first and gate on it.
+	loan, err := h.loanService.GetLoan(req.LoanId)
+	if err != nil {
+		return nil, err
+	}
+	if !ownsLoan(ctx, loan.ClientID) {
+		return nil, service.ErrLoanNotFound
+	}
 	installments, err := h.installmentService.GetInstallmentsByLoan(req.LoanId)
 	if err != nil {
 		return nil, err
@@ -469,6 +494,44 @@ func (h *CreditGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChang
 		}
 	}
 	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
+}
+
+// ListAllChangelogs returns paginated audit-log entries across all entities
+// (global view, admin-only).
+func (h *CreditGRPCHandler) ListAllChangelogs(ctx context.Context, req *pb.ListAllChangelogsRequest) (*pb.ListAllChangelogsResponse, error) {
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	filters := repository.ChangelogFilters{
+		Since:   req.GetSince(),
+		Until:   req.GetUntil(),
+		ActorID: req.GetActorId(),
+		Action:  req.GetAction(),
+	}
+	entries, total, err := h.changelogService.ListAllChangelogs(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListAllChangelogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
 }
 
 func toInterestRateTierResponse(t *model.InterestRateTier) *pb.InterestRateTierResponse {

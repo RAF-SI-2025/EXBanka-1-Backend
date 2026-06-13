@@ -13,6 +13,7 @@ import (
 	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
+	"github.com/exbanka/user-service/internal/repository"
 	"github.com/exbanka/user-service/internal/service"
 )
 
@@ -93,7 +94,10 @@ func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmpl
 func (h *UserGRPCHandler) GetEmployee(ctx context.Context, req *pb.GetEmployeeRequest) (*pb.EmployeeResponse, error) {
 	emp, err := h.empService.GetEmployee(req.Id)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "employee not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, service.ErrEmployeeNotFound
+		}
+		return nil, err
 	}
 	return toEmployeeResponse(emp, h.empService), nil
 }
@@ -104,7 +108,7 @@ func (h *UserGRPCHandler) ListEmployeeFullNames(ctx context.Context, req *pb.Lis
 	}
 	rows, err := h.empService.GetByIDs(req.EmployeeIds)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list employees: %v", err)
+		return nil, status.Error(codes.Internal, "failed to list employees")
 	}
 	out := make(map[int64]string, len(rows))
 	for _, e := range rows {
@@ -181,7 +185,10 @@ func (h *UserGRPCHandler) ListRoles(ctx context.Context, req *pb.ListRolesReques
 func (h *UserGRPCHandler) GetRole(ctx context.Context, req *pb.GetRoleRequest) (*pb.RoleResponse, error) {
 	role, err := h.roleSvc.GetRole(req.Id)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "role not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, service.ErrRoleNotFound
+		}
+		return nil, err
 	}
 	return toRoleResponse(role), nil
 }
@@ -202,7 +209,7 @@ func (h *UserGRPCHandler) UpdateRolePermissions(ctx context.Context, req *pb.Upd
 	}
 	role, err := h.roleSvc.GetRole(req.RoleId)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "role not found after update")
+		return nil, service.ErrRoleNotFound
 	}
 	return toRoleResponse(role), nil
 }
@@ -252,7 +259,7 @@ func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmplo
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "employee not found")
+		return nil, service.ErrEmployeeNotFound
 	}
 	return toEmployeeResponse(emp, h.empService), nil
 }
@@ -265,7 +272,7 @@ func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, 
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "employee not found")
+		return nil, service.ErrEmployeeNotFound
 	}
 	return toEmployeeResponse(emp, h.empService), nil
 }
@@ -292,6 +299,44 @@ func (h *UserGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangel
 		}
 	}
 	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
+}
+
+// ListAllChangelogs returns paginated audit-log entries across all entities
+// (global view, admin-only).
+func (h *UserGRPCHandler) ListAllChangelogs(ctx context.Context, req *pb.ListAllChangelogsRequest) (*pb.ListAllChangelogsResponse, error) {
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	filters := repository.ChangelogFilters{
+		Since:   req.GetSince(),
+		Until:   req.GetUntil(),
+		ActorID: req.GetActorId(),
+		Action:  req.GetAction(),
+	}
+	entries, total, err := h.changelogService.ListAllChangelogs(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListAllChangelogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
 }
 
 func toEmployeeResponse(emp *model.Employee, empSvc employeeFacade) *pb.EmployeeResponse {

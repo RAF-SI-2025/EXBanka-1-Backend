@@ -47,6 +47,9 @@ func (h *VirtualCardGRPCHandler) CreateVirtualCard(ctx context.Context, req *pb.
 }
 
 func (h *VirtualCardGRPCHandler) SetCardPin(ctx context.Context, req *pb.SetCardPinRequest) (*pb.SetCardPinResponse, error) {
+	if err := requireCardOwnerByID(ctx, h.cardService, req.Id); err != nil {
+		return nil, err
+	}
 	if err := h.cardService.SetPin(req.Id, req.Pin); err != nil {
 		return nil, err
 	}
@@ -54,6 +57,9 @@ func (h *VirtualCardGRPCHandler) SetCardPin(ctx context.Context, req *pb.SetCard
 }
 
 func (h *VirtualCardGRPCHandler) VerifyCardPin(ctx context.Context, req *pb.VerifyCardPinRequest) (*pb.VerifyCardPinResponse, error) {
+	if err := requireCardOwnerByID(ctx, h.cardService, req.Id); err != nil {
+		return nil, err
+	}
 	valid, err := h.cardService.VerifyPin(req.Id, req.Pin)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "%s", err.Error())
@@ -66,6 +72,9 @@ func (h *VirtualCardGRPCHandler) VerifyCardPin(ctx context.Context, req *pb.Veri
 }
 
 func (h *VirtualCardGRPCHandler) TemporaryBlockCard(ctx context.Context, req *pb.TemporaryBlockCardRequest) (*pb.CardResponse, error) {
+	if err := requireCardOwnerByID(ctx, h.cardService, req.Id); err != nil {
+		return nil, err
+	}
 	card, err := h.cardService.TemporaryBlockCard(ctx, req.Id, int(req.DurationHours), req.Reason)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

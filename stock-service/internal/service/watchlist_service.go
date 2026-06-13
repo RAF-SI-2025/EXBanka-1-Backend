@@ -77,11 +77,92 @@ var (
 
 	// ErrWatchlistEntryNotFound — Remove called with no matching row.
 	ErrWatchlistEntryNotFound = svcerr.New(codes.NotFound, "watchlist entry not found")
+
+	// ErrWatchlistNotFound — a named list id that doesn't exist.
+	ErrWatchlistNotFound = svcerr.New(codes.NotFound, "watchlist not found")
+
+	// ErrWatchlistForbidden — the named list belongs to a different owner.
+	ErrWatchlistForbidden = svcerr.New(codes.PermissionDenied, "watchlist not owned by caller")
+
+	// ErrWatchlistNameInvalid — empty / over-long list name.
+	ErrWatchlistNameInvalid = svcerr.New(codes.InvalidArgument, "watchlist name must be 1-64 characters")
 )
 
-// Add inserts a row after verifying the listing exists. Idempotent on
-// the (owner, listing) pair (no error on double-add).
-func (s *WatchlistService) Add(ownerType model.OwnerType, ownerID *uint64, listingID uint64) error {
+// CreateWatchlist creates a named list for the owner (idempotent on name).
+func (s *WatchlistService) CreateWatchlist(ownerType model.OwnerType, ownerID *uint64, name string) (*model.Watchlist, error) {
+	if name == "" || len(name) > 64 {
+		return nil, ErrWatchlistNameInvalid
+	}
+	w := &model.Watchlist{OwnerType: ownerType, OwnerID: ownerID, Name: name}
+	if err := s.repo.CreateWatchlist(w); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+// ListWatchlists returns the owner's named lists (with item counts). The
+// default list is created lazily so the owner always has at least one.
+func (s *WatchlistService) ListWatchlists(ownerType model.OwnerType, ownerID *uint64) ([]repository.WatchlistWithCount, error) {
+	if _, err := s.repo.GetOrCreateDefault(ownerType, ownerID); err != nil {
+		return nil, err
+	}
+	return s.repo.ListWatchlists(ownerType, ownerID)
+}
+
+// DeleteWatchlist removes an owner's named list (and its items) after
+// verifying ownership.
+func (s *WatchlistService) DeleteWatchlist(ownerType model.OwnerType, ownerID *uint64, watchlistID uint64) error {
+	if _, err := s.authorizeList(ownerType, ownerID, watchlistID); err != nil {
+		return err
+	}
+	removed, err := s.repo.DeleteWatchlist(watchlistID)
+	if err != nil {
+		return err
+	}
+	if !removed {
+		return ErrWatchlistNotFound
+	}
+	return nil
+}
+
+// authorizeList resolves a target list id for the owner: watchlistID==0 →
+// the owner's default list (created lazily); otherwise the named list must
+// exist and belong to the owner.
+func (s *WatchlistService) authorizeList(ownerType model.OwnerType, ownerID *uint64, watchlistID uint64) (uint64, error) {
+	if watchlistID == 0 {
+		def, err := s.repo.GetOrCreateDefault(ownerType, ownerID)
+		if err != nil {
+			return 0, err
+		}
+		return def.ID, nil
+	}
+	w, err := s.repo.GetWatchlist(watchlistID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ErrWatchlistNotFound
+		}
+		return 0, err
+	}
+	if w.OwnerType != ownerType || !watchlistOwnerEqual(w.OwnerID, ownerID) {
+		return 0, ErrWatchlistForbidden
+	}
+	return w.ID, nil
+}
+
+func watchlistOwnerEqual(a, b *uint64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+// Add inserts a row into the named list (watchlistID==0 → default) after
+// verifying the listing exists and the list belongs to the owner. Idempotent.
+func (s *WatchlistService) Add(ownerType model.OwnerType, ownerID *uint64, watchlistID, listingID uint64) error {
+	listID, err := s.authorizeList(ownerType, ownerID, watchlistID)
+	if err != nil {
+		return err
+	}
 	if _, err := s.listingRepo.GetByID(listingID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrWatchlistListingNotFound
@@ -89,16 +170,22 @@ func (s *WatchlistService) Add(ownerType model.OwnerType, ownerID *uint64, listi
 		return err
 	}
 	item := &model.WatchlistItem{
-		OwnerType: ownerType,
-		OwnerID:   ownerID,
-		ListingID: listingID,
+		WatchlistID: listID,
+		OwnerType:   ownerType,
+		OwnerID:     ownerID,
+		ListingID:   listingID,
 	}
 	return s.repo.Add(item)
 }
 
-// Remove returns ErrWatchlistEntryNotFound when the row was not present.
-func (s *WatchlistService) Remove(ownerType model.OwnerType, ownerID *uint64, listingID uint64) error {
-	removed, err := s.repo.Remove(ownerType, ownerID, listingID)
+// Remove deletes a listing from the named list (watchlistID==0 → default).
+// Returns ErrWatchlistEntryNotFound when the row was not present.
+func (s *WatchlistService) Remove(ownerType model.OwnerType, ownerID *uint64, watchlistID, listingID uint64) error {
+	listID, err := s.authorizeList(ownerType, ownerID, watchlistID)
+	if err != nil {
+		return err
+	}
+	removed, err := s.repo.RemoveFromList(listID, listingID)
 	if err != nil {
 		return err
 	}
@@ -108,9 +195,13 @@ func (s *WatchlistService) Remove(ownerType model.OwnerType, ownerID *uint64, li
 	return nil
 }
 
-// List returns enriched entries with current prices + tickers.
-func (s *WatchlistService) List(ownerType model.OwnerType, ownerID *uint64, listingType string) ([]WatchlistEntry, error) {
-	rows, err := s.repo.ListWithListings(ownerType, ownerID, listingType)
+// List returns enriched entries of a named list (watchlistID==0 → default).
+func (s *WatchlistService) List(ownerType model.OwnerType, ownerID *uint64, watchlistID uint64, listingType string) ([]WatchlistEntry, error) {
+	listID, err := s.authorizeList(ownerType, ownerID, watchlistID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.ListWithListingsByWatchlist(listID, listingType)
 	if err != nil {
 		return nil, err
 	}

@@ -6,9 +6,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/exbanka/contract/cronreg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// nilRegistry returns a no-op Registry for unit tests that don't need
+// pause/trigger control (nil PauseStore is explicitly supported).
+func nilRegistry() *cronreg.Registry {
+	return cronreg.NewRegistry("test", nil)
+}
 
 type stubExpiredItemDeleter struct {
 	calls    int
@@ -30,7 +37,7 @@ func (s *stubExpiredItemDeleter) DeleteExpired() (int64, error) {
 
 func TestInboxCleanupService_RunOnce_HappyPath(t *testing.T) {
 	stub := &stubExpiredItemDeleter{deleted: 3}
-	svc := newInboxCleanupServiceWithDeleter(stub)
+	svc := newInboxCleanupServiceWithDeleter(stub, nilRegistry())
 
 	deleted, err := svc.runOnce()
 	require.NoError(t, err)
@@ -40,7 +47,7 @@ func TestInboxCleanupService_RunOnce_HappyPath(t *testing.T) {
 
 func TestInboxCleanupService_RunOnce_NothingToDelete(t *testing.T) {
 	stub := &stubExpiredItemDeleter{deleted: 0}
-	svc := newInboxCleanupServiceWithDeleter(stub)
+	svc := newInboxCleanupServiceWithDeleter(stub, nilRegistry())
 
 	deleted, err := svc.runOnce()
 	require.NoError(t, err)
@@ -51,7 +58,7 @@ func TestInboxCleanupService_RunOnce_NothingToDelete(t *testing.T) {
 func TestInboxCleanupService_RunOnce_RepoErrorReturned(t *testing.T) {
 	wantErr := errors.New("db unavailable")
 	stub := &stubExpiredItemDeleter{err: wantErr}
-	svc := newInboxCleanupServiceWithDeleter(stub)
+	svc := newInboxCleanupServiceWithDeleter(stub, nilRegistry())
 
 	deleted, err := svc.runOnce()
 	require.Error(t, err)
@@ -62,7 +69,7 @@ func TestInboxCleanupService_RunOnce_RepoErrorReturned(t *testing.T) {
 
 func TestInboxCleanupService_StartCleanupCron_StopsOnContextCancel(t *testing.T) {
 	stub := &stubExpiredItemDeleter{}
-	svc := newInboxCleanupServiceWithDeleter(stub)
+	svc := newInboxCleanupServiceWithDeleter(stub, nilRegistry())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

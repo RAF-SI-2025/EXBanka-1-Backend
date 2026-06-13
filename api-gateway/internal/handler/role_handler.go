@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -12,6 +13,7 @@ import (
 
 type RoleHandler struct {
 	userClient userpb.UserServiceClient
+	Audit      businessAuditor // optional; set in router/handlers.go
 }
 
 func NewRoleHandler(userClient userpb.UserServiceClient) *RoleHandler {
@@ -145,6 +147,8 @@ func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	auditBusinessAction(c, h.Audit, "permissions.set", "role", strconv.FormatInt(id, 10),
+		fmt.Sprintf("permissions=%v", req.PermissionCodes))
 	c.JSON(http.StatusOK, roleToJSON(resp))
 }
 
@@ -332,6 +336,8 @@ func (h *RoleHandler) SetEmployeeAdditionalPermissions(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	auditBusinessAction(c, h.Audit, "permissions.set", "employee", strconv.FormatInt(id, 10),
+		fmt.Sprintf("additional_permissions=%v", req.PermissionCodes))
 	c.JSON(http.StatusOK, employeeToJSONWithActive(resp, false))
 }
 

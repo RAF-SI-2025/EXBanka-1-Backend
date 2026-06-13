@@ -33,9 +33,11 @@ type VerificationConsumer struct {
 	producer  genericPublisher
 	inboxRepo inboxItemCreator
 	templates templateRenderer
+	dlq       DeadLetterWriter
+	dedup     Deduper
 }
 
-func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, inboxRepo *repository.MobileInboxRepository, templateSvc *svc.TemplateService) *VerificationConsumer {
+func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, inboxRepo *repository.MobileInboxRepository, templateSvc *svc.TemplateService, dlq DeadLetterWriter, dedup Deduper) *VerificationConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  strings.Split(brokers, ","),
 		Topic:    kafkamsg.TopicVerificationChallengeCreated,
@@ -49,6 +51,8 @@ func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, pr
 		producer:  producer,
 		inboxRepo: inboxRepo,
 		templates: templateSvc,
+		dlq:       dlq,
+		dedup:     dedup,
 	}
 }
 
@@ -58,41 +62,28 @@ func newVerificationConsumerForTest(s emailDispatcher, p genericPublisher, repo 
 }
 
 func (c *VerificationConsumer) Start(ctx context.Context) {
-	go func() {
-		log.Println("verification consumer started, listening on", kafkamsg.TopicVerificationChallengeCreated)
-		for {
-			msg, err := c.reader.ReadMessage(ctx)
-			if err != nil {
-				if ctx.Err() != nil {
-					log.Println("verification consumer shutting down")
-					return
-				}
-				log.Printf("verification consumer: read error: %v", err)
-				continue
-			}
-			c.handleMessage(ctx, msg.Value)
-		}
-	}()
+	go runConsumer(ctx, "verification", c.reader, c.dlq, c.dedup, c.handleMessage)
 }
 
-func (c *VerificationConsumer) handleMessage(ctx context.Context, data []byte) {
+func (c *VerificationConsumer) handleMessage(ctx context.Context, data []byte) error {
 	var event kafkamsg.VerificationChallengeCreatedMessage
 	if err := json.Unmarshal(data, &event); err != nil {
-		log.Printf("verification consumer: unmarshal error: %v", err)
-		return
+		log.Printf("verification consumer: dropping malformed message: %v", err)
+		return nil // not retryable
 	}
 
 	switch event.DeliveryChannel {
 	case "email":
-		c.handleEmailDelivery(event)
+		return c.handleEmailDelivery(event)
 	case "mobile":
-		c.handleMobileDelivery(ctx, event)
+		return c.handleMobileDelivery(ctx, event)
 	default:
 		log.Printf("verification consumer: unknown delivery channel: %s", event.DeliveryChannel)
+		return nil
 	}
 }
 
-func (c *VerificationConsumer) handleEmailDelivery(event kafkamsg.VerificationChallengeCreatedMessage) {
+func (c *VerificationConsumer) handleEmailDelivery(event kafkamsg.VerificationChallengeCreatedMessage) error {
 	// Extract code from display_data JSON
 	var displayData map[string]interface{}
 	code := ""
@@ -107,8 +98,8 @@ func (c *VerificationConsumer) handleEmailDelivery(event kafkamsg.VerificationCh
 		"expires_in":        "5 minutes",
 	})
 	if renderErr != nil {
-		log.Printf("verification consumer: render error: %v", renderErr)
-		return
+		log.Printf("verification consumer: render error (not retryable): %v", renderErr)
+		return nil
 	}
 	// We need the user's email — for email delivery, the verification-service
 	// should have set it. We extract from display_data if available.
@@ -118,18 +109,19 @@ func (c *VerificationConsumer) handleEmailDelivery(event kafkamsg.VerificationCh
 	}
 	if email == "" {
 		log.Printf("verification consumer: email delivery requested but no email in display_data for challenge %d", event.ChallengeID)
-		return
+		return nil // missing data — retrying won't help
 	}
 	if err := c.sender.Send(email, subject, body); err != nil {
-		log.Printf("verification consumer: email send error: %v", err)
+		return err // transient SMTP failure — retry then dead-letter
 	}
+	return nil
 }
 
-func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event kafkamsg.VerificationChallengeCreatedMessage) {
+func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event kafkamsg.VerificationChallengeCreatedMessage) error {
 	expiresAt, err := time.Parse(time.RFC3339, event.ExpiresAt)
 	if err != nil {
-		log.Printf("verification consumer: invalid expires_at: %v", err)
-		return
+		log.Printf("verification consumer: invalid expires_at (not retryable): %v", err)
+		return nil
 	}
 
 	item := &model.MobileInboxItem{
@@ -140,26 +132,13 @@ func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event k
 		ExpiresAt:   expiresAt,
 	}
 	if err := c.inboxRepo.Create(item); err != nil {
-		log.Printf("verification consumer: inbox create error: %v", err)
-		return
+		return err // transient DB failure — retry (atomic insert, safe to re-run)
 	}
-
-	payloadJSON, _ := json.Marshal(map[string]interface{}{
-		"challenge_id": event.ChallengeID,
-		"method":       event.Method,
-		"display_data": event.DisplayData,
-		"expires_at":   event.ExpiresAt,
-	})
-	pushMsg := kafkamsg.MobilePushMessage{
-		UserID:  event.UserID,
-		Type:    "verification_challenge",
-		Payload: string(payloadJSON),
-	}
-	if err := c.producer.Publish(ctx, kafkamsg.TopicMobilePush, pushMsg); err != nil {
-		log.Printf("verification consumer: mobile push publish error: %v", err)
-	} else {
-		svc.NotificationMobilePushTotal.Inc()
-	}
+	// The inbox row is the source of truth — the mobile app polls it via
+	// GET /api/v3/mobile/verifications/pending (GetPendingMobileItems). The old
+	// best-effort WebSocket "push nudge" (notification.mobile-push) was removed
+	// 2026-06-11 along with the unused api-gateway WebSocket handler.
+	return nil
 }
 
 func (c *VerificationConsumer) Close() error {

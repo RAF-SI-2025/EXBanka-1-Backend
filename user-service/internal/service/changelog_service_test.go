@@ -95,6 +95,35 @@ func TestChangelogService_PaginationDefaultsAndCap(t *testing.T) {
 	assert.Empty(t, rows)
 }
 
+func TestChangelogService_ListAllChangelogs_DefaultsAndFilters(t *testing.T) {
+	db := newChangelogTestDB(t)
+	repo := repository.NewChangelogRepository(db)
+	svc := service.NewChangelogService(repo)
+
+	now := time.Now()
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "employee", EntityID: 1, Action: "create", ChangedBy: 7, ChangedAt: now}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "limit", EntityID: 2, Action: "update", ChangedBy: 9, ChangedAt: now.Add(time.Second)}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "role", EntityID: 3, Action: "update", ChangedBy: 7, ChangedAt: now.Add(2 * time.Second)}))
+
+	// page<1 → 1, pageSize<=0 → default 50; no filters returns everything.
+	rows, total, err := svc.ListAllChangelogs(repository.ChangelogFilters{}, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	assert.Len(t, rows, 3)
+
+	// pageSize > 200 is capped (still returns the 3 rows present).
+	rows, total, err = svc.ListAllChangelogs(repository.ChangelogFilters{}, 1, 999)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	assert.Len(t, rows, 3)
+
+	// Actor filter narrows to the two rows changed by employee 7.
+	rows, total, err = svc.ListAllChangelogs(repository.ChangelogFilters{ActorID: 7}, 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, rows, 2)
+}
+
 func TestChangelogService_FiltersByEntity(t *testing.T) {
 	db := newChangelogTestDB(t)
 	repo := repository.NewChangelogRepository(db)

@@ -140,6 +140,14 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			return fmt.Errorf("payments must be between accounts of different clients; use transfers for same-client transactions")
 		}
 
+		// E0 — Fund RSD account outflow restriction.
+		// Money in a fund's RSD account may only leave via fund operations
+		// (buy-on-behalf-of-fund, dividend payout, investor redemption).
+		// Generic payments are forbidden regardless of who initiates them.
+		if fromAccount.GetAccountCategory() == "investment_fund" {
+			return fmt.Errorf("fund accounts cannot be used as a transfer source; use fund operations only: %w", ErrFundAccountRestricted)
+		}
+
 		// 4. Spending limit pre-check (advisory only — the authoritative check happens
 		// atomically inside account-service's UpdateBalance within a FOR UPDATE transaction).
 		dailyLimit, _ := decimal.NewFromString(fromAccount.GetDailyLimit())
@@ -148,12 +156,12 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 		monthlySpending, _ := decimal.NewFromString(fromAccount.GetMonthlySpending())
 
 		if !dailyLimit.IsZero() && dailySpending.Add(totalDebit).GreaterThan(dailyLimit) {
-			return fmt.Errorf("limit_exceeded: daily spending limit would be exceeded on account %s: current daily spending %s, attempted %s, daily limit %s",
-				payment.FromAccountNumber, dailySpending.StringFixed(4), totalDebit.StringFixed(4), dailyLimit.StringFixed(4))
+			return fmt.Errorf("daily spending limit would be exceeded on account %s: current daily spending %s, attempted %s, daily limit %s: %w",
+				payment.FromAccountNumber, dailySpending.StringFixed(4), totalDebit.StringFixed(4), dailyLimit.StringFixed(4), ErrTransferLimitExceeded)
 		}
 		if !monthlyLimit.IsZero() && monthlySpending.Add(totalDebit).GreaterThan(monthlyLimit) {
-			return fmt.Errorf("limit_exceeded: monthly spending limit would be exceeded on account %s: current monthly spending %s, attempted %s, monthly limit %s",
-				payment.FromAccountNumber, monthlySpending.StringFixed(4), totalDebit.StringFixed(4), monthlyLimit.StringFixed(4))
+			return fmt.Errorf("monthly spending limit would be exceeded on account %s: current monthly spending %s, attempted %s, monthly limit %s: %w",
+				payment.FromAccountNumber, monthlySpending.StringFixed(4), totalDebit.StringFixed(4), monthlyLimit.StringFixed(4), ErrTransferLimitExceeded)
 		}
 	}
 

@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"time"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared"
@@ -29,4 +30,16 @@ func (p *Producer) Publish(ctx context.Context, topic string, msg any) error {
 
 func (p *Producer) PublishEmailSent(ctx context.Context, msg kafkamsg.EmailSentMessage) error {
 	return p.inner.Publish(ctx, kafkamsg.TopicEmailSent, msg)
+}
+
+// WriteDeadLetter publishes a message that exhausted its consumer retries to the
+// notification.dead-letter topic, so it is preserved for inspection/replay
+// instead of being silently dropped. Satisfies consumer.DeadLetterWriter.
+func (p *Producer) WriteDeadLetter(ctx context.Context, source string, value []byte, cause string) error {
+	return p.inner.Publish(ctx, kafkamsg.TopicNotificationDeadLetter, kafkamsg.NotificationDeadLetterMessage{
+		Source:   source,
+		Payload:  string(value),
+		Error:    cause,
+		FailedAt: time.Now().Unix(),
+	})
 }

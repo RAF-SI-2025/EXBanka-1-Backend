@@ -198,3 +198,86 @@ func TestValidateRepaymentPeriod_AllAllowedCashPeriods(t *testing.T) {
 		require.NoError(t, validateRepaymentPeriod("cash", p))
 	}
 }
+
+// TestApproveLoanRequest_ReplicaHit_RejectsOverLimit proves that the approval gate
+// fires via the REPLICA path (no gRPC call) when the loan amount exceeds the
+// employee's MaxLoanApprovalAmount stored in the local read-model.
+func TestApproveLoanRequest_ReplicaHit_RejectsOverLimit(t *testing.T) {
+	const empID uint64 = 42
+
+	// Replica returns a row with limit 100 000 for any employee lookup.
+	replica := &stubLimitReplica{
+		row: model.EmployeeLimitReplica{
+			EmployeeID:            empID,
+			MaxLoanApprovalAmount: decimal.NewFromInt(100000),
+			Version:               5,
+		},
+	}
+	// countingLimitClient must NOT be called on a replica hit.
+	grpcCounter := &countingLimitClient{
+		resp: &userpb.EmployeeLimitResponse{MaxLoanApprovalAmount: "9999999"},
+	}
+
+	svc, db := buildLoanRequestSvc(t, nil)
+	svc.limitReplica = replica
+	svc.limitClient = grpcCounter
+
+	req := &model.LoanRequest{
+		ClientID: 1, LoanType: "cash", InterestType: "fixed",
+		Amount: decimal.NewFromInt(500000), CurrencyCode: "RSD",
+		RepaymentPeriod: 12, AccountNumber: "ACC-REPLICA-REJECT", Status: "pending",
+	}
+	require.NoError(t, db.Create(req).Error)
+
+	loan, err := svc.ApproveLoanRequest(context.Background(), req.ID, empID)
+	require.Error(t, err)
+	assert.Nil(t, loan)
+	assert.True(t, errors.Is(err, ErrAmountExceedsApprovalLimit),
+		"expected ErrAmountExceedsApprovalLimit, got %v", err)
+	assert.Equal(t, 0, grpcCounter.calls,
+		"gRPC GetEmployeeLimits must NOT be called when replica returns a hit")
+}
+
+// TestApproveLoanRequest_ReplicaHit_WithinLimit_Allows proves that the approval
+// gate passes (no ErrAmountExceedsApprovalLimit) via the REPLICA path when the
+// loan amount is within the employee's MaxLoanApprovalAmount.
+func TestApproveLoanRequest_ReplicaHit_WithinLimit_Allows(t *testing.T) {
+	const empID uint64 = 43
+
+	replica := &stubLimitReplica{
+		row: model.EmployeeLimitReplica{
+			EmployeeID:            empID,
+			MaxLoanApprovalAmount: decimal.NewFromInt(1000000),
+			Version:               3,
+		},
+	}
+	grpcCounter := &countingLimitClient{
+		resp: &userpb.EmployeeLimitResponse{MaxLoanApprovalAmount: "1"},
+	}
+
+	svc, db := buildLoanRequestSvc(t, nil)
+	svc.limitReplica = replica
+	svc.limitClient = grpcCounter
+
+	req := &model.LoanRequest{
+		ClientID: 1, LoanType: "cash", InterestType: "fixed",
+		Amount: decimal.NewFromInt(500000), CurrencyCode: "RSD",
+		RepaymentPeriod: 12, AccountNumber: "ACC-REPLICA-ALLOW", Status: "pending",
+	}
+	require.NoError(t, db.Create(req).Error)
+
+	loan, err := svc.ApproveLoanRequest(context.Background(), req.ID, empID)
+
+	// The gate must NOT fire. The approval may succeed or fail for unrelated
+	// reasons (e.g., account-service unavailable in test), but it must NOT
+	// be ErrAmountExceedsApprovalLimit.
+	assert.False(t, errors.Is(err, ErrAmountExceedsApprovalLimit),
+		"replica-hit within-limit must not block approval, got %v", err)
+	// With the test harness (no account client, disbursement saga nil), approval
+	// fully succeeds — assert the positive outcome too.
+	require.NoError(t, err)
+	require.NotNil(t, loan)
+	assert.Equal(t, "approved", loan.Status)
+	assert.Equal(t, 0, grpcCounter.calls,
+		"gRPC GetEmployeeLimits must NOT be called when replica returns a hit")
+}

@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/exbanka/api-gateway/internal/middleware"
 	stockpb "github.com/exbanka/contract/stockpb"
@@ -11,6 +13,7 @@ import (
 
 type TaxHandler struct {
 	client stockpb.TaxGRPCServiceClient
+	Audit  businessAuditor // optional; set in router/handlers.go
 }
 
 func NewTaxHandler(client stockpb.TaxGRPCServiceClient) *TaxHandler {
@@ -108,6 +111,10 @@ func (h *TaxHandler) CollectTax(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	now := time.Now().UTC()
+	auditBusinessAction(c, h.Audit, "tax.collect", "tax",
+		fmt.Sprintf("%04d-%02d", now.Year(), int(now.Month())),
+		fmt.Sprintf("collected=%d total_rsd=%s failed=%d", resp.CollectedCount, resp.TotalCollectedRsd, resp.FailedCount))
 	c.JSON(http.StatusOK, gin.H{
 		"collected_count":     resp.CollectedCount,
 		"total_collected_rsd": resp.TotalCollectedRsd,

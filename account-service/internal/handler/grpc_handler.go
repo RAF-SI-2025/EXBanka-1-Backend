@@ -3,22 +3,27 @@ package handler
 import (
 	"context"
 	"errors"
-	"log"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
 	"github.com/exbanka/contract/changelog"
-	clientpb "github.com/exbanka/contract/clientpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/identity"
 )
+
+// ownsAccount reports whether the gRPC caller (from identity metadata) may access
+// an account owned by ownerID. OWN-1: client → own only; employee-on-behalf →
+// bound client; employee/admin + trusted service → allowed. A false result is
+// mapped by callers to ErrAccountNotFound (don't leak existence across tenants).
+func ownsAccount(ctx context.Context, ownerID uint64) bool {
+	return identity.FromIncoming(ctx).OwnsResource(int64(ownerID))
+}
 
 // accountSvcFacade is the subset of *service.AccountService used by AccountGRPCHandler.
 type accountSvcFacade interface {
@@ -51,16 +56,6 @@ type ledgerSvcFacade interface {
 	GetLedgerEntries(accountNumber string, page, pageSize int) ([]model.LedgerEntry, int64, error)
 }
 
-// accountProducer is the subset of *kafkaprod.Producer used by AccountGRPCHandler.
-type accountProducer interface {
-	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
-	PublishAccountStatusChanged(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
-	PublishAccountNameUpdated(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error
-	PublishAccountLimitsUpdated(ctx context.Context, msg kafkamsg.AccountLimitsUpdatedMessage) error
-	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
-	SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error
-}
-
 type AccountGRPCHandler struct {
 	pb.UnimplementedAccountServiceServer
 	accountService      accountSvcFacade
@@ -69,8 +64,7 @@ type AccountGRPCHandler struct {
 	ledgerService       ledgerSvcFacade
 	reservation         *ReservationHandler
 	incomingReservation *service.IncomingReservationService
-	producer            accountProducer
-	clientClient        clientpb.ClientServiceClient
+	outgoingReservation *service.OutgoingReservationService
 	changelogService    *service.ChangelogService
 	// db + idem wire saga-step idempotency for handlers that follow the
 	// IdempotencyRepository.Run pattern (UpdateBalance is the lighthouse
@@ -86,8 +80,7 @@ func NewAccountGRPCHandler(
 	ledgerService *service.LedgerService,
 	reservation *ReservationHandler,
 	incomingReservation *service.IncomingReservationService,
-	producer *kafkaprod.Producer,
-	clientClient clientpb.ClientServiceClient,
+	outgoingReservation *service.OutgoingReservationService,
 	db *gorm.DB,
 	idem *repository.IdempotencyRepository,
 	changelogService *service.ChangelogService,
@@ -99,8 +92,7 @@ func NewAccountGRPCHandler(
 		ledgerService:       ledgerService,
 		reservation:         reservation,
 		incomingReservation: incomingReservation,
-		producer:            producer,
-		clientClient:        clientClient,
+		outgoingReservation: outgoingReservation,
 		changelogService:    changelogService,
 		db:                  db,
 		idem:                idem,
@@ -264,7 +256,7 @@ func (h *AccountGRPCHandler) CommitIncoming(ctx context.Context, req *pb.CommitI
 }
 
 func (h *AccountGRPCHandler) executeCommitIncoming(ctx context.Context, req *pb.CommitIncomingRequest) (*pb.CommitIncomingResponse, error) {
-	acct, err := h.incomingReservation.CommitIncoming(ctx, req.ReservationKey)
+	acct, err := h.incomingReservation.CommitIncoming(ctx, req.ReservationKey, req.GetMemo())
 	if err != nil {
 		if s, ok := status.FromError(err); ok {
 			return nil, s.Err()
@@ -309,6 +301,130 @@ func (h *AccountGRPCHandler) executeReleaseIncoming(ctx context.Context, req *pb
 	return &pb.ReleaseIncomingResponse{Released: true}, nil
 }
 
+// ReserveOutgoing places a debit-side hold for a cross-bank money DEBIT leg:
+// reduces AvailableBalance (not Balance) and writes a pending row. Wrapped in
+// the saga-step idempotency contract; the service is also idempotent on
+// reservation_key.
+func (h *AccountGRPCHandler) ReserveOutgoing(ctx context.Context, req *pb.ReserveOutgoingRequest) (*pb.ReserveOutgoingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReserveOutgoingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReserveOutgoingResponse { return &pb.ReserveOutgoingResponse{} },
+			func() (*pb.ReserveOutgoingResponse, error) {
+				return h.executeReserveOutgoing(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReserveOutgoing(ctx context.Context, req *pb.ReserveOutgoingRequest) (*pb.ReserveOutgoingResponse, error) {
+	amt, err := decimal.NewFromString(req.Amount)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "amount: %v", err)
+	}
+	res, err := h.outgoingReservation.ReserveOutgoing(ctx, req.AccountNumber, amt, req.Currency, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	acct, _ := h.accountService.GetAccountByNumber(res.AccountNumber)
+	availableAfter := ""
+	if acct != nil {
+		availableAfter = acct.AvailableBalance.StringFixed(4)
+	}
+	return &pb.ReserveOutgoingResponse{ReservationKey: res.ReservationKey, AvailableAfter: availableAfter}, nil
+}
+
+// SettleOutgoing finalizes a pending debit hold: Balance -= amount, writes the
+// debit ledger entry, marks settled. Wrapped in the saga-step idempotency
+// contract.
+func (h *AccountGRPCHandler) SettleOutgoing(ctx context.Context, req *pb.SettleOutgoingRequest) (*pb.SettleOutgoingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.SettleOutgoingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.SettleOutgoingResponse { return &pb.SettleOutgoingResponse{} },
+			func() (*pb.SettleOutgoingResponse, error) {
+				return h.executeSettleOutgoing(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeSettleOutgoing(ctx context.Context, req *pb.SettleOutgoingRequest) (*pb.SettleOutgoingResponse, error) {
+	acct, err := h.outgoingReservation.SettleOutgoing(ctx, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	balanceAfter := ""
+	if acct != nil {
+		balanceAfter = acct.Balance.StringFixed(4)
+	}
+	return &pb.SettleOutgoingResponse{BalanceAfter: balanceAfter}, nil
+}
+
+// ReleaseOutgoing cancels a pending debit hold (NO vote / ROLLBACK_TX /
+// timeout): AvailableBalance += amount, marks released. Wrapped in the
+// saga-step idempotency contract.
+func (h *AccountGRPCHandler) ReleaseOutgoing(ctx context.Context, req *pb.ReleaseOutgoingRequest) (*pb.ReleaseOutgoingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReleaseOutgoingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReleaseOutgoingResponse { return &pb.ReleaseOutgoingResponse{} },
+			func() (*pb.ReleaseOutgoingResponse, error) {
+				return h.executeReleaseOutgoing(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReleaseOutgoing(ctx context.Context, req *pb.ReleaseOutgoingRequest) (*pb.ReleaseOutgoingResponse, error) {
+	if err := h.outgoingReservation.ReleaseOutgoing(ctx, req.ReservationKey); err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	return &pb.ReleaseOutgoingResponse{Released: true}, nil
+}
+
 func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.AccountResponse, error) {
 	initialBalance, _ := decimal.NewFromString(req.InitialBalance)
 	account := &model.Account{
@@ -326,47 +442,8 @@ func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAc
 	if err := h.accountService.CreateAccount(account); err != nil {
 		return nil, err
 	}
-
-	_ = h.producer.PublishAccountCreated(ctx, kafkamsg.AccountCreatedMessage{
-		AccountNumber: account.AccountNumber,
-		OwnerID:       account.OwnerID,
-		AccountKind:   account.AccountKind,
-		CurrencyCode:  account.CurrencyCode,
-	})
-
-	// In-app notification (rendered downstream via the push template registry).
-	// Skip for bank-owned accounts — they have no human recipient.
-	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
-		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-			UserID:  account.OwnerID,
-			Type:    "ACCOUNT_OPENED",
-			Data:    map[string]string{"account_number": account.AccountNumber, "currency": account.CurrencyCode},
-			RefType: "account",
-			RefID:   account.ID,
-		})
-	}
-
-	// Send email notification to account owner.
-	if h.clientClient != nil && h.producer != nil {
-		clientResp, clientErr := h.clientClient.GetClient(ctx, &clientpb.GetClientRequest{Id: account.OwnerID})
-		if clientErr == nil {
-			emailErr := h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-				To:        clientResp.Email,
-				EmailType: kafkamsg.EmailTypeAccountCreated,
-				Data: map[string]string{
-					"account_number": account.AccountNumber,
-					"account_name":   account.AccountName,
-					"currency":       account.CurrencyCode,
-				},
-			})
-			if emailErr != nil {
-				log.Printf("warn: failed to send account creation email to %s: %v", clientResp.Email, emailErr)
-			}
-		} else {
-			log.Printf("warn: failed to fetch client %d for account creation email: %v", account.OwnerID, clientErr)
-		}
-	}
-
+	// Events (account-created + in-app notification + welcome email) are published
+	// by the service layer (see AccountService.emitAccountCreated).
 	return toAccountResponse(account), nil
 }
 
@@ -377,6 +454,10 @@ func (h *AccountGRPCHandler) GetAccount(ctx context.Context, req *pb.GetAccountR
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
 		return nil, err
+	}
+	// OWN-1: a client may only read its own account (others → 404, no leak).
+	if !ownsAccount(ctx, account.OwnerID) {
+		return nil, service.ErrAccountNotFound
 	}
 	return toAccountResponse(account), nil
 }
@@ -389,10 +470,17 @@ func (h *AccountGRPCHandler) GetAccountByNumber(ctx context.Context, req *pb.Get
 		}
 		return nil, err
 	}
+	if !ownsAccount(ctx, account.OwnerID) {
+		return nil, service.ErrAccountNotFound
+	}
 	return toAccountResponse(account), nil
 }
 
 func (h *AccountGRPCHandler) ListAccountsByClient(ctx context.Context, req *pb.ListAccountsByClientRequest) (*pb.ListAccountsResponse, error) {
+	// OWN-1: a client may only list its own accounts.
+	if !ownsAccount(ctx, req.ClientId) {
+		return nil, service.ErrForbidden
+	}
 	accounts, total, err := h.accountService.ListAccountsByClient(
 		req.ClientId, int(req.Page), int(req.PageSize),
 	)
@@ -438,27 +526,7 @@ func (h *AccountGRPCHandler) UpdateAccountName(ctx context.Context, req *pb.Upda
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch updated account: %v", err)
 	}
-
-	// Domain audit event — fires regardless of ownership (bank-owned accounts
-	// still get an entry on the changelog channel).
-	_ = h.producer.PublishAccountNameUpdated(ctx, kafkamsg.AccountNameUpdatedMessage{
-		AccountID:     account.ID,
-		AccountNumber: account.AccountNumber,
-		NewName:       account.AccountName,
-	})
-
-	// In-app notification (rendered downstream via the push template registry).
-	// Skip for bank-owned accounts — they have no human recipient.
-	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
-		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-			UserID:  account.OwnerID,
-			Type:    "ACCOUNT_NAME_UPDATED",
-			Data:    map[string]string{"account_number": account.AccountNumber, "new_name": account.AccountName},
-			RefType: "account",
-			RefID:   account.ID,
-		})
-	}
-
+	// Domain event + notification published by the service layer.
 	return toAccountResponse(account), nil
 }
 
@@ -475,28 +543,7 @@ func (h *AccountGRPCHandler) UpdateAccountLimits(ctx context.Context, req *pb.Up
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch updated account: %v", err)
 	}
-
-	// Domain audit event — fires regardless of ownership (bank-owned accounts
-	// still get an entry on the changelog channel).
-	_ = h.producer.PublishAccountLimitsUpdated(ctx, kafkamsg.AccountLimitsUpdatedMessage{
-		AccountID:     account.ID,
-		AccountNumber: account.AccountNumber,
-		DailyLimit:    account.DailyLimit.StringFixed(2),
-		MonthlyLimit:  account.MonthlyLimit.StringFixed(2),
-	})
-
-	// In-app notification (rendered downstream via the push template registry).
-	// Skip for bank-owned accounts — they have no human recipient.
-	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
-		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-			UserID:  account.OwnerID,
-			Type:    "ACCOUNT_LIMITS_UPDATED",
-			Data:    map[string]string{"account_number": account.AccountNumber, "daily_limit": account.DailyLimit.StringFixed(2), "monthly_limit": account.MonthlyLimit.StringFixed(2)},
-			RefType: "account",
-			RefID:   account.ID,
-		})
-	}
-
+	// Domain event + notification published by the service layer.
 	return toAccountResponse(account), nil
 }
 
@@ -513,24 +560,7 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch updated account: %v", err)
 	}
-
-	_ = h.producer.PublishAccountStatusChanged(ctx, kafkaprod.AccountStatusChangedMsg{
-		AccountNumber: account.AccountNumber,
-		Status:        account.Status,
-	})
-
-	// In-app notification (rendered downstream via the push template registry).
-	// Skip for bank-owned accounts — they have no human recipient.
-	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
-		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-			UserID:  account.OwnerID,
-			Type:    "ACCOUNT_STATUS_CHANGED",
-			Data:    map[string]string{"account_number": account.AccountNumber, "new_status": account.Status},
-			RefType: "account",
-			RefID:   account.ID,
-		})
-	}
-
+	// Domain event + notification published by the service layer.
 	return toAccountResponse(account), nil
 }
 
@@ -706,6 +736,44 @@ func (h *AccountGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChan
 	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
+// ListAllChangelogs returns paginated audit-log entries across all entities
+// (global view, admin-only).
+func (h *AccountGRPCHandler) ListAllChangelogs(ctx context.Context, req *pb.ListAllChangelogsRequest) (*pb.ListAllChangelogsResponse, error) {
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	filters := repository.ChangelogFilters{
+		Since:   req.GetSince(),
+		Until:   req.GetUntil(),
+		ActorID: req.GetActorId(),
+		Action:  req.GetAction(),
+	}
+	entries, total, err := h.changelogService.ListAllChangelogs(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListAllChangelogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
+}
+
 func (h *AccountGRPCHandler) GetLedgerEntries(ctx context.Context, req *pb.GetLedgerEntriesRequest) (*pb.GetLedgerEntriesResponse, error) {
 	page := int(req.Page)
 	pageSize := int(req.PageSize)
@@ -714,6 +782,19 @@ func (h *AccountGRPCHandler) GetLedgerEntries(ctx context.Context, req *pb.GetLe
 	}
 	if pageSize < 1 {
 		pageSize = 20
+	}
+
+	// OWN-1: a client may only read the ledger of an account it owns. Resolve the
+	// account's owner first (cheap indexed lookup) and gate on it.
+	acct, err := h.accountService.GetAccountByNumber(req.AccountNumber)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, service.ErrAccountNotFound
+		}
+		return nil, err
+	}
+	if !ownsAccount(ctx, acct.OwnerID) {
+		return nil, service.ErrAccountNotFound
 	}
 
 	entries, total, err := h.ledgerService.GetLedgerEntries(req.AccountNumber, page, pageSize)

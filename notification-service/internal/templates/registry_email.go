@@ -5,18 +5,21 @@ package templates
 var emailDefs = []Definition{
 	{
 		Type: "ACTIVATION", Channel: "email",
-		Description: "Sent when an employee or client account is created — carries the activation link.",
+		Description: "Sent when an employee or client account is created — carries the activation link and the activation token shown separately.",
 		Variables: []Variable{
 			{"first_name", "Recipient's first name", "Ana"},
 			{"link", "Account activation URL", "https://app.exbanka.rs/activate?token=..."},
+			{"token", "Account activation token (also embedded in the link)", "a1b2c3d4e5f6..."},
 		},
 		DefaultSubject: "Activate Your EXBanka Account",
 		DefaultBody: `<h2>Welcome, {{first_name}}!</h2>
-<p>Your account has been created. Click the link below to activate your account and set your password:</p>
+<p>Your account has been created. Click the button below to activate your account and set your password:</p>
 <p><a href="{{link}}" style="display:inline-block;padding:12px 24px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:4px;">Activate Account</a></p>
 <p>Or copy this link into your browser:</p>
 <p>{{link}}</p>
-<p>This link expires in 24 hours.</p>`,
+<p>If you are asked for it separately, your activation token is:</p>
+<p style="font-family:monospace;font-size:16px;font-weight:bold;letter-spacing:1px;">{{token}}</p>
+<p>This link (and token) expires in 24 hours.</p>`,
 	},
 	{
 		Type: "PASSWORD_RESET", Channel: "email",
@@ -211,6 +214,28 @@ var emailDefs = []Definition{
 <p>This code expires in <strong>{{expires_in}}</strong>.</p>
 <p>If you did not request this, please ignore this email.</p>
 <p style="color:#718096;font-size:12px;">EXBanka Security Team</p>
+</body></html>`,
+	},
+	{
+		Type: "LIMIT_CHANGED", Channel: "email",
+		Description: "Sent when a client's transaction limits are changed (SP5 D1).",
+		Variables: []Variable{
+			{"daily_limit", "New daily limit", "200000.00"},
+			{"monthly_limit", "New monthly limit", "2000000.00"},
+			{"transfer_limit", "New per-transfer limit", "100000.00"},
+			{"currency", "Currency code", "RSD"},
+		},
+		DefaultSubject: "EXBanka — Your Limits Were Updated",
+		DefaultBody: `<html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+<h2 style="color:#1a365d;">Transaction Limits Updated</h2>
+<p>Your transaction limits have been changed:</p>
+<table style="border-collapse:collapse;width:100%">
+  <tr><td style="padding:8px;border:1px solid #ddd;"><strong>Daily limit</strong></td><td style="padding:8px;border:1px solid #ddd;">{{daily_limit}} {{currency}}</td></tr>
+  <tr><td style="padding:8px;border:1px solid #ddd;"><strong>Monthly limit</strong></td><td style="padding:8px;border:1px solid #ddd;">{{monthly_limit}} {{currency}}</td></tr>
+  <tr><td style="padding:8px;border:1px solid #ddd;"><strong>Per-transfer limit</strong></td><td style="padding:8px;border:1px solid #ddd;">{{transfer_limit}} {{currency}}</td></tr>
+</table>
+<p>If you did not expect this change, please contact your bank.</p>
+<p style="color:#718096;font-size:12px;">EXBanka</p>
 </body></html>`,
 	},
 }

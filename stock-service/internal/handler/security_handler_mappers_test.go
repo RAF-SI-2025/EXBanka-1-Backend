@@ -255,7 +255,7 @@ func TestToPriceHistoryResponse_FormatsDateAndDecimals(t *testing.T) {
 	if len(resp.History) != 1 {
 		t.Fatalf("History len: %d", len(resp.History))
 	}
-	if resp.History[0].Date != "2026-04-01" {
+	if resp.History[0].Date != "2026-04-01T00:00:00Z" {
 		t.Errorf("Date: %q", resp.History[0].Date)
 	}
 	if resp.History[0].Price != "100.5000" {

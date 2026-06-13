@@ -34,7 +34,7 @@ type stubAuthService struct {
 	setAccountStatusFn               func(ctx context.Context, pt string, pid int64, active bool) error
 	getAccountStatusFn               func(ctx context.Context, pt string, pid int64) (string, bool, error)
 	resendActivationEmailFn          func(ctx context.Context, email string) error
-	createAccountAndActivationFn     func(ctx context.Context, pid int64, email, fn, pt string) error
+	signingKeysFn                    func() ([]service.PublicKeyInfo, error)
 	getAccountStatusBatchFn          func(ctx context.Context, pt string, pids []int64) (map[int64]model.Account, error)
 	refreshTokenForMobileFn          func(ctx context.Context, rt, dev string, m service.MobileDeviceLookup) (string, string, error)
 	listSessionsFn                   func(ctx context.Context, userID int64) ([]model.ActiveSession, error)
@@ -73,8 +73,11 @@ func (s *stubAuthService) GetAccountStatus(ctx context.Context, pt string, pid i
 func (s *stubAuthService) ResendActivationEmail(ctx context.Context, email string) error {
 	return s.resendActivationEmailFn(ctx, email)
 }
-func (s *stubAuthService) CreateAccountAndActivationToken(ctx context.Context, pid int64, email, fn, pt string) error {
-	return s.createAccountAndActivationFn(ctx, pid, email, fn, pt)
+func (s *stubAuthService) SigningKeys() ([]service.PublicKeyInfo, error) {
+	if s.signingKeysFn != nil {
+		return s.signingKeysFn()
+	}
+	return []service.PublicKeyInfo{{Kid: "test-kid", Alg: "ES256", PEM: "PEM", Primary: true}}, nil
 }
 func (s *stubAuthService) GetAccountStatusBatch(ctx context.Context, pt string, pids []int64) (map[int64]model.Account, error) {
 	return s.getAccountStatusBatchFn(ctx, pt, pids)
@@ -272,7 +275,7 @@ func TestHandler_Login_Success(t *testing.T) {
 func TestHandler_RefreshToken_Invalid(t *testing.T) {
 	auth := &stubAuthService{
 		refreshTokenFn: func(context.Context, string, string, string) (string, string, error) {
-			return "", "", errors.New("invalid refresh token")
+			return "", "", fmt.Errorf("refresh: %w", service.ErrInvalidToken)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -480,7 +483,7 @@ func TestHandler_GetAccountStatus_Found(t *testing.T) {
 func TestHandler_GetAccountStatus_NotFound(t *testing.T) {
 	auth := &stubAuthService{
 		getAccountStatusFn: func(context.Context, string, int64) (string, bool, error) {
-			return "", false, errors.New("not found")
+			return "", false, fmt.Errorf("lookup: %w", service.ErrAccountNotFound)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -551,47 +554,6 @@ func TestHandler_ResendActivationEmail_Success(t *testing.T) {
 	resp, err := h.ResendActivationEmail(context.Background(), &pb.ResendActivationEmailRequest{Email: "ghost@test.com"})
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
-}
-
-// ----------------------------------------------------------------------------
-// CreateAccount
-// ----------------------------------------------------------------------------
-
-func TestHandler_CreateAccount_Success(t *testing.T) {
-	auth := &stubAuthService{
-		createAccountAndActivationFn: func(_ context.Context, pid int64, email, fn, pt string) error {
-			assert.Equal(t, int64(11), pid)
-			assert.Equal(t, "n@test.com", email)
-			assert.Equal(t, "Nina", fn)
-			assert.Equal(t, model.PrincipalTypeEmployee, pt)
-			return nil
-		},
-	}
-	h := newHandlerForTest(auth, &stubMobileService{})
-
-	resp, err := h.CreateAccount(context.Background(), &pb.CreateAccountRequest{
-		PrincipalId: 11, Email: "n@test.com", FirstName: "Nina", PrincipalType: model.PrincipalTypeEmployee,
-	})
-	require.NoError(t, err)
-	assert.True(t, resp.Success)
-}
-
-func TestHandler_CreateAccount_AlreadyExists(t *testing.T) {
-	auth := &stubAuthService{
-		createAccountAndActivationFn: func(context.Context, int64, string, string, string) error {
-			return fmt.Errorf("CreateAccountAndActivationToken: %w", service.ErrAccountCreationFailed)
-		},
-	}
-	h := newHandlerForTest(auth, &stubMobileService{})
-
-	_, err := h.CreateAccount(context.Background(), &pb.CreateAccountRequest{
-		PrincipalId: 1, Email: "x@test.com", FirstName: "X", PrincipalType: model.PrincipalTypeEmployee,
-	})
-	require.Error(t, err)
-	// Account creation failures collapse to Internal under the typed-sentinel
-	// model. The legacy substring mapper produced AlreadyExists for any error
-	// containing "already exists", but we no longer infer semantics from prose.
-	assert.Equal(t, codes.Internal, status.Code(err))
 }
 
 // ----------------------------------------------------------------------------
@@ -1028,6 +990,44 @@ func TestHandler_GetLoginHistory_Error(t *testing.T) {
 	h := newHandlerForTest(auth, &stubMobileService{})
 
 	_, err := h.GetLoginHistory(context.Background(), &pb.LoginHistoryRequest{Email: "u@test.com", Limit: 10})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}
+
+// ----------------------------------------------------------------------------
+// GetSigningKeys
+// ----------------------------------------------------------------------------
+
+func TestHandler_GetSigningKeys_ReturnsJWKS(t *testing.T) {
+	auth := &stubAuthService{
+		signingKeysFn: func() ([]service.PublicKeyInfo, error) {
+			return []service.PublicKeyInfo{
+				{Kid: "kid-1", Alg: "ES256", PEM: "PEM-1", Primary: true},
+				{Kid: "kid-0", Alg: "ES256", PEM: "PEM-0", Primary: false},
+			}, nil
+		},
+	}
+	h := newHandlerForTest(auth, &stubMobileService{})
+
+	resp, err := h.GetSigningKeys(context.Background(), &pb.GetSigningKeysRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Keys, 2)
+	assert.Equal(t, "kid-1", resp.Keys[0].Kid)
+	assert.Equal(t, "ES256", resp.Keys[0].Alg)
+	assert.Equal(t, "PEM-1", resp.Keys[0].PemPublicKey)
+	assert.True(t, resp.Keys[0].Primary)
+	assert.False(t, resp.Keys[1].Primary)
+}
+
+func TestHandler_GetSigningKeys_Error(t *testing.T) {
+	auth := &stubAuthService{
+		signingKeysFn: func() ([]service.PublicKeyInfo, error) {
+			return nil, errors.New("no key")
+		},
+	}
+	h := newHandlerForTest(auth, &stubMobileService{})
+
+	_, err := h.GetSigningKeys(context.Background(), &pb.GetSigningKeysRequest{})
 	require.Error(t, err)
 	assert.Equal(t, codes.Internal, status.Code(err))
 }

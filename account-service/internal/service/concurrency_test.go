@@ -25,7 +25,9 @@ func newTestDB(t *testing.T) *gorm.DB {
 	// truly concurrent writes anyway, so this is always safe.
 	dbName := strings.ReplaceAll(t.Name(), "/", "_")
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", dbName)
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	// TranslateError mirrors the prod gorm.Config so unique-violations surface as
+	// the portable gorm.ErrDuplicatedKey (the service maps it to AlreadyExists).
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{TranslateError: true})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
@@ -38,6 +40,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.Company{},
 		&model.Currency{},
 		&model.IncomingReservation{},
+		&model.OutgoingReservation{},
 		&model.BankOperation{},
 		&model.IdempotencyRecord{},
 	))

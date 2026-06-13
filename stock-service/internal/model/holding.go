@@ -13,26 +13,18 @@ import (
 // bought from. AccountID is an optional "last-used" audit field populated by
 // the most recent buy fill; it is not part of the aggregation key.
 type Holding struct {
-	ID             uint64          `gorm:"primaryKey;autoIncrement" json:"id"`
-	OwnerType      OwnerType       `gorm:"size:8;not null;index:idx_holding_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
-	OwnerID        *uint64         `gorm:"index:idx_holding_owner,priority:2" json:"owner_id"`
-	UserFirstName  string          `gorm:"size:100;not null" json:"user_first_name"`
-	UserLastName   string          `gorm:"size:100;not null" json:"user_last_name"`
-	SecurityType   string          `gorm:"size:10;not null" json:"security_type"` // "stock", "futures", "forex", "option"
-	SecurityID     uint64          `gorm:"not null" json:"security_id"`
-	ListingID      uint64          `gorm:"not null;index" json:"listing_id"`
-	Ticker         string          `gorm:"size:30;not null" json:"ticker"`
-	Name           string          `gorm:"size:200;not null" json:"name"`
-	Quantity       int64           `gorm:"not null" json:"quantity"`
-	AveragePrice   decimal.Decimal `gorm:"type:numeric(18,4);not null" json:"average_price"`
-	PublicQuantity int64           `gorm:"not null;default:0" json:"public_quantity"` // OTC: shares available for purchase
-	// PublicPrice is the asking price per share the seller set when
-	// making the holding public (Phase 11). Used by the OTC stocks
-	// marketplace cache and the peer /public-stock endpoint. Zero
-	// means "no price set" — for legacy rows the cache falls back to
-	// AveragePrice (the weighted-avg buy cost). When PublicQuantity
-	// drops to zero (cancel), PublicPrice is also reset to zero.
-	PublicPrice decimal.Decimal `gorm:"type:numeric(18,4);not null;default:0" json:"public_price"`
+	ID            uint64          `gorm:"primaryKey;autoIncrement" json:"id"`
+	OwnerType     OwnerType       `gorm:"size:8;not null;index:idx_holding_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
+	OwnerID       *uint64         `gorm:"index:idx_holding_owner,priority:2" json:"owner_id"`
+	UserFirstName string          `gorm:"size:100;not null" json:"user_first_name"`
+	UserLastName  string          `gorm:"size:100;not null" json:"user_last_name"`
+	SecurityType  string          `gorm:"size:10;not null" json:"security_type"` // "stock", "futures", "forex", "option"
+	SecurityID    uint64          `gorm:"not null" json:"security_id"`
+	ListingID     uint64          `gorm:"not null;index" json:"listing_id"`
+	Ticker        string          `gorm:"size:30;not null" json:"ticker"`
+	Name          string          `gorm:"size:200;not null" json:"name"`
+	Quantity      int64           `gorm:"not null" json:"quantity"`
+	AveragePrice  decimal.Decimal `gorm:"type:numeric(18,4);not null" json:"average_price"`
 	// ReservedQuantity is the running total of units locked by active sell-side
 	// HoldingReservations. AvailableQuantity = Quantity - ReservedQuantity.
 	ReservedQuantity int64 `gorm:"not null;default:0" json:"reserved_quantity"`
@@ -62,20 +54,4 @@ func (h *Holding) BeforeUpdate(tx *gorm.DB) error {
 	tx.Statement.Where("version = ?", h.Version)
 	h.Version++
 	return nil
-}
-
-// OTCSafeAvailable reports the number of units the owner can commit to a
-// NEW sell-side OTC listing (i.e. PublicQuantity uplift). It subtracts
-// both order-side reservations AND the existing public quantity so a
-// user can't double-commit the same shares to multiple sell offers OR
-// pull from a holding already committed to an open order.
-//
-// Returns zero if the calculation underflows (defensive — should never
-// happen with consistent data).
-func (h *Holding) OTCSafeAvailable() int64 {
-	avail := h.Quantity - h.ReservedQuantity - h.PublicQuantity
-	if avail < 0 {
-		return 0
-	}
-	return avail
 }

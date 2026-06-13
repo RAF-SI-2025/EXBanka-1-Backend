@@ -34,6 +34,7 @@ const (
 	TransactionService_ListPaymentRecipients_FullMethodName  = "/transaction.TransactionService/ListPaymentRecipients"
 	TransactionService_UpdatePaymentRecipient_FullMethodName = "/transaction.TransactionService/UpdatePaymentRecipient"
 	TransactionService_DeletePaymentRecipient_FullMethodName = "/transaction.TransactionService/DeletePaymentRecipient"
+	TransactionService_ListSagaLogs_FullMethodName           = "/transaction.TransactionService/ListSagaLogs"
 )
 
 // TransactionServiceClient is the client API for TransactionService service.
@@ -55,6 +56,8 @@ type TransactionServiceClient interface {
 	ListPaymentRecipients(ctx context.Context, in *ListPaymentRecipientsRequest, opts ...grpc.CallOption) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(ctx context.Context, in *UpdatePaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(ctx context.Context, in *DeletePaymentRecipientRequest, opts ...grpc.CallOption) (*DeletePaymentRecipientResponse, error)
+	// Admin audit: read transfer/payment saga execution logs.
+	ListSagaLogs(ctx context.Context, in *ListSagaLogsRequest, opts ...grpc.CallOption) (*ListSagaLogsResponse, error)
 }
 
 type transactionServiceClient struct {
@@ -215,6 +218,16 @@ func (c *transactionServiceClient) DeletePaymentRecipient(ctx context.Context, i
 	return out, nil
 }
 
+func (c *transactionServiceClient) ListSagaLogs(ctx context.Context, in *ListSagaLogsRequest, opts ...grpc.CallOption) (*ListSagaLogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSagaLogsResponse)
+	err := c.cc.Invoke(ctx, TransactionService_ListSagaLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TransactionServiceServer is the server API for TransactionService service.
 // All implementations must embed UnimplementedTransactionServiceServer
 // for forward compatibility.
@@ -234,6 +247,8 @@ type TransactionServiceServer interface {
 	ListPaymentRecipients(context.Context, *ListPaymentRecipientsRequest) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(context.Context, *UpdatePaymentRecipientRequest) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error)
+	// Admin audit: read transfer/payment saga execution logs.
+	ListSagaLogs(context.Context, *ListSagaLogsRequest) (*ListSagaLogsResponse, error)
 	mustEmbedUnimplementedTransactionServiceServer()
 }
 
@@ -288,6 +303,9 @@ func (UnimplementedTransactionServiceServer) UpdatePaymentRecipient(context.Cont
 }
 func (UnimplementedTransactionServiceServer) DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeletePaymentRecipient not implemented")
+}
+func (UnimplementedTransactionServiceServer) ListSagaLogs(context.Context, *ListSagaLogsRequest) (*ListSagaLogsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSagaLogs not implemented")
 }
 func (UnimplementedTransactionServiceServer) mustEmbedUnimplementedTransactionServiceServer() {}
 func (UnimplementedTransactionServiceServer) testEmbeddedByValue()                            {}
@@ -580,6 +598,24 @@ func _TransactionService_DeletePaymentRecipient_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TransactionService_ListSagaLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSagaLogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionServiceServer).ListSagaLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TransactionService_ListSagaLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionServiceServer).ListSagaLogs(ctx, req.(*ListSagaLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TransactionService_ServiceDesc is the grpc.ServiceDesc for TransactionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -646,6 +682,10 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeletePaymentRecipient",
 			Handler:    _TransactionService_DeletePaymentRecipient_Handler,
+		},
+		{
+			MethodName: "ListSagaLogs",
+			Handler:    _TransactionService_ListSagaLogs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -912,6 +952,7 @@ const (
 	PeerTxService_HandleRollbackTx_FullMethodName               = "/transaction.PeerTxService/HandleRollbackTx"
 	PeerTxService_InitiateOutboundTx_FullMethodName             = "/transaction.PeerTxService/InitiateOutboundTx"
 	PeerTxService_InitiateOutboundTxWithPostings_FullMethodName = "/transaction.PeerTxService/InitiateOutboundTxWithPostings"
+	PeerTxService_GetTxStatus_FullMethodName                    = "/transaction.PeerTxService/GetTxStatus"
 )
 
 // PeerTxServiceClient is the client API for PeerTxService service.
@@ -927,6 +968,11 @@ type PeerTxServiceClient interface {
 	HandleRollbackTx(ctx context.Context, in *SiTxRollbackRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error)
 	InitiateOutboundTx(ctx context.Context, in *SiTxInitiateRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
 	InitiateOutboundTxWithPostings(ctx context.Context, in *SiTxInitiateWithPostingsRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
+	// GetTxStatus allows a peer bank to query the status of a cross-bank
+	// transaction by its transactionId (= our idempotenceKey). Used by the
+	// Celina-5 CHECK_STATUS mechanism so both sides can resolve stuck sagas
+	// when communication breaks mid-flight.
+	GetTxStatus(ctx context.Context, in *GetTxStatusRequest, opts ...grpc.CallOption) (*GetTxStatusResponse, error)
 }
 
 type peerTxServiceClient struct {
@@ -987,6 +1033,16 @@ func (c *peerTxServiceClient) InitiateOutboundTxWithPostings(ctx context.Context
 	return out, nil
 }
 
+func (c *peerTxServiceClient) GetTxStatus(ctx context.Context, in *GetTxStatusRequest, opts ...grpc.CallOption) (*GetTxStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTxStatusResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_GetTxStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerTxServiceServer is the server API for PeerTxService service.
 // All implementations must embed UnimplementedPeerTxServiceServer
 // for forward compatibility.
@@ -1000,6 +1056,11 @@ type PeerTxServiceServer interface {
 	HandleRollbackTx(context.Context, *SiTxRollbackRequest) (*SiTxAckResponse, error)
 	InitiateOutboundTx(context.Context, *SiTxInitiateRequest) (*SiTxInitiateResponse, error)
 	InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error)
+	// GetTxStatus allows a peer bank to query the status of a cross-bank
+	// transaction by its transactionId (= our idempotenceKey). Used by the
+	// Celina-5 CHECK_STATUS mechanism so both sides can resolve stuck sagas
+	// when communication breaks mid-flight.
+	GetTxStatus(context.Context, *GetTxStatusRequest) (*GetTxStatusResponse, error)
 	mustEmbedUnimplementedPeerTxServiceServer()
 }
 
@@ -1024,6 +1085,9 @@ func (UnimplementedPeerTxServiceServer) InitiateOutboundTx(context.Context, *SiT
 }
 func (UnimplementedPeerTxServiceServer) InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitiateOutboundTxWithPostings not implemented")
+}
+func (UnimplementedPeerTxServiceServer) GetTxStatus(context.Context, *GetTxStatusRequest) (*GetTxStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTxStatus not implemented")
 }
 func (UnimplementedPeerTxServiceServer) mustEmbedUnimplementedPeerTxServiceServer() {}
 func (UnimplementedPeerTxServiceServer) testEmbeddedByValue()                       {}
@@ -1136,6 +1200,24 @@ func _PeerTxService_InitiateOutboundTxWithPostings_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerTxService_GetTxStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTxStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).GetTxStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_GetTxStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).GetTxStatus(ctx, req.(*GetTxStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerTxService_ServiceDesc is the grpc.ServiceDesc for PeerTxService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1162,6 +1244,326 @@ var PeerTxService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitiateOutboundTxWithPostings",
 			Handler:    _PeerTxService_InitiateOutboundTxWithPostings_Handler,
+		},
+		{
+			MethodName: "GetTxStatus",
+			Handler:    _PeerTxService_GetTxStatus_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "transaction/transaction.proto",
+}
+
+const (
+	PeerEgressService_ProxyToPeer_FullMethodName           = "/transaction.PeerEgressService/ProxyToPeer"
+	PeerEgressService_CheckPeerReachability_FullMethodName = "/transaction.PeerEgressService/CheckPeerReachability"
+	PeerEgressService_GetPeersState_FullMethodName         = "/transaction.PeerEgressService/GetPeersState"
+)
+
+// PeerEgressServiceClient is the client API for PeerEgressService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// PeerEgressService is the centralized outbound HTTP egress to permitted peer
+// banks. Domain services (e.g. stock-service for OTC /negotiations, /public-stock,
+// /public-option-offers, /accept) call ProxyToPeer instead of dialing peers
+// directly, so peer_banks resolution + X-Api-Key/HMAC signing live in ONE place
+// (the interbank-service). Implemented by interbank-service only.
+type PeerEgressServiceClient interface {
+	ProxyToPeer(ctx context.Context, in *ProxyToPeerRequest, opts ...grpc.CallOption) (*ProxyToPeerResponse, error)
+	// CheckPeerReachability probes ONE registered peer with a signed
+	// GET /public-stock (the universal SI-TX liveness endpoint) and reports
+	// reachability + HTTP status + latency. Used by the admin "verify on add"
+	// flow. Does NOT mutate the registry.
+	CheckPeerReachability(ctx context.Context, in *CheckPeerReachabilityRequest, opts ...grpc.CallOption) (*PeerReachability, error)
+	// GetPeersState probes ALL registered peers concurrently — the fleet
+	// health/state view across peers.
+	GetPeersState(ctx context.Context, in *GetPeersStateRequest, opts ...grpc.CallOption) (*GetPeersStateResponse, error)
+}
+
+type peerEgressServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPeerEgressServiceClient(cc grpc.ClientConnInterface) PeerEgressServiceClient {
+	return &peerEgressServiceClient{cc}
+}
+
+func (c *peerEgressServiceClient) ProxyToPeer(ctx context.Context, in *ProxyToPeerRequest, opts ...grpc.CallOption) (*ProxyToPeerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProxyToPeerResponse)
+	err := c.cc.Invoke(ctx, PeerEgressService_ProxyToPeer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerEgressServiceClient) CheckPeerReachability(ctx context.Context, in *CheckPeerReachabilityRequest, opts ...grpc.CallOption) (*PeerReachability, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerReachability)
+	err := c.cc.Invoke(ctx, PeerEgressService_CheckPeerReachability_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerEgressServiceClient) GetPeersState(ctx context.Context, in *GetPeersStateRequest, opts ...grpc.CallOption) (*GetPeersStateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPeersStateResponse)
+	err := c.cc.Invoke(ctx, PeerEgressService_GetPeersState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PeerEgressServiceServer is the server API for PeerEgressService service.
+// All implementations must embed UnimplementedPeerEgressServiceServer
+// for forward compatibility.
+//
+// PeerEgressService is the centralized outbound HTTP egress to permitted peer
+// banks. Domain services (e.g. stock-service for OTC /negotiations, /public-stock,
+// /public-option-offers, /accept) call ProxyToPeer instead of dialing peers
+// directly, so peer_banks resolution + X-Api-Key/HMAC signing live in ONE place
+// (the interbank-service). Implemented by interbank-service only.
+type PeerEgressServiceServer interface {
+	ProxyToPeer(context.Context, *ProxyToPeerRequest) (*ProxyToPeerResponse, error)
+	// CheckPeerReachability probes ONE registered peer with a signed
+	// GET /public-stock (the universal SI-TX liveness endpoint) and reports
+	// reachability + HTTP status + latency. Used by the admin "verify on add"
+	// flow. Does NOT mutate the registry.
+	CheckPeerReachability(context.Context, *CheckPeerReachabilityRequest) (*PeerReachability, error)
+	// GetPeersState probes ALL registered peers concurrently — the fleet
+	// health/state view across peers.
+	GetPeersState(context.Context, *GetPeersStateRequest) (*GetPeersStateResponse, error)
+	mustEmbedUnimplementedPeerEgressServiceServer()
+}
+
+// UnimplementedPeerEgressServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPeerEgressServiceServer struct{}
+
+func (UnimplementedPeerEgressServiceServer) ProxyToPeer(context.Context, *ProxyToPeerRequest) (*ProxyToPeerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProxyToPeer not implemented")
+}
+func (UnimplementedPeerEgressServiceServer) CheckPeerReachability(context.Context, *CheckPeerReachabilityRequest) (*PeerReachability, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckPeerReachability not implemented")
+}
+func (UnimplementedPeerEgressServiceServer) GetPeersState(context.Context, *GetPeersStateRequest) (*GetPeersStateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPeersState not implemented")
+}
+func (UnimplementedPeerEgressServiceServer) mustEmbedUnimplementedPeerEgressServiceServer() {}
+func (UnimplementedPeerEgressServiceServer) testEmbeddedByValue()                           {}
+
+// UnsafePeerEgressServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PeerEgressServiceServer will
+// result in compilation errors.
+type UnsafePeerEgressServiceServer interface {
+	mustEmbedUnimplementedPeerEgressServiceServer()
+}
+
+func RegisterPeerEgressServiceServer(s grpc.ServiceRegistrar, srv PeerEgressServiceServer) {
+	// If the following call panics, it indicates UnimplementedPeerEgressServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PeerEgressService_ServiceDesc, srv)
+}
+
+func _PeerEgressService_ProxyToPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProxyToPeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerEgressServiceServer).ProxyToPeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerEgressService_ProxyToPeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerEgressServiceServer).ProxyToPeer(ctx, req.(*ProxyToPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerEgressService_CheckPeerReachability_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckPeerReachabilityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerEgressServiceServer).CheckPeerReachability(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerEgressService_CheckPeerReachability_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerEgressServiceServer).CheckPeerReachability(ctx, req.(*CheckPeerReachabilityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerEgressService_GetPeersState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPeersStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerEgressServiceServer).GetPeersState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerEgressService_GetPeersState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerEgressServiceServer).GetPeersState(ctx, req.(*GetPeersStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PeerEgressService_ServiceDesc is the grpc.ServiceDesc for PeerEgressService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PeerEgressService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "transaction.PeerEgressService",
+	HandlerType: (*PeerEgressServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ProxyToPeer",
+			Handler:    _PeerEgressService_ProxyToPeer_Handler,
+		},
+		{
+			MethodName: "CheckPeerReachability",
+			Handler:    _PeerEgressService_CheckPeerReachability_Handler,
+		},
+		{
+			MethodName: "GetPeersState",
+			Handler:    _PeerEgressService_GetPeersState_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "transaction/transaction.proto",
+}
+
+const (
+	PeerUserService_ResolvePeerUser_FullMethodName = "/transaction.PeerUserService/ResolvePeerUser"
+)
+
+// PeerUserServiceClient is the client API for PeerUserService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// PeerUserService resolves one of THIS bank's users (client-<N> / employee-<N>)
+// to display names for a peer's friendly-name lookup (the SI-TX GET /user/{rid}/{id}
+// surface, §9). interbank-service implements it by forwarding to client-service /
+// user-service, so the api-gateway can route the ENTIRE /cross-bank-protocol
+// surface — including /user — to the single interbank backend.
+type PeerUserServiceClient interface {
+	ResolvePeerUser(ctx context.Context, in *ResolvePeerUserRequest, opts ...grpc.CallOption) (*ResolvePeerUserResponse, error)
+}
+
+type peerUserServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPeerUserServiceClient(cc grpc.ClientConnInterface) PeerUserServiceClient {
+	return &peerUserServiceClient{cc}
+}
+
+func (c *peerUserServiceClient) ResolvePeerUser(ctx context.Context, in *ResolvePeerUserRequest, opts ...grpc.CallOption) (*ResolvePeerUserResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolvePeerUserResponse)
+	err := c.cc.Invoke(ctx, PeerUserService_ResolvePeerUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PeerUserServiceServer is the server API for PeerUserService service.
+// All implementations must embed UnimplementedPeerUserServiceServer
+// for forward compatibility.
+//
+// PeerUserService resolves one of THIS bank's users (client-<N> / employee-<N>)
+// to display names for a peer's friendly-name lookup (the SI-TX GET /user/{rid}/{id}
+// surface, §9). interbank-service implements it by forwarding to client-service /
+// user-service, so the api-gateway can route the ENTIRE /cross-bank-protocol
+// surface — including /user — to the single interbank backend.
+type PeerUserServiceServer interface {
+	ResolvePeerUser(context.Context, *ResolvePeerUserRequest) (*ResolvePeerUserResponse, error)
+	mustEmbedUnimplementedPeerUserServiceServer()
+}
+
+// UnimplementedPeerUserServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPeerUserServiceServer struct{}
+
+func (UnimplementedPeerUserServiceServer) ResolvePeerUser(context.Context, *ResolvePeerUserRequest) (*ResolvePeerUserResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolvePeerUser not implemented")
+}
+func (UnimplementedPeerUserServiceServer) mustEmbedUnimplementedPeerUserServiceServer() {}
+func (UnimplementedPeerUserServiceServer) testEmbeddedByValue()                         {}
+
+// UnsafePeerUserServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PeerUserServiceServer will
+// result in compilation errors.
+type UnsafePeerUserServiceServer interface {
+	mustEmbedUnimplementedPeerUserServiceServer()
+}
+
+func RegisterPeerUserServiceServer(s grpc.ServiceRegistrar, srv PeerUserServiceServer) {
+	// If the following call panics, it indicates UnimplementedPeerUserServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PeerUserService_ServiceDesc, srv)
+}
+
+func _PeerUserService_ResolvePeerUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolvePeerUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerUserServiceServer).ResolvePeerUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerUserService_ResolvePeerUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerUserServiceServer).ResolvePeerUser(ctx, req.(*ResolvePeerUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PeerUserService_ServiceDesc is the grpc.ServiceDesc for PeerUserService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PeerUserService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "transaction.PeerUserService",
+	HandlerType: (*PeerUserServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ResolvePeerUser",
+			Handler:    _PeerUserService_ResolvePeerUser_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

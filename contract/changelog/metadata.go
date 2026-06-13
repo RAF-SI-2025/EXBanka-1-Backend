@@ -12,8 +12,20 @@ const metadataKeyChangedBy = "x-changed-by"
 
 // SetChangedBy returns a new outgoing context with the x-changed-by metadata.
 // Call this in API gateway handlers before making gRPC calls.
+//
+// It MERGES onto any existing outgoing metadata rather than replacing it — a
+// fresh metadata.Pairs + NewOutgoingContext would clobber the OWN-1 caller
+// identity (x-principal-type/-id) that the auth middleware already appended,
+// which would silently disable service-side ownership enforcement on every
+// mutating route.
 func SetChangedBy(ctx context.Context, userID int64) context.Context {
-	md := metadata.Pairs(metadataKeyChangedBy, strconv.FormatInt(userID, 10))
+	md, ok := metadata.FromOutgoingContext(ctx)
+	if ok {
+		md = md.Copy()
+	} else {
+		md = metadata.MD{}
+	}
+	md.Set(metadataKeyChangedBy, strconv.FormatInt(userID, 10))
 	return metadata.NewOutgoingContext(ctx, md)
 }
 

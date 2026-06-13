@@ -3,6 +3,7 @@ package repository
 import (
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -23,8 +24,25 @@ func NewCapitalGainRepository(db *gorm.DB) *CapitalGainRepository {
 	return &CapitalGainRepository{db: db}
 }
 
+// Create inserts a capital-gain row. When the row carries an idempotency key it
+// uses ON CONFLICT DO NOTHING so a saga retry (or recovery re-run) of the
+// recording step is a safe no-op instead of a unique-constraint error.
 func (r *CapitalGainRepository) Create(gain *model.CapitalGain) error {
+	if gain.IdempotencyKey != nil && *gain.IdempotencyKey != "" {
+		return r.db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "idempotency_key"}},
+			DoNothing: true,
+		}).Create(gain).Error
+	}
 	return r.db.Create(gain).Error
+}
+
+// DeleteByIdempotencyKey deletes the capital_gain row with the given
+// idempotency_key. Used by saga Backward closures to undo a capital-gain
+// row that was written in a Forward step that is now being compensated.
+// No-op (nil error) when no matching row exists — safe for retry.
+func (r *CapitalGainRepository) DeleteByIdempotencyKey(key string) error {
+	return r.db.Where("idempotency_key = ?", key).Delete(&model.CapitalGain{}).Error
 }
 
 // ListByOwner returns paginated capital gain records for an owner.
@@ -90,7 +108,10 @@ func (r *CapitalGainRepository) SumByActingEmployee() ([]ActuaryGainRow, error) 
 // Scoped to rows where tax_collection_id IS NULL so a crashed+retried run
 // doesn't clobber a prior collection's marking.
 func (r *CapitalGainRepository) MarkCollected(ownerType model.OwnerType, ownerID *uint64, year, month int, accountID uint64, currency string, taxCollectionID uint64) error {
-	q := r.db.Model(&model.CapitalGain{}).
+	// SkipHooks: BeforeSave validates OwnerType on the zero-value model struct
+	// passed to Model(); a column-targeted Update must skip hooks to avoid that
+	// check (same pattern as FundContributionRepository.UpdateStatus).
+	q := r.db.Session(&gorm.Session{SkipHooks: true}).Model(&model.CapitalGain{}).
 		Where("tax_year = ? AND tax_month = ? AND account_id = ? AND currency = ? AND tax_collection_id IS NULL",
 			year, month, accountID, currency)
 	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)

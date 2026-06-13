@@ -25,6 +25,9 @@ type mobileAuthClientStub struct {
 	validateDeviceSignatureFn func(*authpb.ValidateDeviceSignatureRequest) (*authpb.ValidateDeviceSignatureResponse, error)
 }
 
+func (m *mobileAuthClientStub) GetSigningKeys(_ context.Context, _ *authpb.GetSigningKeysRequest, _ ...grpc.CallOption) (*authpb.GetSigningKeysResponse, error) {
+	return &authpb.GetSigningKeysResponse{}, nil
+}
 func (m *mobileAuthClientStub) ValidateToken(_ context.Context, req *authpb.ValidateTokenRequest, _ ...grpc.CallOption) (*authpb.ValidateTokenResponse, error) {
 	if m.validateTokenFn != nil {
 		return m.validateTokenFn(req)
@@ -65,9 +68,6 @@ func (m *mobileAuthClientStub) GetAccountStatus(_ context.Context, _ *authpb.Get
 	panic("not implemented")
 }
 func (m *mobileAuthClientStub) GetAccountStatusBatch(_ context.Context, _ *authpb.GetAccountStatusBatchRequest, _ ...grpc.CallOption) (*authpb.GetAccountStatusBatchResponse, error) {
-	panic("not implemented")
-}
-func (m *mobileAuthClientStub) CreateAccount(_ context.Context, _ *authpb.CreateAccountRequest, _ ...grpc.CallOption) (*authpb.CreateAccountResponse, error) {
 	panic("not implemented")
 }
 func (m *mobileAuthClientStub) RequestMobileActivation(_ context.Context, _ *authpb.MobileActivationRequest, _ ...grpc.CallOption) (*authpb.MobileActivationResponse, error) {

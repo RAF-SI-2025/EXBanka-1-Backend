@@ -11,6 +11,7 @@ import (
 
 type ActuaryHandler struct {
 	client userpb.ActuaryServiceClient
+	Audit  businessAuditor // optional; set in router/handlers.go
 }
 
 func NewActuaryHandler(client userpb.ActuaryServiceClient) *ActuaryHandler {
@@ -55,6 +56,7 @@ func (h *ActuaryHandler) SetActuaryLimit(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	auditBusinessAction(c, h.Audit, "limit.set", "employee", strconv.FormatUint(id, 10), "actuary_limit="+req.Limit)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -70,6 +72,7 @@ func (h *ActuaryHandler) ResetActuaryLimit(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	auditBusinessAction(c, h.Audit, "limit.used_reset", "employee", strconv.FormatUint(id, 10), "")
 	c.JSON(http.StatusOK, resp)
 }
 

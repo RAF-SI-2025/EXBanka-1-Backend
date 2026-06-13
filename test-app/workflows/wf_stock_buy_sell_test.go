@@ -16,6 +16,7 @@ import (
 //	sells stock via market order → waits for fill → verifies order is done.
 func TestWF_StockBuySellCycle(t *testing.T) {
 	adminC := loginAsAdmin(t)
+	enableTestingMode(t, adminC)
 
 	// Step 1: Create agent employee
 	_, agentC, _ := setupAgentEmployee(t, adminC)
@@ -76,11 +77,23 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	}
 	helpers.RequireStatus(t, portfolioResp, 200)
 
-	holdings, ok := portfolioResp.Body["holdings"].([]interface{})
-	if !ok || len(holdings) == 0 {
-		t.Fatal("WF-6: expected at least one stock holding after buy, got none")
+	positions := stockPositions(t, portfolioResp.Body)
+	if len(positions) == 0 {
+		t.Fatal("WF-6: expected at least one stock position after buy, got none")
 	}
-	t.Logf("WF-6: portfolio has %d stock holding(s)", len(holdings))
+	t.Logf("WF-6: portfolio has %d stock position(s)", len(positions))
+
+	// Each security position must expose holding_id (the holdings-row id), so a
+	// client can feed make-public/exercise directly from the portfolio response.
+	pos0, ok := positions[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("WF-6: position[0] is not an object: %T", positions[0])
+	}
+	hid, ok := pos0["holding_id"].(float64)
+	if !ok || hid <= 0 {
+		t.Fatalf("WF-6: expected positive holding_id on stock position, got %v", pos0["holding_id"])
+	}
+	t.Logf("WF-6: stock position exposes holding_id=%d", int(hid))
 
 	// Step 6: Place market sell order for the same listing
 	sellResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{

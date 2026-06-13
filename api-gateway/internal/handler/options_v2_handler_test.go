@@ -131,9 +131,6 @@ func (s *stubPortfolioClient) ListHoldings(ctx context.Context, in *stockpb.List
 func (s *stubPortfolioClient) GetPortfolioSummary(ctx context.Context, in *stockpb.GetPortfolioSummaryRequest, opts ...grpc.CallOption) (*stockpb.PortfolioSummary, error) {
 	return nil, nil
 }
-func (s *stubPortfolioClient) MakePublic(ctx context.Context, in *stockpb.MakePublicRequest, opts ...grpc.CallOption) (*stockpb.Holding, error) {
-	return nil, nil
-}
 func (s *stubPortfolioClient) ExerciseOption(ctx context.Context, in *stockpb.ExerciseOptionRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
 	return nil, nil
 }
@@ -148,6 +145,10 @@ func (s *stubPortfolioClient) ExerciseOptionByOptionID(ctx context.Context, in *
 }
 func (s *stubPortfolioClient) GetHolding(ctx context.Context, in *stockpb.GetHoldingRequest, opts ...grpc.CallOption) (*stockpb.HoldingWithOwner, error) {
 	return &stockpb.HoldingWithOwner{Holding: &stockpb.Holding{Id: in.GetId()}, OwnerType: "client", OwnerId: 42}, nil
+}
+
+func (s *stubPortfolioClient) GetUnifiedPortfolio(_ context.Context, _ *stockpb.GetUnifiedPortfolioRequest, _ ...grpc.CallOption) (*stockpb.UnifiedPortfolioResponse, error) {
+	return &stockpb.UnifiedPortfolioResponse{}, nil
 }
 
 // --- helper ---

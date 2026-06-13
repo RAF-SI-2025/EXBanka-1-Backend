@@ -60,6 +60,19 @@ func (m *mockOrderRepo) GetByID(id uint64) (*model.Order, error) {
 	return &copy, nil
 }
 
+func (m *mockOrderRepo) GetBySagaID(sagaID string) (*model.Order, error) {
+	if sagaID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	for _, o := range m.orders {
+		if o.SagaID == sagaID {
+			copy := *o
+			return &copy, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 func (m *mockOrderRepo) GetByIDWithOwner(id uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
 	o, ok := m.orders[id]
 	if !ok {
@@ -142,6 +155,16 @@ func (m *mockOrderTxRepo) Create(tx *model.OrderTransaction) error {
 	return nil
 }
 
+func (m *mockOrderTxRepo) GetByID(id uint64) (*model.OrderTransaction, error) {
+	for i := range m.txns {
+		if m.txns[i].ID == id {
+			cp := m.txns[i]
+			return &cp, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 // Update persists a modified OrderTransaction back to the in-memory store.
 // Used by the fill saga's convert_amount step to record native/converted
 // amounts and FX rate.
@@ -153,6 +176,17 @@ func (m *mockOrderTxRepo) Update(tx *model.OrderTransaction) error {
 		}
 	}
 	m.txns = append(m.txns, *tx)
+	return nil
+}
+
+// Delete removes a transaction from the in-memory store by ID.
+func (m *mockOrderTxRepo) Delete(id uint64) error {
+	for i, existing := range m.txns {
+		if existing.ID == id {
+			m.txns = append(m.txns[:i], m.txns[i+1:]...)
+			return nil
+		}
+	}
 	return nil
 }
 
@@ -349,9 +383,29 @@ func (r *mockSagaRepo) UpdateStatus(id uint64, version int64, newStatus, errMsg 
 }
 
 // IsForwardCompleted satisfies the SagaLogRepo / FillSagaLogRepo interface.
-// Returns false in tests so shared.Saga's restart-resume always re-runs
-// each step from the start (the in-memory mock has no prior state).
+// Reports true when a completed forward row exists for (sagaID, stepName).
+// During a single forward pass this still returns false for each step (checked
+// before the row is marked completed), so normal CreateOrder tests are
+// unaffected; a SECOND Execute on the same sagaID (placement crash-recovery
+// resume) correctly skips the already-completed steps.
 func (r *mockSagaRepo) IsForwardCompleted(sagaID, stepName string) (bool, error) {
+	for _, row := range r.rows {
+		if row.SagaID == sagaID && row.StepName == stepName &&
+			!row.IsCompensation && row.Status == model.SagaStatusCompleted {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// HasCompensations satisfies sagaCompensationChecker so RecoverPlacementSaga
+// picks the right direction (forward-resume vs rollback) in recovery tests.
+func (r *mockSagaRepo) HasCompensations(sagaID string) (bool, error) {
+	for _, row := range r.rows {
+		if row.SagaID == sagaID && row.IsCompensation {
+			return true, nil
+		}
+	}
 	return false, nil
 }
 
@@ -462,8 +516,20 @@ func (m *mockStubAccountClient) CommitIncoming(context.Context, *accountpb.Commi
 func (m *mockStubAccountClient) ReleaseIncoming(context.Context, *accountpb.ReleaseIncomingRequest, ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (m *mockStubAccountClient) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (m *mockStubAccountClient) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (m *mockStubAccountClient) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
+}
 func (m *mockStubAccountClient) ListChangelog(context.Context, *accountpb.ListChangelogRequest, ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
+}
+func (m *mockStubAccountClient) ListAllChangelogs(context.Context, *accountpb.ListAllChangelogsRequest, ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
 }
 
 // fakeAccountClient implements AccountClientAPI (the narrow interface
@@ -556,9 +622,18 @@ func (f *fakeExchangeClient) Calculate(context.Context, *exchangepb.CalculateReq
 
 // fakeHoldingReservation implements HoldingReservationAPI.
 type fakeHoldingReservation struct {
-	reserveCalls []holdingReserveCall
-	releaseCalls []uint64
-	reserveErr   error
+	reserveCalls     []holdingReserveCall
+	reserveFundCalls []fundReserveCall
+	releaseCalls     []uint64
+	reserveErr       error
+}
+
+type fundReserveCall struct {
+	FundID       uint64
+	SecurityType string
+	SecurityID   uint64
+	OrderID      uint64
+	Qty          int64
 }
 
 type holdingReserveCall struct {
@@ -590,6 +665,18 @@ func (f *fakeHoldingReservation) Reserve(_ context.Context, ownerType model.Owne
 		UserID: uidVal, SystemType: string(ownerType),
 		SecurityType: securityType,
 		SecurityID:   securityID, OrderID: orderID, Qty: qty,
+	})
+	return &ReserveHoldingResult{ReservationID: orderID, ReservedQuantity: qty, AvailableQuantity: 0}, nil
+}
+
+func (f *fakeHoldingReservation) ReserveFund(_ context.Context, fundID uint64, securityType string,
+	securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error) {
+	if f.reserveErr != nil {
+		return nil, f.reserveErr
+	}
+	f.reserveFundCalls = append(f.reserveFundCalls, fundReserveCall{
+		FundID: fundID, SecurityType: securityType,
+		SecurityID: securityID, OrderID: orderID, Qty: qty,
 	})
 	return &ReserveHoldingResult{ReservationID: orderID, ReservedQuantity: qty, AvailableQuantity: 0}, nil
 }
@@ -1709,16 +1796,16 @@ func TestCreateOrder_Employee_WouldOverflow_RequiresApproval(t *testing.T) {
 	}
 }
 
-// A freshly created EmployeeAgent has Limit=0 by default. Treat Limit=0 as
-// "not configured yet" — the agent can place orders until a supervisor sets
-// their real limit. Otherwise every new agent would be blocked on their very
-// first order.
+// A NON-flagged agent (need_approval=false) with no configured limit (Limit=0)
+// auto-approves: there is no flag set and no limit to exceed. (A flagged agent
+// would instead require approval per Celina 3 condition 1 — see
+// TestCreateOrder_Employee_NeedApprovalTrue_RequiresApproval_UnderLimit.)
 func TestCreateOrder_Employee_LimitNotConfigured_AutoApproves(t *testing.T) {
 	fx := newOrderServiceFixture()
 	fx.listingRepo.addListing(rsdListing(1))
 	fx.accountClient.stub.accountCcy[77] = "RSD"
 	actuary := newFakeActuaryClient()
-	actuary.setInfo(21, 99, decimal.Zero /* Limit */, decimal.Zero /* UsedLimit */, true /* NeedApproval */)
+	actuary.setInfo(21, 99, decimal.Zero /* Limit */, decimal.Zero /* UsedLimit */, false /* NeedApproval */)
 	fx.svc.WithActuaryClient(actuary)
 
 	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
@@ -1741,7 +1828,8 @@ func TestCreateOrder_Employee_UnderLimit_AutoApproves(t *testing.T) {
 	fx.listingRepo.addListing(rsdListing(1))
 	fx.accountClient.stub.accountCcy[77] = "RSD"
 	actuary := newFakeActuaryClient()
-	actuary.setInfo(21, 99, decimal.NewFromInt(1_000_000), decimal.Zero, true)
+	// Non-flagged agent, comfortably under limit → auto-approve.
+	actuary.setInfo(21, 99, decimal.NewFromInt(1_000_000), decimal.Zero, false)
 	fx.svc.WithActuaryClient(actuary)
 
 	// Small 5-share order: 5 * 100 * (1+0.0025) = 501.25 RSD — well under 1_000_000.
@@ -1769,14 +1857,19 @@ func TestCreateOrder_Employee_UnderLimit_AutoApproves(t *testing.T) {
 	}
 }
 
-func TestCreateOrder_Employee_NeedApprovalFalse_AutoApproves(t *testing.T) {
-	// Even if the order would exceed the budget, need_approval=false bypasses
-	// the gate (e.g., for supervisors).
+// Celina 3 condition 3 (money-control): an order that exceeds a configured
+// daily limit requires supervisor approval REGARDLESS of the need_approval
+// flag. Previously the gate was a conjunction (flag AND over-limit), so a
+// non-flagged agent could push an order past their limit and auto-approve it —
+// a money-control hole. This asserts the corrected disjunction.
+func TestCreateOrder_Employee_OverLimit_RequiresApproval_EvenWhenNeedApprovalFalse(t *testing.T) {
 	fx := newOrderServiceFixture()
 	fx.listingRepo.addListing(rsdListing(1))
 	fx.accountClient.stub.accountCcy[77] = "RSD"
 	actuary := newFakeActuaryClient()
-	actuary.setInfo(21, 99, decimal.NewFromInt(1000), decimal.Zero, false /* NO approval required */)
+	// need_approval=false, but limit=1000 and the order reserves 100*100*1.0025
+	// = 10025 RSD — well over the limit.
+	actuary.setInfo(21, 99, decimal.NewFromInt(1000), decimal.Zero, false)
 	fx.svc.WithActuaryClient(actuary)
 
 	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
@@ -1786,12 +1879,37 @@ func TestCreateOrder_Employee_NeedApprovalFalse_AutoApproves(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if order.Status != "approved" {
-		t.Errorf("expected auto-approved with need_approval=false, got %s", order.Status)
+	if order.Status != "pending" {
+		t.Errorf("over-limit order must require approval even with need_approval=false, got %s", order.Status)
 	}
-	// used_limit still bumped (for visibility / daily rollup).
-	if len(actuary.incrementCalls) != 1 {
-		t.Errorf("expected 1 increment call, got %d", len(actuary.incrementCalls))
+	if len(actuary.incrementCalls) != 0 {
+		t.Errorf("pending order must not increment used_limit, got %d", len(actuary.incrementCalls))
+	}
+}
+
+// Celina 3 condition 1: an agent flagged need_approval=true requires supervisor
+// approval even for an under-limit order (the flag alone forces approval).
+func TestCreateOrder_Employee_NeedApprovalTrue_RequiresApproval_UnderLimit(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(rsdListing(1))
+	fx.accountClient.stub.accountCcy[77] = "RSD"
+	actuary := newFakeActuaryClient()
+	// Flagged agent, huge limit, tiny order (well under limit) → still pending.
+	actuary.setInfo(21, 99, decimal.NewFromInt(1_000_000), decimal.Zero, true)
+	fx.svc.WithActuaryClient(actuary)
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if order.Status != "pending" {
+		t.Errorf("flagged agent (need_approval=true) must require approval even under-limit, got %s", order.Status)
+	}
+	if len(actuary.incrementCalls) != 0 {
+		t.Errorf("pending order must not increment used_limit, got %d", len(actuary.incrementCalls))
 	}
 }
 
@@ -1902,7 +2020,8 @@ func TestCancelOrder_Approved_DecrementsUnfilledPortion(t *testing.T) {
 	fx.listingRepo.addListing(rsdListing(1))
 	fx.accountClient.stub.accountCcy[77] = "RSD"
 	actuary := newFakeActuaryClient()
-	actuary.setInfo(21, 99, decimal.NewFromInt(1_000_000), decimal.Zero, true)
+	// Non-flagged agent, under limit → order auto-approves (precondition).
+	actuary.setInfo(21, 99, decimal.NewFromInt(1_000_000), decimal.Zero, false)
 	fx.svc.WithActuaryClient(actuary)
 
 	// Place an under-limit order → auto-approved, used_limit bumped.
@@ -2111,5 +2230,60 @@ func TestCreateOrder_OnBehalfOfFund_FundNotConfigured_Rejected(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error when fund support not wired")
+	}
+}
+
+// A fund SELL must reserve against the fund's position (fund_holdings via
+// ReserveFund), NOT the bank-sentinel holdings the order owner resolves to.
+func TestCreateOrder_OnBehalfOfFund_Sell_ReservesFundHoldings(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fx.accountClient.stub.accountCcy[7000] = "RSD"
+	fund := &model.InvestmentFund{ID: 42, Name: "Alpha", ManagerEmployeeID: 25, RSDAccountID: 7000, Active: true}
+	fx.svc = fx.svc.WithFundSupport(&stubFundLookup{fund: fund})
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 25, SystemType: "employee", ListingID: 1, Direction: "sell",
+		OrderType: "market", Quantity: 5, AccountID: 7000,
+		ActingEmployeeID: 25, OnBehalfOfFundID: 42,
+	})
+	if err != nil {
+		t.Fatalf("create fund sell: %v", err)
+	}
+	if order.FundID == nil || *order.FundID != 42 {
+		t.Fatalf("FundID not stamped: %v", order.FundID)
+	}
+	if len(fx.holdingSvc.reserveFundCalls) != 1 {
+		t.Fatalf("expected exactly one ReserveFund call, got %d", len(fx.holdingSvc.reserveFundCalls))
+	}
+	call := fx.holdingSvc.reserveFundCalls[0]
+	if call.FundID != 42 || call.SecurityType != "stock" || call.SecurityID != 100 || call.Qty != 5 {
+		t.Errorf("ReserveFund args = %+v, want fund=42 stock/100 qty=5", call)
+	}
+	if len(fx.holdingSvc.reserveCalls) != 0 {
+		t.Errorf("a fund sell must NOT touch the owner-based Reserve (bank holdings); got %d calls", len(fx.holdingSvc.reserveCalls))
+	}
+}
+
+// Omitting account_id on a fund order auto-resolves to the fund's RSD account.
+func TestCreateOrder_OnBehalfOfFund_AccountIDAutoResolves(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	// Match the listing currency (USD) so the buy reserve skips FX — this test
+	// only asserts the auto-resolved account_id, not conversion.
+	fx.accountClient.stub.accountCcy[7000] = "USD"
+	fund := &model.InvestmentFund{ID: 42, Name: "Alpha", ManagerEmployeeID: 25, RSDAccountID: 7000, Active: true}
+	fx.svc = fx.svc.WithFundSupport(&stubFundLookup{fund: fund})
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 25, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), // AccountID omitted (0)
+		ActingEmployeeID: 25, OnBehalfOfFundID: 42,
+	})
+	if err != nil {
+		t.Fatalf("create fund order with omitted account_id: %v", err)
+	}
+	if order.AccountID != 7000 {
+		t.Errorf("account_id should auto-resolve to fund RSD account 7000, got %d", order.AccountID)
 	}
 }

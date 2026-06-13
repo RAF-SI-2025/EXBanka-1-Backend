@@ -173,3 +173,18 @@ func (r *ListingRepository) ListBySecurityType(securityType string) ([]model.Lis
 	}
 	return listings, nil
 }
+
+// ListByIDs returns listings matching the given primary-key IDs in a single
+// batch query. Duplicate or unknown IDs are silently ignored. Returns an empty
+// slice when ids is empty. Used by UnifiedPortfolioService to resolve current
+// prices for all of an owner's holdings in one round-trip.
+func (r *ListingRepository) ListByIDs(ids []uint64) ([]model.Listing, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var listings []model.Listing
+	if err := r.db.Where("id IN ?", ids).Find(&listings).Error; err != nil {
+		return nil, err
+	}
+	return listings, nil
+}

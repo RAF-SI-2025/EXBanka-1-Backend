@@ -58,6 +58,60 @@ func (r *SagaLogRepository) MarkDeadLetter(id uint64, errMsg string) error {
 		}).Error
 }
 
+// SagaLogFilter constrains the admin audit saga-log listing. Zero-value fields
+// are ignored (no filter on that dimension).
+type SagaLogFilter struct {
+	SagaID          string
+	Status          string
+	TransactionType string
+	Since           time.Time
+	Until           time.Time
+	Page            int
+	PageSize        int
+}
+
+// ListSagaLogs returns saga-log rows matching the filter, newest first, with
+// pagination, plus the total count of matching rows. Used by the admin audit
+// endpoint so an admin can review transfer/payment saga execution and
+// compensation history.
+func (r *SagaLogRepository) ListSagaLogs(f SagaLogFilter) ([]model.SagaLog, int64, error) {
+	q := r.db.Model(&model.SagaLog{})
+	if f.SagaID != "" {
+		q = q.Where("saga_id = ?", f.SagaID)
+	}
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.TransactionType != "" {
+		q = q.Where("transaction_type = ?", f.TransactionType)
+	}
+	if !f.Since.IsZero() {
+		q = q.Where("created_at >= ?", f.Since)
+	}
+	if !f.Until.IsZero() {
+		q = q.Where("created_at <= ?", f.Until)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	page, pageSize := f.Page, f.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 50
+	}
+
+	var logs []model.SagaLog
+	err := q.Order("id DESC").
+		Limit(pageSize).Offset((page - 1) * pageSize).
+		Find(&logs).Error
+	return logs, total, err
+}
+
 // GetBySagaID returns all steps for a given saga, ordered by step number.
 func (r *SagaLogRepository) GetBySagaID(sagaID string) ([]model.SagaLog, error) {
 	var logs []model.SagaLog

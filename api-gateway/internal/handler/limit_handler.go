@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -47,6 +48,7 @@ type setClientLimitsBody struct {
 type LimitHandler struct {
 	empLimitClient    userpb.EmployeeLimitServiceClient
 	clientLimitClient clientpb.ClientLimitServiceClient
+	Audit             businessAuditor // optional; set in router/handlers.go
 }
 
 // NewLimitHandler constructs a LimitHandler.
@@ -128,6 +130,9 @@ func (h *LimitHandler) SetEmployeeLimits(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	auditBusinessAction(c, h.Audit, "limit.set", "employee", strconv.FormatInt(id, 10),
+		fmt.Sprintf("max_single=%s max_daily=%s max_loan_approval=%s max_client_daily=%s max_client_monthly=%s",
+			body.MaxSingleTransaction, body.MaxDailyTransaction, body.MaxLoanApprovalAmount, body.MaxClientDailyLimit, body.MaxClientMonthlyLimit))
 	c.JSON(http.StatusOK, resp)
 }
 

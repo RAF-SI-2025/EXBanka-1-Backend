@@ -19,6 +19,10 @@ var (
 	// ErrLoanRequestNotFound — loan request lookup failed.
 	ErrLoanRequestNotFound = svcerr.New(codes.NotFound, "loan request not found")
 
+	// ErrForbidden — caller may not access the requested resource set (OWN-1:
+	// e.g. a client listing another client's loans / loan-requests).
+	ErrForbidden = svcerr.New(codes.PermissionDenied, "forbidden")
+
 	// ErrLoanRequestNotPending — approval/rejection requested on a loan
 	// request that is no longer in the pending state.
 	ErrLoanRequestNotPending = svcerr.New(codes.FailedPrecondition, "loan request is not pending")

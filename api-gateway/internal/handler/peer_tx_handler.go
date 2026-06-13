@@ -34,7 +34,7 @@ func NewPeerTxHandler(c transactionpb.PeerTxServiceClient) *PeerTxHandler {
 // @Produce      json
 // @Success      200 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
-// @Router       /api/v3/interbank [post]
+// @Router       /api/v3/cross-bank-protocol/interbank [post]
 func (h *PeerTxHandler) PostInterbank(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -65,17 +65,45 @@ func (h *PeerTxHandler) PostInterbank(c *gin.Context) {
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
+		postings, err := specPostingsToProto(msg.Message.Postings)
+		if err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+			return
+		}
 		req := &transactionpb.SiTxNewTxRequest{
 			IdempotenceKey: idemToProto(msg.IdempotenceKey),
 			PeerBankCode:   pbCode,
-			Postings:       postingsToProto(msg.Message.Postings),
+			Postings:       postings,
+			TransactionId:  fbIDToProto(msg.Message.TransactionID),
+			Message:        msg.Message.Message,
+			PaymentCode:    msg.Message.PaymentCode,
+			PaymentPurpose: msg.Message.PaymentPurpose,
+			CallNumber:     msg.Message.CallNumber,
 		}
 		resp, err := h.client.HandleNewTx(c.Request.Context(), req)
 		if err != nil {
 			renderPeerGRPCError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, voteToJSON(resp))
+		if resp.GetPending() {
+			// SI-TX §2.11: accepted, still processing; sender retransmits.
+			// AbortWithStatus flushes the header immediately (empty body).
+			c.AbortWithStatus(http.StatusAccepted)
+			return
+		}
+		vote := sitx.TransactionVote{Vote: resp.GetType()}
+		for _, nv := range resp.GetNoVotes() {
+			r := sitx.NoVoteReason{Reason: nv.GetReason()}
+			if nv.GetPostingIndexSet() {
+				idx := int(nv.GetPostingIndex())
+				if idx >= 0 && idx < len(msg.Message.Postings) {
+					p := msg.Message.Postings[idx]
+					r.Posting = &p
+				}
+			}
+			vote.Reasons = append(vote.Reasons, r)
+		}
+		c.JSON(http.StatusOK, vote)
 	case sitx.MessageTypeCommitTx:
 		var msg sitx.Message[sitx.CommitTransaction]
 		if err := json.Unmarshal(body, &msg); err != nil {
@@ -85,7 +113,7 @@ func (h *PeerTxHandler) PostInterbank(c *gin.Context) {
 		_, err := h.client.HandleCommitTx(c.Request.Context(), &transactionpb.SiTxCommitRequest{
 			IdempotenceKey: idemToProto(msg.IdempotenceKey),
 			PeerBankCode:   pbCode,
-			TransactionId:  msg.Message.TransactionID,
+			TransactionId:  fbIDToProto(msg.Message.TransactionID),
 		})
 		if err != nil {
 			renderPeerGRPCError(c, err)
@@ -101,7 +129,7 @@ func (h *PeerTxHandler) PostInterbank(c *gin.Context) {
 		_, err := h.client.HandleRollbackTx(c.Request.Context(), &transactionpb.SiTxRollbackRequest{
 			IdempotenceKey: idemToProto(msg.IdempotenceKey),
 			PeerBankCode:   pbCode,
-			TransactionId:  msg.Message.TransactionID,
+			TransactionId:  fbIDToProto(msg.Message.TransactionID),
 		})
 		if err != nil {
 			renderPeerGRPCError(c, err)
@@ -120,31 +148,31 @@ func idemToProto(k sitx.IdempotenceKey) *transactionpb.SiTxIdempotenceKey {
 	}
 }
 
-func postingsToProto(ps []sitx.Posting) []*transactionpb.SiTxPosting {
+// specPostingsToProto translates spec-shaped postings (tagged unions, signed
+// amount) to the enriched internal proto via sitx.SpecPostingToInternal, which
+// applies the sign→direction inversion and carries the account/asset type tags.
+func specPostingsToProto(ps []sitx.Posting) ([]*transactionpb.SiTxPosting, error) {
 	out := make([]*transactionpb.SiTxPosting, len(ps))
 	for i, p := range ps {
+		ip, err := sitx.SpecPostingToInternal(p)
+		if err != nil {
+			return nil, err
+		}
 		out[i] = &transactionpb.SiTxPosting{
-			RoutingNumber: p.RoutingNumber,
-			AccountId:     p.AccountID,
-			AssetId:       p.AssetID,
-			Amount:        p.Amount.String(),
-			Direction:     p.Direction,
+			RoutingNumber: ip.RoutingNumber,
+			AccountId:     ip.AccountID,
+			AssetId:       ip.AssetID,
+			Amount:        ip.Amount,
+			Direction:     ip.Direction,
+			AccountType:   ip.AccountType,
+			AssetType:     ip.AssetType,
 		}
 	}
-	return out
+	return out, nil
 }
 
-func voteToJSON(v *transactionpb.SiTxVoteResponse) sitx.TransactionVote {
-	out := sitx.TransactionVote{Type: v.GetType()}
-	for _, nv := range v.GetNoVotes() {
-		entry := sitx.NoVote{Reason: nv.GetReason()}
-		if nv.GetPostingIndexSet() {
-			idx := int(nv.GetPostingIndex())
-			entry.Posting = &idx
-		}
-		out.NoVotes = append(out.NoVotes, entry)
-	}
-	return out
+func fbIDToProto(f sitx.ForeignBankId) *transactionpb.SiTxForeignBankId {
+	return &transactionpb.SiTxForeignBankId{RoutingNumber: f.RoutingNumber, Id: f.ID}
 }
 
 // renderPeerGRPCError maps gRPC status codes to SI-TX HTTP semantics:

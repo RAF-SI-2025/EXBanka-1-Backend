@@ -74,10 +74,11 @@ type balanceCall struct {
 }
 
 type mockAccountClientForTransfer struct {
-	calls          []balanceCall
-	failOnCall     int // 0 = never fail; N = fail on the Nth UpdateBalance call
-	callCount      int
-	ownerOverrides map[string]uint64 // optional: account number → owner ID
+	calls             []balanceCall
+	failOnCall        int // 0 = never fail; N = fail on the Nth UpdateBalance call
+	callCount         int
+	ownerOverrides    map[string]uint64 // optional: account number → owner ID
+	categoryOverrides map[string]string // optional: account number → account_category
 }
 
 func (m *mockAccountClientForTransfer) UpdateBalance(_ context.Context, req *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
@@ -105,7 +106,13 @@ func (m *mockAccountClientForTransfer) GetAccountByNumber(_ context.Context, req
 			ownerID = id
 		}
 	}
-	return &accountpb.AccountResponse{AccountNumber: req.AccountNumber, CurrencyCode: currency, OwnerId: ownerID}, nil
+	category := ""
+	if m.categoryOverrides != nil {
+		if cat, ok := m.categoryOverrides[req.AccountNumber]; ok {
+			category = cat
+		}
+	}
+	return &accountpb.AccountResponse{AccountNumber: req.AccountNumber, CurrencyCode: currency, OwnerId: ownerID, AccountCategory: category}, nil
 }
 func (m *mockAccountClientForTransfer) ListAccountsByClient(_ context.Context, _ *accountpb.ListAccountsByClientRequest, _ ...grpc.CallOption) (*accountpb.ListAccountsResponse, error) {
 	return nil, nil
@@ -161,8 +168,20 @@ func (m *mockAccountClientForTransfer) CommitIncoming(_ context.Context, _ *acco
 func (m *mockAccountClientForTransfer) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForTransfer) ReserveOutgoing(_ context.Context, in *accountpb.ReserveOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return &accountpb.ReserveOutgoingResponse{ReservationKey: in.GetReservationKey()}, nil
+}
+func (m *mockAccountClientForTransfer) SettleOutgoing(_ context.Context, _ *accountpb.SettleOutgoingRequest, _ ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return &accountpb.SettleOutgoingResponse{}, nil
+}
+func (m *mockAccountClientForTransfer) ReleaseOutgoing(_ context.Context, _ *accountpb.ReleaseOutgoingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return &accountpb.ReleaseOutgoingResponse{Released: true}, nil
+}
 func (m *mockAccountClientForTransfer) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
+}
+func (m *mockAccountClientForTransfer) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
 }
 
 // ---- mockBankAccountClient --------------------------------------------------

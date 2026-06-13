@@ -145,16 +145,6 @@ func TestSagaLog_BeforeUpdate(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
-// PeerOptionContract
-// ----------------------------------------------------------------------------
-
-func TestPeerOptionContract_TableName(t *testing.T) {
-	if got := (PeerOptionContract{}).TableName(); got != "peer_option_contracts" {
-		t.Errorf("got %q", got)
-	}
-}
-
-// ----------------------------------------------------------------------------
 // Order BeforeSave + BeforeUpdate + IsAutoApproved
 // ----------------------------------------------------------------------------
 

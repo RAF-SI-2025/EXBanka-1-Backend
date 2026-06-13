@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	shared "github.com/exbanka/contract/shared"
@@ -34,6 +35,7 @@ type IncomingReservationService struct {
 	db          *gorm.DB
 	accountRepo *repository.AccountRepository
 	resRepo     *repository.IncomingReservationRepository
+	cache       *cache.RedisCache // optional; invalidated after the commit credit
 }
 
 func NewIncomingReservationService(
@@ -42,6 +44,15 @@ func NewIncomingReservationService(
 	resRepo *repository.IncomingReservationRepository,
 ) *IncomingReservationService {
 	return &IncomingReservationService{db: db, accountRepo: accountRepo, resRepo: resRepo}
+}
+
+// WithCache wires the shared account Redis cache so CommitIncoming (the only
+// balance-mutating step) evicts the cached account, keeping GetAccount reads
+// fresh. ReserveIncoming/ReleaseIncoming don't touch the balance, so they need
+// no eviction. Returns the service for chaining.
+func (s *IncomingReservationService) WithCache(c *cache.RedisCache) *IncomingReservationService {
+	s.cache = c
+	return s
 }
 
 // ReserveIncoming creates a pending credit reservation. Idempotent on
@@ -98,8 +109,10 @@ func (s *IncomingReservationService) ReserveIncoming(
 }
 
 // CommitIncoming finalizes a pending reservation by crediting the account
-// and writing a ledger entry. Idempotent on reservation_key.
-func (s *IncomingReservationService) CommitIncoming(ctx context.Context, key string) (*model.Account, error) {
+// and writing a ledger entry. Idempotent on reservation_key. memo, when
+// non-empty, becomes the ledger entry Description (the SI-TX NEW_TX message);
+// otherwise a default inter-bank credit description is used.
+func (s *IncomingReservationService) CommitIncoming(ctx context.Context, key, memo string) (*model.Account, error) {
 	res, err := s.resRepo.GetByKey(key)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -137,13 +150,17 @@ func (s *IncomingReservationService) CommitIncoming(ctx context.Context, key str
 		if saveRes.RowsAffected == 0 {
 			return shared.ErrOptimisticLock
 		}
+		description := memo
+		if description == "" {
+			description = fmt.Sprintf("Inter-bank credit (tx=%s)", res.ReservationKey)
+		}
 		entry := &model.LedgerEntry{
 			AccountNumber:  res.AccountNumber,
 			EntryType:      "credit",
 			Amount:         res.Amount,
 			BalanceBefore:  before,
 			BalanceAfter:   acct.Balance,
-			Description:    fmt.Sprintf("Inter-bank credit (tx=%s)", res.ReservationKey),
+			Description:    description,
 			ReferenceID:    res.ReservationKey,
 			ReferenceType:  "interbank_credit",
 			IdempotencyKey: "incoming-" + res.ReservationKey,
@@ -163,6 +180,10 @@ func (s *IncomingReservationService) CommitIncoming(ctx context.Context, key str
 		out = &acct
 		return nil
 	})
+	if err == nil && out != nil {
+		// Credit applied → drop the stale cached account (both keys).
+		evictAccountCache(s.cache, out.ID, out.AccountNumber)
+	}
 	return out, err
 }
 

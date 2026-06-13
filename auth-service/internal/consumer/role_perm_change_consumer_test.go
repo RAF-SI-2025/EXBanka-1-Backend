@@ -14,18 +14,20 @@ import (
 
 type spyRevokeCache struct {
 	calls []struct {
-		userID int64
-		atUnix int64
-		ttl    time.Duration
+		principalType string
+		userID        int64
+		atUnix        int64
+		ttl           time.Duration
 	}
 }
 
-func (s *spyRevokeCache) SetUserRevokedAt(_ context.Context, userID int64, atUnix int64, ttl time.Duration) error {
+func (s *spyRevokeCache) SetUserRevokedAt(_ context.Context, principalType string, userID int64, atUnix int64, ttl time.Duration) error {
 	s.calls = append(s.calls, struct {
-		userID int64
-		atUnix int64
-		ttl    time.Duration
-	}{userID, atUnix, ttl})
+		principalType string
+		userID        int64
+		atUnix        int64
+		ttl           time.Duration
+	}{principalType, userID, atUnix, ttl})
 	return nil
 }
 
@@ -56,6 +58,7 @@ func TestRolePermChangeHandler_SetsEpochAndRevokesRefresh(t *testing.T) {
 	require.NoError(t, h.Handle(context.Background(), raw))
 	require.Len(t, cache.calls, 3, "expected 3 cache calls")
 	for i, want := range []int64{10, 11, 12} {
+		assert.Equal(t, "employee", cache.calls[i].principalType, "call[%d].principalType", i)
 		assert.Equal(t, want, cache.calls[i].userID, "call[%d].userID", i)
 		assert.Equal(t, int64(1700000000), cache.calls[i].atUnix, "call[%d].atUnix", i)
 		assert.Equal(t, 15*time.Minute, cache.calls[i].ttl, "call[%d].ttl", i)
@@ -90,7 +93,7 @@ func TestRolePermChangeHandler_EmptyAffectedListIsNoop(t *testing.T) {
 // errRevokeCache always returns an error from SetUserRevokedAt.
 type errRevokeCache struct{}
 
-func (e *errRevokeCache) SetUserRevokedAt(_ context.Context, _ int64, _ int64, _ time.Duration) error {
+func (e *errRevokeCache) SetUserRevokedAt(_ context.Context, _ string, _ int64, _ int64, _ time.Duration) error {
 	return fmt.Errorf("redis unavailable")
 }
 

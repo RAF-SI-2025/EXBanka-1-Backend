@@ -171,6 +171,35 @@ func TestAccountRepo_UpdateLimits(t *testing.T) {
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
 
+func TestAccountRepo_ListNonBankByOwner(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewAccountRepository(db)
+
+	// 2 non-bank accounts for owner 5
+	a1 := newAccount("111000100000099901", 5, 100)
+	require.NoError(t, repo.Create(a1))
+	a2 := newAccount("111000100000099902", 5, 200)
+	require.NoError(t, repo.Create(a2))
+
+	// 1 bank account for owner 5 (IsBankAccount=true)
+	bankAcct := newAccount("111000100000099903", 5, 0)
+	bankAcct.IsBankAccount = true
+	require.NoError(t, repo.Create(bankAcct))
+
+	// Another owner's account — must not appear
+	require.NoError(t, repo.Create(newAccount("111000100000099904", 99, 0)))
+
+	got, err := repo.ListNonBankByOwner(5)
+	require.NoError(t, err)
+	assert.Len(t, got, 2, "must return exactly the 2 non-bank accounts for owner 5")
+
+	ids := map[uint64]bool{a1.ID: true, a2.ID: true}
+	for _, acct := range got {
+		assert.False(t, acct.IsBankAccount, "must not include bank accounts")
+		assert.True(t, ids[acct.ID], "unexpected account id %d", acct.ID)
+	}
+}
+
 func TestAccountRepo_UpdateStatus(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewAccountRepository(db)

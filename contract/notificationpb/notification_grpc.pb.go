@@ -19,8 +19,6 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NotificationService_SendEmail_FullMethodName                = "/notification.NotificationService/SendEmail"
-	NotificationService_GetDeliveryStatus_FullMethodName        = "/notification.NotificationService/GetDeliveryStatus"
 	NotificationService_GetPendingMobileItems_FullMethodName    = "/notification.NotificationService/GetPendingMobileItems"
 	NotificationService_AckMobileItem_FullMethodName            = "/notification.NotificationService/AckMobileItem"
 	NotificationService_ListNotifications_FullMethodName        = "/notification.NotificationService/ListNotifications"
@@ -31,14 +29,17 @@ const (
 	NotificationService_GetTemplate_FullMethodName              = "/notification.NotificationService/GetTemplate"
 	NotificationService_SetTemplate_FullMethodName              = "/notification.NotificationService/SetTemplate"
 	NotificationService_ResetTemplate_FullMethodName            = "/notification.NotificationService/ResetTemplate"
+	NotificationService_ListAdminAuditLogs_FullMethodName       = "/notification.NotificationService/ListAdminAuditLogs"
+	NotificationService_ListBusinessAuditLogs_FullMethodName    = "/notification.NotificationService/ListBusinessAuditLogs"
 )
 
 // NotificationServiceClient is the client API for NotificationService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type NotificationServiceClient interface {
-	SendEmail(ctx context.Context, in *SendEmailRequest, opts ...grpc.CallOption) (*SendEmailResponse, error)
-	GetDeliveryStatus(ctx context.Context, in *GetDeliveryStatusRequest, opts ...grpc.CallOption) (*GetDeliveryStatusResponse, error)
+	// Email is delivered via the Kafka notification.send-email topic (consumed by
+	// EmailConsumer); there is no synchronous SendEmail RPC. Delivery status is
+	// signalled back via the notification.email-sent topic.
 	GetPendingMobileItems(ctx context.Context, in *GetPendingMobileRequest, opts ...grpc.CallOption) (*PendingMobileResponse, error)
 	AckMobileItem(ctx context.Context, in *AckMobileRequest, opts ...grpc.CallOption) (*AckMobileResponse, error)
 	// General notifications (persistent, read/unread, no expiry)
@@ -51,6 +52,14 @@ type NotificationServiceClient interface {
 	GetTemplate(ctx context.Context, in *GetTemplateRequest, opts ...grpc.CallOption) (*TemplateInfo, error)
 	SetTemplate(ctx context.Context, in *SetTemplateRequest, opts ...grpc.CallOption) (*TemplateInfo, error)
 	ResetTemplate(ctx context.Context, in *ResetTemplateRequest, opts ...grpc.CallOption) (*TemplateInfo, error)
+	// ListAdminAuditLogs returns admin cron-action audit log entries (global,
+	// admin-only). Supports optional filters: since/until (unix seconds),
+	// actor_id (employee_id), action string, and pagination.
+	ListAdminAuditLogs(ctx context.Context, in *ListAdminAuditLogsRequest, opts ...grpc.CallOption) (*ListAdminAuditLogsResponse, error)
+	// ListBusinessAuditLogs returns business-action audit entries (limit changes,
+	// usedLimit resets, order approve/reject, permission changes, manual tax
+	// collection). Global, paginated, filterable. Gateway gates on admin.audit.view.
+	ListBusinessAuditLogs(ctx context.Context, in *ListBusinessAuditLogsRequest, opts ...grpc.CallOption) (*ListBusinessAuditLogsResponse, error)
 }
 
 type notificationServiceClient struct {
@@ -59,26 +68,6 @@ type notificationServiceClient struct {
 
 func NewNotificationServiceClient(cc grpc.ClientConnInterface) NotificationServiceClient {
 	return &notificationServiceClient{cc}
-}
-
-func (c *notificationServiceClient) SendEmail(ctx context.Context, in *SendEmailRequest, opts ...grpc.CallOption) (*SendEmailResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SendEmailResponse)
-	err := c.cc.Invoke(ctx, NotificationService_SendEmail_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *notificationServiceClient) GetDeliveryStatus(ctx context.Context, in *GetDeliveryStatusRequest, opts ...grpc.CallOption) (*GetDeliveryStatusResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetDeliveryStatusResponse)
-	err := c.cc.Invoke(ctx, NotificationService_GetDeliveryStatus_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *notificationServiceClient) GetPendingMobileItems(ctx context.Context, in *GetPendingMobileRequest, opts ...grpc.CallOption) (*PendingMobileResponse, error) {
@@ -181,12 +170,33 @@ func (c *notificationServiceClient) ResetTemplate(ctx context.Context, in *Reset
 	return out, nil
 }
 
+func (c *notificationServiceClient) ListAdminAuditLogs(ctx context.Context, in *ListAdminAuditLogsRequest, opts ...grpc.CallOption) (*ListAdminAuditLogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAdminAuditLogsResponse)
+	err := c.cc.Invoke(ctx, NotificationService_ListAdminAuditLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *notificationServiceClient) ListBusinessAuditLogs(ctx context.Context, in *ListBusinessAuditLogsRequest, opts ...grpc.CallOption) (*ListBusinessAuditLogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBusinessAuditLogsResponse)
+	err := c.cc.Invoke(ctx, NotificationService_ListBusinessAuditLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NotificationServiceServer is the server API for NotificationService service.
 // All implementations must embed UnimplementedNotificationServiceServer
 // for forward compatibility.
 type NotificationServiceServer interface {
-	SendEmail(context.Context, *SendEmailRequest) (*SendEmailResponse, error)
-	GetDeliveryStatus(context.Context, *GetDeliveryStatusRequest) (*GetDeliveryStatusResponse, error)
+	// Email is delivered via the Kafka notification.send-email topic (consumed by
+	// EmailConsumer); there is no synchronous SendEmail RPC. Delivery status is
+	// signalled back via the notification.email-sent topic.
 	GetPendingMobileItems(context.Context, *GetPendingMobileRequest) (*PendingMobileResponse, error)
 	AckMobileItem(context.Context, *AckMobileRequest) (*AckMobileResponse, error)
 	// General notifications (persistent, read/unread, no expiry)
@@ -199,6 +209,14 @@ type NotificationServiceServer interface {
 	GetTemplate(context.Context, *GetTemplateRequest) (*TemplateInfo, error)
 	SetTemplate(context.Context, *SetTemplateRequest) (*TemplateInfo, error)
 	ResetTemplate(context.Context, *ResetTemplateRequest) (*TemplateInfo, error)
+	// ListAdminAuditLogs returns admin cron-action audit log entries (global,
+	// admin-only). Supports optional filters: since/until (unix seconds),
+	// actor_id (employee_id), action string, and pagination.
+	ListAdminAuditLogs(context.Context, *ListAdminAuditLogsRequest) (*ListAdminAuditLogsResponse, error)
+	// ListBusinessAuditLogs returns business-action audit entries (limit changes,
+	// usedLimit resets, order approve/reject, permission changes, manual tax
+	// collection). Global, paginated, filterable. Gateway gates on admin.audit.view.
+	ListBusinessAuditLogs(context.Context, *ListBusinessAuditLogsRequest) (*ListBusinessAuditLogsResponse, error)
 	mustEmbedUnimplementedNotificationServiceServer()
 }
 
@@ -209,12 +227,6 @@ type NotificationServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedNotificationServiceServer struct{}
 
-func (UnimplementedNotificationServiceServer) SendEmail(context.Context, *SendEmailRequest) (*SendEmailResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method SendEmail not implemented")
-}
-func (UnimplementedNotificationServiceServer) GetDeliveryStatus(context.Context, *GetDeliveryStatusRequest) (*GetDeliveryStatusResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetDeliveryStatus not implemented")
-}
 func (UnimplementedNotificationServiceServer) GetPendingMobileItems(context.Context, *GetPendingMobileRequest) (*PendingMobileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetPendingMobileItems not implemented")
 }
@@ -245,6 +257,12 @@ func (UnimplementedNotificationServiceServer) SetTemplate(context.Context, *SetT
 func (UnimplementedNotificationServiceServer) ResetTemplate(context.Context, *ResetTemplateRequest) (*TemplateInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResetTemplate not implemented")
 }
+func (UnimplementedNotificationServiceServer) ListAdminAuditLogs(context.Context, *ListAdminAuditLogsRequest) (*ListAdminAuditLogsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAdminAuditLogs not implemented")
+}
+func (UnimplementedNotificationServiceServer) ListBusinessAuditLogs(context.Context, *ListBusinessAuditLogsRequest) (*ListBusinessAuditLogsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBusinessAuditLogs not implemented")
+}
 func (UnimplementedNotificationServiceServer) mustEmbedUnimplementedNotificationServiceServer() {}
 func (UnimplementedNotificationServiceServer) testEmbeddedByValue()                             {}
 
@@ -264,42 +282,6 @@ func RegisterNotificationServiceServer(s grpc.ServiceRegistrar, srv Notification
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&NotificationService_ServiceDesc, srv)
-}
-
-func _NotificationService_SendEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SendEmailRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(NotificationServiceServer).SendEmail(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: NotificationService_SendEmail_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NotificationServiceServer).SendEmail(ctx, req.(*SendEmailRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _NotificationService_GetDeliveryStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetDeliveryStatusRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(NotificationServiceServer).GetDeliveryStatus(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: NotificationService_GetDeliveryStatus_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NotificationServiceServer).GetDeliveryStatus(ctx, req.(*GetDeliveryStatusRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _NotificationService_GetPendingMobileItems_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -482,6 +464,42 @@ func _NotificationService_ResetTemplate_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NotificationService_ListAdminAuditLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAdminAuditLogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NotificationServiceServer).ListAdminAuditLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NotificationService_ListAdminAuditLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NotificationServiceServer).ListAdminAuditLogs(ctx, req.(*ListAdminAuditLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NotificationService_ListBusinessAuditLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBusinessAuditLogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NotificationServiceServer).ListBusinessAuditLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NotificationService_ListBusinessAuditLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NotificationServiceServer).ListBusinessAuditLogs(ctx, req.(*ListBusinessAuditLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NotificationService_ServiceDesc is the grpc.ServiceDesc for NotificationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -489,14 +507,6 @@ var NotificationService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "notification.NotificationService",
 	HandlerType: (*NotificationServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "SendEmail",
-			Handler:    _NotificationService_SendEmail_Handler,
-		},
-		{
-			MethodName: "GetDeliveryStatus",
-			Handler:    _NotificationService_GetDeliveryStatus_Handler,
-		},
 		{
 			MethodName: "GetPendingMobileItems",
 			Handler:    _NotificationService_GetPendingMobileItems_Handler,
@@ -536,6 +546,14 @@ var NotificationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResetTemplate",
 			Handler:    _NotificationService_ResetTemplate_Handler,
+		},
+		{
+			MethodName: "ListAdminAuditLogs",
+			Handler:    _NotificationService_ListAdminAuditLogs_Handler,
+		},
+		{
+			MethodName: "ListBusinessAuditLogs",
+			Handler:    _NotificationService_ListBusinessAuditLogs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -29,6 +29,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -37,6 +38,16 @@ import (
 
 	"github.com/exbanka/contract/shared"
 )
+
+// ErrCompensationStuck is returned by Compensate when at least one step's
+// Backward could not be completed (left in compensating status). Recovery
+// callers propagate it so the recovery reconciler does NOT mark the stuck row
+// terminal — instead the row keeps failing, its retry count climbs, and it is
+// eventually dead-lettered for human review. Without this, Compensate returning
+// nil on a stuck rollback let the reconciler force-mark the row compensated,
+// permanently hiding money left in limbo (e.g. a seller-debit compensation that
+// fails because the seller already spent the credited funds).
+var ErrCompensationStuck = errors.New("saga: compensation incomplete; recovery required")
 
 // SagaStatus is the typed lifecycle state of a saga step row. Stored as
 // a string column so adapters can persist it directly without conversion.
@@ -361,7 +372,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 
 	for i, step := range s.steps {
 		if err := ctx.Err(); err != nil {
-			compensated := s.rollback(ctx, state, done)
+			compensated, _ := s.rollback(ctx, state, done)
 			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), err.Error(), compensated)
 			return err
 		}
@@ -380,7 +391,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			// the step itself: roll back what's already done so the saga
 			// doesn't sit half-applied with no audit trail.
 			s.logf("saga=%s step=%s record forward: %v", s.id, step.Name, err)
-			compensated := s.rollback(ctx, state, done)
+			compensated, _ := s.rollback(ctx, state, done)
 			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), err.Error(), compensated)
 			return fmt.Errorf("saga: record forward step %s: %w", step.Name, err)
 		}
@@ -390,7 +401,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			if mErr := s.recorder.MarkFailed(ctx, handle, fwdErr.Error()); mErr != nil {
 				s.logf("saga=%s step=%s mark failed: %v", s.id, step.Name, mErr)
 			}
-			compensated := s.rollback(ctx, state, done)
+			compensated, _ := s.rollback(ctx, state, done)
 			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), fwdErr.Error(), compensated)
 			return fwdErr
 		}
@@ -402,14 +413,80 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			s.logf("saga=%s step=%s mark completed: %v", s.id, step.Name, mErr)
 		}
 		done = append(done, completedStep{step: step, handle: handle, number: i + 1})
+
+		// "after"-kind forced failure: the step's side effects applied and were
+		// recorded complete; now fail the saga so the rollback compensates this
+		// step (it is in `done`) and all prior. No-op unless built with
+		// -tags sagafaults. Drives SG-* scenarios that fail a phase *after* its
+		// effect lands.
+		if afterErr := faultAfterForward(ctx, step.Name); afterErr != nil {
+			if fErr := s.recorder.MarkFailed(ctx, handle, afterErr.Error()); fErr != nil {
+				s.logf("saga=%s step=%s mark failed (after-fault): %v", s.id, step.Name, fErr)
+			}
+			compensated, _ := s.rollback(ctx, state, done)
+			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), afterErr.Error(), compensated)
+			return afterErr
+		}
 	}
 
 	s.publisher.OnCommitted(ctx, s.id)
 	return nil
 }
 
-// runForward invokes a step's Forward, optionally wrapped in Retry.
+// Compensate drives an already-started saga to a fully rolled-back state from
+// its persisted log, without running any Forward. It is the crash-recovery
+// counterpart to Execute for the case where the saga was already aborting when
+// the process died (compensation rows exist): every step the recorder reports
+// completed is compensated in reverse order. Steps that never completed are
+// skipped — their Forward did not apply, so there is nothing to undo.
+//
+// Because every Backward in this codebase's recoverable sagas is idempotent
+// (keyed credits/debits, no-op-if-absent decrements, set-to-same status), it is
+// safe to call Compensate even on steps already compensated by the original
+// (crashed) rollback — the second Backward is a no-op. The walk still honors
+// Pivot (halts) and nil Backward (skips), matching Execute's rollback.
+//
+// state may be nil; an empty State is created if so. Returns nil once the
+// reverse walk completes; per-step Backward failures are recorded
+// (compensating status) and surfaced via the lifecycle publisher's OnStuck for
+// the recovery loop to retry on a later tick, exactly as in Execute.
+func (s *Saga) Compensate(ctx context.Context, state *State) error {
+	if state == nil {
+		state = NewState()
+	}
+	if len(s.steps) == 0 {
+		return nil
+	}
+	done := make([]completedStep, 0, len(s.steps))
+	for i, step := range s.steps {
+		ok, err := s.recorder.IsCompleted(ctx, s.id, step.Name)
+		if err != nil {
+			s.logf("saga=%s step=%s IsCompleted during compensate: %v", s.id, step.Name, err)
+			continue
+		}
+		if ok {
+			done = append(done, completedStep{step: step, number: i + 1})
+		}
+	}
+	compensated, stuck := s.rollback(ctx, state, done)
+	s.publisher.OnRolledBack(ctx, s.id, "", "recovery compensation", compensated)
+	if stuck {
+		// At least one Backward is still failing. Surface it so the recovery
+		// reconciler does NOT mark the row terminal — it stays stuck, its retry
+		// count climbs, and it is eventually dead-lettered for human review.
+		return ErrCompensationStuck
+	}
+	return nil
+}
+
+// runForward invokes a step's Forward, optionally wrapped in Retry. The fault
+// hooks (no-ops unless built with -tags sagafaults) can delay the step or fail
+// it before its side effects, to drive the SG-* saga test scenarios.
 func (s *Saga) runForward(ctx context.Context, step Step, state *State) error {
+	faultDelay(ctx, step.Name)
+	if err := faultBeforeForward(ctx, step.Name); err != nil {
+		return err
+	}
 	if s.retry.MaxAttempts > 0 {
 		return shared.Retry(ctx, s.retry, func() error { return step.Forward(ctx, state) })
 	}
@@ -417,15 +494,24 @@ func (s *Saga) runForward(ctx context.Context, step Step, state *State) error {
 }
 
 // runBackward invokes a step's Backward, optionally wrapped in Retry. A nil
-// Backward returns nil (the step declared itself non-compensatable).
+// Backward returns nil (the step declared itself non-compensatable). The
+// compensate fault hook (no-op unless built with -tags sagafaults) is consulted
+// inside the retried closure so "fail N times then succeed" plays out across
+// retries.
 func (s *Saga) runBackward(ctx context.Context, step Step, state *State) error {
 	if step.Backward == nil {
 		return nil
 	}
-	if s.retry.MaxAttempts > 0 {
-		return shared.Retry(ctx, s.retry, func() error { return step.Backward(ctx, state) })
+	do := func() error {
+		if err := faultCompensate(ctx, s.id, step.Name); err != nil {
+			return err
+		}
+		return step.Backward(ctx, state)
 	}
-	return step.Backward(ctx, state)
+	if s.retry.MaxAttempts > 0 {
+		return shared.Retry(ctx, s.retry, do)
+	}
+	return do()
 }
 
 // rollback walks completed steps in reverse, compensating each. Returns the
@@ -437,7 +523,7 @@ func (s *Saga) runBackward(ctx context.Context, step Step, state *State) error {
 //   - A failed Backward leaves the compensation row in compensating status
 //     for the recovery loop; the walk continues so the rest of the chain
 //     gets a chance to undo their effects.
-func (s *Saga) rollback(ctx context.Context, state *State, done []completedStep) []string {
+func (s *Saga) rollback(ctx context.Context, state *State, done []completedStep) ([]string, bool) {
 	compensated := make([]string, 0, len(done))
 	stuck := false
 
@@ -478,5 +564,5 @@ func (s *Saga) rollback(ctx context.Context, state *State, done []completedStep)
 	if stuck {
 		s.publisher.OnStuck(ctx, s.id, "", "compensation incomplete; recovery required")
 	}
-	return compensated
+	return compensated, stuck
 }

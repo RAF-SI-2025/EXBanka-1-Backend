@@ -44,6 +44,10 @@ func (h *CardRequestGRPCHandler) GetCardRequest(ctx context.Context, req *pb.Get
 		}
 		return nil, err
 	}
+	// OWN-1: a client may only read its own card request (others → 404, no leak).
+	if !ownsCard(ctx, cardReq.ClientID) {
+		return nil, service.ErrCardRequestNotFound
+	}
 	return toCardRequestResponse(cardReq), nil
 }
 
@@ -80,6 +84,10 @@ func (h *CardRequestGRPCHandler) ListCardRequestsByClient(ctx context.Context, r
 		pageSize = 20
 	}
 
+	// OWN-1: a client may only list its own card requests.
+	if !ownsCard(ctx, req.ClientId) {
+		return nil, service.ErrForbidden
+	}
 	requests, total, err := h.cardRequestSvc.ListByClient(req.ClientId, page, pageSize)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list card requests by client: %v", err)

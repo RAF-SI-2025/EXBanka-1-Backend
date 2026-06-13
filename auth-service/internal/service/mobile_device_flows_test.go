@@ -11,6 +11,7 @@ import (
 
 	"github.com/exbanka/auth-service/internal/model"
 	"github.com/exbanka/auth-service/internal/repository"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 // newMobileSvcWithStubs builds a MobileDeviceService backed by SQLite + a
@@ -21,7 +22,7 @@ func newMobileSvcWithStubs(t *testing.T, db *gorm.DB) (*MobileDeviceService, *fa
 	activationRepo := repository.NewMobileActivationRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	jwtSvc := NewJWTService("test-secret-256bit", 15*time.Minute)
+	jwtSvc := NewJWTService(mustTestKeyManager(), 15*time.Minute)
 	producer := &fakeProducer{}
 	svc := newMobileDeviceServiceForTest(
 		deviceRepo, activationRepo, accountRepo, tokenRepo,
@@ -48,6 +49,27 @@ func TestRequestActivation_Success(t *testing.T) {
 
 	// Email send was attempted
 	assert.Equal(t, 1, prod.emailCount(), "should publish a SendEmail message")
+
+	// In addition to the email, a persistent general notification is published so
+	// the user's already-authenticated web + mobile sessions (which poll
+	// GET /api/v3/me/notifications) surface the activation code too.
+	var notif *kafkamsg.GeneralNotificationMessage
+	for _, ev := range prod.events {
+		if ev.Topic == kafkamsg.TopicGeneralNotification {
+			m := ev.Msg.(kafkamsg.GeneralNotificationMessage)
+			notif = &m
+			break
+		}
+	}
+	require.NotNil(t, notif, "should publish a GeneralNotificationMessage to notification.general")
+	assert.Equal(t, uint64(100), notif.UserID, "notification targets the account's principal id")
+	assert.Equal(t, "MOBILE_ACTIVATION_REQUESTED", notif.Type)
+	// The code is carried in Data so notification-service renders the
+	// "MOBILE_ACTIVATION_REQUESTED" push template (not a literal body).
+	var ac model.MobileActivationCode
+	require.NoError(t, db.Where("email = ?", "user@test.com").First(&ac).Error)
+	assert.Equal(t, ac.Code, notif.Data["code"], "notification Data must carry the activation code for the template")
+	assert.NotEmpty(t, notif.Data["expires_in"], "notification Data must carry expires_in for the template")
 }
 
 func TestRequestActivation_AccountNotFound(t *testing.T) {

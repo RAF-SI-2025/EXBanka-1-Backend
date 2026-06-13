@@ -242,28 +242,74 @@ func TestEmployeeLimitRepository_Lifecycle(t *testing.T) {
 	assert.Zero(t, post.ID)
 }
 
-func TestEmployeeLimitRepository_Upsert(t *testing.T) {
+// TestEmployeeLimitRepository_UpsertMonotonicVersion asserts that:
+//   - The first Upsert (insert path) yields Version == 1 (DB default).
+//   - The second Upsert (conflict/update path) yields Version == 2.
+//   - The third Upsert yields Version == 3.
+//   - Each Upsert reflects the latest value columns.
+//
+// This pins the SP-2 monotonic-version requirement: downstream
+// EmployeeLimitReplica consumers apply events only if in.Version > stored.Version,
+// so Version must strictly increase on every successful update.
+func TestEmployeeLimitRepository_UpsertMonotonicVersion(t *testing.T) {
 	db := testutil.SetupTestDB(t, &model.EmployeeLimit{})
 	repo := NewEmployeeLimitRepository(db)
 
+	// First upsert — inserts, DB default gives Version == 1.
 	first := &model.EmployeeLimit{
 		EmployeeID:            7,
 		MaxLoanApprovalAmount: decimal.NewFromInt(100),
-		Version:               1,
+		MaxSingleTransaction:  decimal.NewFromInt(200),
+		MaxDailyTransaction:   decimal.NewFromInt(300),
+		MaxClientDailyLimit:   decimal.NewFromInt(400),
+		MaxClientMonthlyLimit: decimal.NewFromInt(500),
 	}
 	require.NoError(t, repo.Upsert(first))
 
-	// Second upsert on same employee_id should update, not insert.
+	got1, err := repo.GetByEmployeeID(7)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got1.Version, "first upsert (insert) should yield version 1")
+	assert.True(t, got1.MaxLoanApprovalAmount.Equal(decimal.NewFromInt(100)))
+
+	// Second upsert — conflict update path; version must become 2.
 	second := &model.EmployeeLimit{
 		EmployeeID:            7,
 		MaxLoanApprovalAmount: decimal.NewFromInt(200),
-		Version:               1,
+		MaxSingleTransaction:  decimal.NewFromInt(400),
+		MaxDailyTransaction:   decimal.NewFromInt(600),
+		MaxClientDailyLimit:   decimal.NewFromInt(800),
+		MaxClientMonthlyLimit: decimal.NewFromInt(1000),
 	}
 	require.NoError(t, repo.Upsert(second))
 
-	got, err := repo.GetByEmployeeID(7)
+	got2, err := repo.GetByEmployeeID(7)
 	require.NoError(t, err)
-	assert.True(t, got.MaxLoanApprovalAmount.Equal(decimal.NewFromInt(200)))
+	assert.Equal(t, int64(2), got2.Version, "second upsert (update) should yield version 2")
+	assert.True(t, got2.MaxLoanApprovalAmount.Equal(decimal.NewFromInt(200)))
+	assert.True(t, got2.MaxSingleTransaction.Equal(decimal.NewFromInt(400)))
+	assert.True(t, got2.MaxDailyTransaction.Equal(decimal.NewFromInt(600)))
+	assert.True(t, got2.MaxClientDailyLimit.Equal(decimal.NewFromInt(800)))
+	assert.True(t, got2.MaxClientMonthlyLimit.Equal(decimal.NewFromInt(1000)))
+
+	// Third upsert — version must become 3.
+	third := &model.EmployeeLimit{
+		EmployeeID:            7,
+		MaxLoanApprovalAmount: decimal.NewFromInt(300),
+		MaxSingleTransaction:  decimal.NewFromInt(600),
+		MaxDailyTransaction:   decimal.NewFromInt(900),
+		MaxClientDailyLimit:   decimal.NewFromInt(1200),
+		MaxClientMonthlyLimit: decimal.NewFromInt(1500),
+	}
+	require.NoError(t, repo.Upsert(third))
+
+	got3, err := repo.GetByEmployeeID(7)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), got3.Version, "third upsert (update) should yield version 3")
+	assert.True(t, got3.MaxLoanApprovalAmount.Equal(decimal.NewFromInt(300)))
+	assert.True(t, got3.MaxSingleTransaction.Equal(decimal.NewFromInt(600)))
+	assert.True(t, got3.MaxDailyTransaction.Equal(decimal.NewFromInt(900)))
+	assert.True(t, got3.MaxClientDailyLimit.Equal(decimal.NewFromInt(1200)))
+	assert.True(t, got3.MaxClientMonthlyLimit.Equal(decimal.NewFromInt(1500)))
 }
 
 // -----------------------------------------------------------------------------

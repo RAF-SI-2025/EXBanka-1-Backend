@@ -87,6 +87,20 @@ func (f *fakeSagaRepo) IncrementRetryCount(id uint64) error {
 	return nil
 }
 
+// FindLatestCompensationRow makes fakeSagaRepo satisfy the optional
+// compensationFinder capability so the reuse path can be unit-tested.
+func (f *fakeSagaRepo) FindLatestCompensationRow(sagaID, stepName string) (*model.SagaLog, error) {
+	var latest *model.SagaLog
+	for _, row := range f.rows {
+		if row.SagaID == sagaID && row.StepName == stepName && row.IsCompensation {
+			if latest == nil || row.ID > latest.ID {
+				latest = row
+			}
+		}
+	}
+	return latest, nil
+}
+
 // minimalRepo only satisfies SagaRepoIF (not recoveryRepoIF). Used to
 // exercise the early-return branches in ListStuck / IncrementRetry.
 type minimalRepo struct{}
@@ -228,6 +242,38 @@ func TestRecorder_RecordCompensation(t *testing.T) {
 	}
 	if row.Status != string(sharedsaga.SagaStatusCompensating) {
 		t.Errorf("status=%s want compensating", row.Status)
+	}
+}
+
+// TestRecorder_RecordCompensation_ReusesExistingRow proves RecordCompensation is
+// idempotent across recovery ticks: a second call for the SAME (saga, step)
+// REUSES the existing compensation row instead of inserting a new one. This stops
+// a persistently-stuck Backward from spawning a fresh compensating row every
+// recovery tick (unbounded saga_logs growth) — it stays on ONE row whose
+// retry_count climbs to dead_letter (paired with ErrCompensationStuck surfacing).
+func TestRecorder_RecordCompensation_ReusesExistingRow(t *testing.T) {
+	repo := newFakeSagaRepo()
+	r := NewRecorder(repo)
+	step := sharedsaga.StepKind("credit_seller_comp")
+	h1, err := r.RecordCompensation(context.Background(), "saga-x", step, 3, sharedsaga.StepHandle{ID: 7}, sharedsaga.NewState())
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	h2, err := r.RecordCompensation(context.Background(), "saga-x", step, 3, sharedsaga.StepHandle{ID: 7}, sharedsaga.NewState())
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if h1.ID != h2.ID {
+		t.Errorf("second RecordCompensation must reuse the row: h1=%d h2=%d", h1.ID, h2.ID)
+	}
+	comps := 0
+	for _, row := range repo.rows {
+		if row.IsCompensation {
+			comps++
+		}
+	}
+	if comps != 1 {
+		t.Errorf("expected exactly 1 compensation row (no spawn across ticks), got %d", comps)
 	}
 }
 

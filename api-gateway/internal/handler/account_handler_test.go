@@ -139,6 +139,9 @@ func (s *accountFullStub) ReleaseIncoming(_ context.Context, _ *accountpb.Releas
 func (s *accountFullStub) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return &accountpb.ListChangelogResponse{}, nil
 }
+func (s *accountFullStub) ListAllChangelogs(_ context.Context, _ *accountpb.ListAllChangelogsRequest, _ ...grpc.CallOption) (*accountpb.ListAllChangelogsResponse, error) {
+	return &accountpb.ListAllChangelogsResponse{}, nil
+}
 
 // Account handler tests
 func accountRouter(h *handler.AccountHandler) *gin.Engine {
@@ -649,7 +652,7 @@ func TestAccount_GetMyAccount_Owner(t *testing.T) {
 func TestAccount_GetMyAccount_NotOwner(t *testing.T) {
 	acc := &accountFullStub{
 		getFn: func(_ *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
-			return &accountpb.AccountResponse{Id: 7, OwnerId: 999}, nil
+			return nil, status.Error(codes.NotFound, "account not found")
 		},
 	}
 	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
@@ -657,7 +660,7 @@ func TestAccount_GetMyAccount_NotOwner(t *testing.T) {
 	req := httptest.NewRequest("GET", "/me/accounts/7", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestAccount_GetMyAccount_BadID(t *testing.T) {
@@ -693,7 +696,7 @@ func TestAccount_GetMyAccountActivity_Owner(t *testing.T) {
 func TestAccount_GetMyAccountActivity_NotOwner(t *testing.T) {
 	acc := &accountFullStub{
 		getFn: func(_ *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
-			return &accountpb.AccountResponse{Id: 7, OwnerId: 999}, nil
+			return nil, status.Error(codes.NotFound, "account not found")
 		},
 	}
 	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
@@ -701,7 +704,7 @@ func TestAccount_GetMyAccountActivity_NotOwner(t *testing.T) {
 	req := httptest.NewRequest("GET", "/me/accounts/7/activity", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestAccount_GetMyAccountActivity_PageSizeCap(t *testing.T) {
@@ -720,4 +723,14 @@ func TestAccount_GetMyAccountActivity_PageSizeCap(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func (*accountFullStub) ReserveOutgoing(context.Context, *accountpb.ReserveOutgoingRequest, ...grpc.CallOption) (*accountpb.ReserveOutgoingResponse, error) {
+	return nil, nil
+}
+func (*accountFullStub) SettleOutgoing(context.Context, *accountpb.SettleOutgoingRequest, ...grpc.CallOption) (*accountpb.SettleOutgoingResponse, error) {
+	return nil, nil
+}
+func (*accountFullStub) ReleaseOutgoing(context.Context, *accountpb.ReleaseOutgoingRequest, ...grpc.CallOption) (*accountpb.ReleaseOutgoingResponse, error) {
+	return nil, nil
 }

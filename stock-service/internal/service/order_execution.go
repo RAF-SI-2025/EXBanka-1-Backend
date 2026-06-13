@@ -16,9 +16,27 @@ import (
 )
 
 // OrderFilledPublisher abstracts Kafka event publishing for order fill events.
+// maxConsecutiveFillFailures bounds how many times the engine retries a fill
+// that keeps failing before it gives up and aborts the order (releasing the
+// reservation). Sized to absorb brief transient downstream hiccups while still
+// terminating quickly on a persistent fault.
+const maxConsecutiveFillFailures = 8
+
+// fillRetryBackoff is the pause between consecutive failed fill attempts.
+const fillRetryBackoff = 250 * time.Millisecond
+
 type OrderFilledPublisher interface {
 	PublishOrderFilled(ctx context.Context, msg interface{}) error
 	PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error
+}
+
+// ExchangeOpenChecker reports whether a listing's exchange is currently open for
+// trading, using the SAME predicate the API stamps onto is_open (testing mode OR
+// within trading hours). The engine gates fills on this so an order never fills
+// while the exchange reports is_open=false — keeping fills and the reported
+// open/closed state consistent. Satisfied by *ExchangeService.
+type ExchangeOpenChecker interface {
+	IsExchangeOpen(exchangeID uint64) (bool, error)
 }
 
 type OrderExecutionEngine struct {
@@ -29,8 +47,17 @@ type OrderExecutionEngine struct {
 	settingRepo SettingRepo
 	producer    OrderFilledPublisher
 	fillHandler FillHandler // processes fills (holdings + account)
-	mu          sync.Mutex
-	activeJobs  map[uint64]context.CancelFunc // orderID -> cancel
+	// exchangeChecker gates fills on the listing's exchange being open (the same
+	// predicate as is_open). Nil-safe: when unset (e.g. in unit tests) the gate is
+	// skipped and fills proceed as before. Wired via SetExchangeChecker.
+	exchangeChecker ExchangeOpenChecker
+	mu              sync.Mutex
+	activeJobs      map[uint64]context.CancelFunc // orderID -> cancel
+	// wakeCh is a broadcast channel every order goroutine selects on while it
+	// waits between portions. WakeAll closes-and-replaces it so all sleeping
+	// goroutines wake immediately and re-evaluate (used when testing mode is
+	// enabled so existing orders fill at once instead of finishing their wait).
+	wakeCh chan struct{}
 }
 
 // NewOrderExecutionEngine constructs the engine. baseCtx MUST be a long-lived
@@ -56,6 +83,53 @@ func NewOrderExecutionEngine(
 		producer:    producer,
 		fillHandler: fillHandler,
 		activeJobs:  make(map[uint64]context.CancelFunc),
+		wakeCh:      make(chan struct{}),
+	}
+}
+
+// SetExchangeChecker wires the live exchange open/closed checker so the engine
+// only fills orders while the listing's exchange is open (testing mode OR within
+// trading hours). Kept as a setter rather than a constructor arg so existing
+// callers/tests that build the engine without it remain valid (nil ⇒ gate off).
+func (e *OrderExecutionEngine) SetExchangeChecker(c ExchangeOpenChecker) {
+	e.exchangeChecker = c
+}
+
+// currentWake returns the live broadcast channel under the lock.
+func (e *OrderExecutionEngine) currentWake() chan struct{} {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.wakeCh
+}
+
+// testingModeEnabled reports the current global testing-mode setting.
+func (e *OrderExecutionEngine) testingModeEnabled() bool {
+	if e.settingRepo == nil {
+		return false
+	}
+	v, _ := e.settingRepo.Get("testing_mode")
+	return v == "true"
+}
+
+// WakeAll wakes every in-flight order goroutine so it re-evaluates immediately,
+// and (re)starts execution for any active-approved order that has no goroutine.
+// Called when testing mode is switched on so existing unfilled orders fill at
+// once — no waiting on the per-order timer. Idempotent and safe to call often.
+func (e *OrderExecutionEngine) WakeAll() {
+	e.mu.Lock()
+	old := e.wakeCh
+	e.wakeCh = make(chan struct{})
+	e.mu.Unlock()
+	close(old) // broadcast: unblocks every goroutine selecting on `old`
+
+	// Resume any approved order that lost (or never had) a goroutine.
+	orders, err := e.orderRepo.ListActiveApproved()
+	if err != nil {
+		log.Printf("WARN: order engine: WakeAll list active orders: %v", err)
+		return
+	}
+	for _, order := range orders {
+		e.StartOrderExecution(e.baseCtx, order.ID) // no-op if already active
 	}
 }
 
@@ -111,6 +185,17 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 		e.mu.Unlock()
 	}()
 
+	// Bound consecutive fill failures. A fill can fail transiently (e.g. a
+	// momentary exchange-service or DB hiccup) and is safe to retry, but a
+	// *persistent* failure — an FX rate that has moved beyond the reservation
+	// buffer, a downstream that is hard-down, a data inconsistency — must not
+	// loop forever: doing so spins the goroutine, re-attempts indefinitely,
+	// and (before the orphan-cleanup below) littered the DB with a phantom
+	// order_transaction per attempt while the buyer's funds stayed reserved.
+	// After maxConsecutiveFillFailures, abort the order and release its
+	// reservation. A successful fill resets the counter.
+	consecutiveFailures := 0
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -144,39 +229,68 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 			}
 		}
 
-		// Determine portion size
-		var portionSize int64
-		if order.AllOrNone {
-			portionSize = remaining // all at once
-		} else {
-			portionSize = rand.Int63n(remaining) + 1 // random [1, remaining]
-		}
-
-		// Calculate wait time
 		listing, err := e.listingRepo.GetByID(order.ListingID)
 		if err != nil {
 			log.Printf("WARN: order engine: listing %d not found: %v", order.ListingID, err)
 			return
 		}
 
-		// Re-evaluate after-hours against the CURRENT testing-mode setting
-		// rather than the value stamped on the order row at placement
-		// time. When an admin flips testing_mode=true after an order was
-		// queued under real market hours, the stored AfterHours=true
-		// would otherwise add +30 min per portion (bug surfaced
-		// 2026-05-15: old orders don't fill in test mode).
-		afterHours := order.AfterHours
-		if afterHours && e.settingRepo != nil {
-			if v, _ := e.settingRepo.Get("testing_mode"); v == "true" {
-				afterHours = false
+		// Exchange-open gate. Only fill while the listing's exchange is open — the
+		// SAME predicate the API stamps onto is_open (testing mode OR within trading
+		// hours). Without this an order could fill while the FE shows is_open=false
+		// (e.g. a limit order crossing after-hours), so fills and the reported
+		// open/closed state would disagree. Testing mode forces every exchange open,
+		// so testing fills are unaffected. On a closed exchange we wait (interruptible
+		// — WakeAll on a testing-mode flip re-evaluates immediately) and re-loop
+		// rather than committing a fill. A checker error is non-fatal: fall through
+		// and let the fill proceed (fail-open) rather than wedging the order.
+		if e.exchangeChecker != nil {
+			if open, oerr := e.exchangeChecker.IsExchangeOpen(listing.ExchangeID); oerr == nil && !open {
+				wake := e.currentWake()
+				select {
+				case <-time.After(30 * time.Second):
+				case <-wake:
+				case <-ctx.Done():
+					return
+				}
+				continue
 			}
 		}
-		waitSeconds := e.calculateWaitTime(listing.Volume, remaining, afterHours)
 
-		select {
-		case <-time.After(time.Duration(waitSeconds) * time.Second):
-		case <-ctx.Done():
-			return
+		// Testing mode (admin "testing" toggle) means: fill immediately — the
+		// whole remaining at once, with NO wait — for already-queued and new
+		// orders alike. WakeAll (below) interrupts any in-flight wait so this
+		// re-evaluation happens the instant the toggle is flipped on.
+		testingOn := e.testingModeEnabled()
+
+		// Determine portion size. Under testing mode fill the whole remainder.
+		var portionSize int64
+		if order.AllOrNone || testingOn {
+			portionSize = remaining // all at once
+		} else {
+			portionSize = rand.Int63n(remaining) + 1 // random [1, remaining]
+		}
+
+		// Wait time. Testing mode → 0 (immediate). Otherwise re-evaluate
+		// after-hours against the CURRENT testing-mode setting rather than the
+		// value stamped on the order row at placement time.
+		var waitSeconds int64
+		if !testingOn {
+			waitSeconds = e.calculateWaitTime(listing.Volume, remaining, order.AfterHours)
+		}
+
+		if waitSeconds > 0 {
+			// Interruptible wait: WakeAll closes the broadcast channel so we
+			// re-loop immediately (e.g. testing mode just turned on) rather than
+			// finishing the timer.
+			wake := e.currentWake()
+			select {
+			case <-time.After(time.Duration(waitSeconds) * time.Second):
+			case <-wake:
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 
 		// Execute this portion
@@ -222,9 +336,32 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 				fillErr = e.fillHandler.ProcessSellFill(order, txn)
 			}
 			if fillErr != nil {
-				log.Printf("WARN: order engine: order %d fill %d failed: %v — will retry next iteration", orderID, txn.ID, fillErr)
+				// The fill saga compensated its own steps, so this txn row
+				// represents nothing that happened — delete it so a failed
+				// attempt leaves no phantom transaction.
+				if delErr := e.txRepo.Delete(txn.ID); delErr != nil {
+					log.Printf("WARN: order engine: order %d cleanup of failed-fill txn %d: %v", orderID, txn.ID, delErr)
+				}
+				consecutiveFailures++
+				if consecutiveFailures >= maxConsecutiveFillFailures {
+					log.Printf("ERROR: order engine: order %d aborting after %d consecutive fill failures (last: %v) — releasing reservation",
+						orderID, consecutiveFailures, fillErr)
+					e.abortOrder(order)
+					return
+				}
+				log.Printf("WARN: order engine: order %d fill failed (%d/%d): %v — will retry next iteration",
+					orderID, consecutiveFailures, maxConsecutiveFillFailures, fillErr)
+				// Brief backoff so a hard-down downstream isn't hammered, and
+				// so failures don't hot-spin when calculateWaitTime rolls 0.
+				select {
+				case <-time.After(fillRetryBackoff):
+				case <-ctx.Done():
+					return
+				}
 				continue
 			}
+			// A fill succeeded — clear the transient-failure budget.
+			consecutiveFailures = 0
 		}
 
 		// Update order
@@ -408,15 +545,27 @@ func execPriceAllowed(order *model.Order, execPrice decimal.Decimal) bool {
 // getExecutionPrice so the trigger check and the price calc agree on which
 // number is "the current ask" / "the current bid".
 func sideQuotes(listing *model.Listing) (decimal.Decimal, decimal.Decimal) {
-	ask := listing.High
-	if ask.IsZero() {
-		ask = listing.Price
+	// In this single-price simulation the tradeable quote is listing.Price for BOTH
+	// sides. Using listing.High as the ask / listing.Low as the bid was a bug: the
+	// generated source sets High=max(price,base) / Low=min(price,base) — an envelope
+	// pinned to the SEED price — so the "ask" never fell below base and the "bid"
+	// never rose above it. A buy-limit BELOW the seed price (or a sell-limit ABOVE
+	// it) could therefore never trigger or fill even as the live price oscillated
+	// across it (the common "limit order never fills" bug). High/Low remain the
+	// displayed intraday range; order triggering + fill pricing track the live price.
+	if listing.Price.IsZero() {
+		// Defensive fallback for a not-yet-priced listing.
+		ask := listing.High
+		if ask.IsZero() {
+			ask = listing.Price
+		}
+		bid := listing.Low
+		if bid.IsZero() {
+			bid = listing.Price
+		}
+		return ask, bid
 	}
-	bid := listing.Low
-	if bid.IsZero() {
-		bid = listing.Price
-	}
-	return ask, bid
+	return listing.Price, listing.Price
 }
 
 // getExecutionPrice returns the price the next fill will execute at: the live
@@ -469,6 +618,25 @@ func (e *OrderExecutionEngine) markDone(order *model.Order) {
 	if order.Direction == "buy" {
 		if err := e.fillHandler.ReleaseResidualReservation(e.baseCtx, order.ID); err != nil {
 			log.Printf("WARN: order engine: release residual reservation for order %d failed: %v", order.ID, err)
+		}
+	}
+}
+
+// abortOrder terminates an order that cannot make progress (persistent fill
+// failures). Any portions already filled stand; the unfilled remainder is
+// abandoned and the held funds are returned to the buyer by releasing the
+// residual reservation. The order is marked cancelled (the existing terminal
+// status) and done so the engine and any reader treat it as finished.
+func (e *OrderExecutionEngine) abortOrder(order *model.Order) {
+	order.IsDone = true
+	order.Status = "cancelled"
+	order.LastModification = time.Now()
+	if err := e.orderRepo.Update(order); err != nil {
+		log.Printf("WARN: order engine: failed to mark order %d aborted: %v", order.ID, err)
+	}
+	if order.Direction == "buy" {
+		if err := e.fillHandler.ReleaseResidualReservation(e.baseCtx, order.ID); err != nil {
+			log.Printf("WARN: order engine: release reservation for aborted order %d failed: %v", order.ID, err)
 		}
 	}
 }

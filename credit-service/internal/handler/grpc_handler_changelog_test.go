@@ -90,6 +90,53 @@ func TestHandler_ListChangelog_InvalidArgsMappedToInvalidArgument(t *testing.T) 
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
+func TestHandler_ListAllChangelogs_ReturnsEntriesAcrossEntities(t *testing.T) {
+	db := newChangelogHandlerDB(t)
+	repo := repository.NewChangelogRepository(db)
+	svc := service.NewChangelogService(repo)
+
+	now := time.Now().UTC()
+	require.NoError(t, repo.Create(clchangelog.Entry{
+		EntityType: "loan", EntityID: 1, Action: "create", ChangedBy: 7, ChangedAt: now.Add(-time.Hour),
+	}))
+	require.NoError(t, repo.Create(clchangelog.Entry{
+		EntityType: "loan_request", EntityID: 2, Action: "approve", ChangedBy: 8, ChangedAt: now, Reason: "ok",
+	}))
+
+	h := &CreditGRPCHandler{changelogService: svc}
+	resp, err := h.ListAllChangelogs(context.Background(), &pb.ListAllChangelogsRequest{
+		Page: 1, PageSize: 50,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), resp.Total)
+	assert.Equal(t, int32(1), resp.Page)
+	assert.Equal(t, int32(50), resp.PageSize)
+	require.Len(t, resp.Entries, 2)
+	// Most recent first.
+	assert.Equal(t, "loan_request", resp.Entries[0].EntityType)
+	assert.Equal(t, "approve", resp.Entries[0].Action)
+	assert.Equal(t, "ok", resp.Entries[0].Reason)
+}
+
+func TestHandler_ListAllChangelogs_AppliesActorFilter(t *testing.T) {
+	db := newChangelogHandlerDB(t)
+	repo := repository.NewChangelogRepository(db)
+	svc := service.NewChangelogService(repo)
+
+	now := time.Now().UTC()
+	require.NoError(t, repo.Create(clchangelog.Entry{EntityType: "loan", EntityID: 1, Action: "create", ChangedBy: 7, ChangedAt: now}))
+	require.NoError(t, repo.Create(clchangelog.Entry{EntityType: "loan", EntityID: 2, Action: "update", ChangedBy: 9, ChangedAt: now}))
+
+	h := &CreditGRPCHandler{changelogService: svc}
+	resp, err := h.ListAllChangelogs(context.Background(), &pb.ListAllChangelogsRequest{
+		Page: 1, PageSize: 50, ActorId: 9,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Total)
+	require.Len(t, resp.Entries, 1)
+	assert.Equal(t, int64(9), resp.Entries[0].ChangedBy)
+}
+
 // TestNewCreditGRPCHandler_Constructs verifies the constructor assigns every
 // dependency without panicking.
 func TestNewCreditGRPCHandler_Constructs(t *testing.T) {

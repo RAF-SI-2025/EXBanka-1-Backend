@@ -6,15 +6,20 @@ import (
 )
 
 type Config struct {
-	DBHost                 string
-	DBPort                 string
-	DBUser                 string
-	DBPassword             string
-	DBName                 string
-	GRPCAddr               string
-	UserGRPCAddr           string
-	KafkaBrokers           string
-	JWTSecret              string
+	DBHost       string
+	DBPort       string
+	DBUser       string
+	DBPassword   string
+	DBName       string
+	GRPCAddr     string
+	UserGRPCAddr string
+	KafkaBrokers string
+	JWTSecret    string
+	// JWTECPrivateKey is a PEM-encoded ECDSA P-256 private key used to sign
+	// access tokens (ES256). When empty, auth-service generates an ephemeral
+	// key at startup. JWTECKid is its optional key id (for rotation).
+	JWTECPrivateKey        string
+	JWTECKid               string
 	AccessExpiry           time.Duration
 	RefreshExpiry          time.Duration
 	RedisAddr              string
@@ -41,6 +46,8 @@ func Load() *Config {
 		UserGRPCAddr:           getEnv("USER_GRPC_ADDR", "localhost:50052"),
 		KafkaBrokers:           getEnv("KAFKA_BROKERS", "localhost:9092"),
 		JWTSecret:              getEnv("JWT_SECRET", "change-me"),
+		JWTECPrivateKey:        getEnv("JWT_EC_PRIVATE_KEY", ""),
+		JWTECKid:               getEnv("JWT_EC_KID", ""),
 		AccessExpiry:           accessExp,
 		RefreshExpiry:          refreshExp,
 		RedisAddr:              getEnv("REDIS_ADDR", "localhost:6379"),

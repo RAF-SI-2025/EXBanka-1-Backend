@@ -44,16 +44,3 @@ func extractRequestMeta(ctx context.Context) requestMeta {
 
 	return rm
 }
-
-// detectDeviceType infers device type from User-Agent string.
-func detectDeviceType(userAgent string) string {
-	ua := strings.ToLower(userAgent)
-	switch {
-	case strings.Contains(ua, "mobile") || strings.Contains(ua, "android") || strings.Contains(ua, "iphone"):
-		return "mobile"
-	case strings.Contains(ua, "postman") || strings.Contains(ua, "curl") || strings.Contains(ua, "httpie"):
-		return "api"
-	default:
-		return "browser"
-	}
-}

@@ -41,11 +41,11 @@ func cardRouter(h *handler.CardHandler) *gin.Engine {
 	r.POST("/cards/:id/pin", withClient, h.SetCardPin)
 	r.POST("/cards/:id/verify-pin", withClient, h.VerifyCardPin)
 	r.POST("/cards/:id/temporary-block", withClient, h.TemporaryBlockCard)
-	r.POST("/cards/:id/client-block", withClient, h.ClientBlockCard)
 	r.POST("/cards/requests", withClient, h.CreateCardRequest)
 	r.GET("/cards/requests/me", withClient, h.ListMyCardRequests)
 	r.GET("/cards/requests", withCtx, h.ListCardRequests)
 	r.GET("/cards/requests/:id", withCtx, h.GetCardRequest)
+	r.GET("/me/cards/requests/:id", withClient, h.GetMyCardRequest)
 	r.POST("/cards/requests/:id/approve", withCtx, h.ApproveCardRequest)
 	r.POST("/cards/requests/:id/reject", withCtx, h.RejectCardRequest)
 	r.GET("/me/cards", withClient, h.ListMyCards)
@@ -163,34 +163,6 @@ func TestCard_BlockCard_BadID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestCard_ClientBlockCard_OwnerSuccess(t *testing.T) {
-	cc := &stubCardClient{
-		getFn: func(_ *cardpb.GetCardRequest) (*cardpb.CardResponse, error) {
-			return &cardpb.CardResponse{Id: 1, OwnerId: 1}, nil
-		},
-	}
-	h := handler.NewCardHandler(cc, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
-	r := cardRouter(h)
-	req := httptest.NewRequest("POST", "/cards/1/client-block", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestCard_ClientBlockCard_NotOwner(t *testing.T) {
-	cc := &stubCardClient{
-		getFn: func(_ *cardpb.GetCardRequest) (*cardpb.CardResponse, error) {
-			return &cardpb.CardResponse{Id: 1, OwnerId: 999}, nil
-		},
-	}
-	h := handler.NewCardHandler(cc, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
-	r := cardRouter(h)
-	req := httptest.NewRequest("POST", "/cards/1/client-block", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 func TestCard_UnblockCard_Success(t *testing.T) {
@@ -490,7 +462,7 @@ func TestCard_GetMyCard_Owner(t *testing.T) {
 func TestCard_GetMyCard_NotOwner(t *testing.T) {
 	cc := &stubCardClient{
 		getFn: func(_ *cardpb.GetCardRequest) (*cardpb.CardResponse, error) {
-			return &cardpb.CardResponse{Id: 7, OwnerId: 999}, nil
+			return nil, status.Error(codes.NotFound, "card not found") // OWN-1: service enforces
 		},
 	}
 	h := handler.NewCardHandler(cc, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
@@ -498,7 +470,7 @@ func TestCard_GetMyCard_NotOwner(t *testing.T) {
 	req := httptest.NewRequest("GET", "/me/cards/7", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ── ListCardsByClientPath / ListCardsByAccountPath (Phase B) ─────────────────
@@ -569,4 +541,34 @@ func TestCard_BlockCard_GRPCError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// The /me self-version returns the caller's own card request and enforces
+// ownership from the JWT (withClient sets principal_id=1).
+func TestCard_GetMyCardRequest_OwnerOK(t *testing.T) {
+	crc := &stubCardRequestClient{
+		getFn: func(in *cardpb.GetCardRequestRequest) (*cardpb.CardRequestResponse, error) {
+			return &cardpb.CardRequestResponse{Id: in.Id, ClientId: 1}, nil
+		},
+	}
+	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, crc, &accountFullStub{})
+	r := cardRouter(h)
+	req := httptest.NewRequest("GET", "/me/cards/requests/5", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+func TestCard_GetMyCardRequest_NotOwner404(t *testing.T) {
+	crc := &stubCardRequestClient{
+		getFn: func(_ *cardpb.GetCardRequestRequest) (*cardpb.CardRequestResponse, error) {
+			return nil, status.Error(codes.NotFound, "card request not found") // OWN-1: service enforces
+		},
+	}
+	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, crc, &accountFullStub{})
+	r := cardRouter(h)
+	req := httptest.NewRequest("GET", "/me/cards/requests/5", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 }

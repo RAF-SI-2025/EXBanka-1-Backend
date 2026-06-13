@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/contract/changelog"
+	"github.com/exbanka/contract/shared"
 )
 
 const accountCacheTTL = 2 * time.Minute
@@ -30,6 +32,9 @@ type AccountService struct {
 	bankRepo      *repository.BankAccountRepository
 	db            *gorm.DB
 	cache         *cache.RedisCache
+	events        eventPublisher      // optional; nil → no event publishing
+	clients       clientLookup        // optional; nil → skip account-created email (gRPC fallback)
+	clientReplica clientReplicaReader // optional; nil → skip replica lookup (SP-1)
 }
 
 func NewAccountService(repo *repository.AccountRepository, db *gorm.DB, redisCache *cache.RedisCache, changelogRepo ...*repository.ChangelogRepository) *AccountService {
@@ -85,7 +90,7 @@ func (s *AccountService) CreateAccount(account *model.Account) error {
 			return fmt.Errorf("failed to check account name uniqueness: %w", err)
 		}
 		if exists {
-			return fmt.Errorf("CreateAccount: an account with name %q already exists for this client: %w", account.AccountName, ErrCompanyDuplicate)
+			return fmt.Errorf("CreateAccount: an account with name %q already exists for this client: %w", account.AccountName, ErrAccountNameDuplicate)
 		}
 	}
 
@@ -94,16 +99,31 @@ func (s *AccountService) CreateAccount(account *model.Account) error {
 	account.Status = "active"
 	account.MaintenanceFee = maintenanceFeeByType(account.AccountType)
 
+	// Denormalise the owner's display name onto the account so reads don't need a
+	// per-account cross-service lookup. Only for real client owners (bank/state
+	// accounts seed their own OwnerName) and only when the caller didn't already
+	// supply one. Best-effort + time-bounded: a missing name never blocks or fails
+	// the create (it just stays empty, as before). This fixes client accounts
+	// being stored with an empty owner_name (they looked ownerless in the UI).
+	if account.OwnerName == "" && hasHumanOwner(account) {
+		nctx, cancel := context.WithTimeout(context.Background(), emitTimeout)
+		if name := s.resolveClientName(nctx, account.OwnerID); name != "" {
+			account.OwnerName = name
+		}
+		cancel()
+	}
+
 	if err := s.repo.Create(account); err != nil {
 		return err
 	}
 	AccountsCreatedTotal.Inc()
+	s.emitAccountCreated(account)
 	return nil
 }
 
 func (s *AccountService) GetAccount(id uint64) (*model.Account, error) {
 	ctx := context.Background()
-	key := fmt.Sprintf("account:id:%d", id)
+	key := accountCacheKeyByID(id)
 
 	if s.cache != nil {
 		var cached model.Account
@@ -127,7 +147,7 @@ func (s *AccountService) GetAccount(id uint64) (*model.Account, error) {
 
 func (s *AccountService) GetAccountByNumber(accountNumber string) (*model.Account, error) {
 	ctx := context.Background()
-	key := fmt.Sprintf("account:num:%s", accountNumber)
+	key := accountCacheKeyByNumber(accountNumber)
 
 	if s.cache != nil {
 		var cached model.Account
@@ -183,12 +203,12 @@ func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string, 
 		return fmt.Errorf("failed to check account name uniqueness: %w", err)
 	}
 	if exists {
-		return fmt.Errorf("UpdateAccountName(id=%d): an account with name %q already exists for this client: %w", id, newName, ErrCompanyDuplicate)
+		return fmt.Errorf("UpdateAccountName(id=%d): an account with name %q already exists for this client: %w", id, newName, ErrAccountNameDuplicate)
 	}
 	if err := s.repo.UpdateName(id, clientID, newName); err != nil {
 		return err
 	}
-	s.invalidateAccountCache(id, "")
+	s.invalidateAccountCache(id, account.AccountNumber)
 
 	// Record changelog after successful mutation.
 	entries := changelog.Diff("account", int64(id), changedBy, "", []changelog.FieldChange{
@@ -197,6 +217,7 @@ func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string, 
 	if s.changelogRepo != nil && len(entries) > 0 {
 		_ = s.changelogRepo.CreateBatch(entries)
 	}
+	s.emitAccountNameUpdated(account, newName)
 	return nil
 }
 
@@ -243,13 +264,23 @@ func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit
 	if err := s.repo.UpdateLimits(id, updates); err != nil {
 		return err
 	}
-	s.invalidateAccountCache(id, "")
+	s.invalidateAccountCache(id, account.AccountNumber)
 
 	// Record changelog after successful mutation.
 	entries := changelog.Diff("account", int64(id), changedBy, "", changes)
 	if s.changelogRepo != nil && len(entries) > 0 {
 		_ = s.changelogRepo.CreateBatch(entries)
 	}
+
+	// Reflect the new values on the in-memory account for the event (unchanged
+	// limits keep their loaded value), then publish.
+	if v, ok := updates["daily_limit"].(decimal.Decimal); ok {
+		account.DailyLimit = v
+	}
+	if v, ok := updates["monthly_limit"].(decimal.Decimal); ok {
+		account.MonthlyLimit = v
+	}
+	s.emitAccountLimitsUpdated(account, account.DailyLimit.StringFixed(2), account.MonthlyLimit.StringFixed(2))
 	return nil
 }
 
@@ -272,13 +303,14 @@ func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string, change
 		return err
 	}
 	AccountStatusChangesTotal.WithLabelValues(newStatus).Inc()
-	s.invalidateAccountCache(id, "")
+	s.invalidateAccountCache(id, account.AccountNumber)
 
 	// Record changelog after successful mutation.
 	if s.changelogRepo != nil {
 		entry := changelog.NewStatusChangeEntry("account", int64(id), changedBy, oldStatus, newStatus, "")
 		_ = s.changelogRepo.Create(entry)
 	}
+	s.emitAccountStatusChanged(account, newStatus)
 	return nil
 }
 
@@ -300,12 +332,30 @@ func (s *AccountService) UpdateBalanceWithOpts(accountNumber string, amount deci
 	// All checks (funds, spending limits) and updates (balance, spending) are
 	// performed atomically inside a single SELECT FOR UPDATE transaction in the repo.
 	if _, err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable, opts); err != nil {
-		return err
+		// Map repo failure modes onto coded sentinels so the caller gets a clean
+		// 429/409/404 instead of a 500 leaking the account number / balances.
+		switch {
+		case errors.Is(err, repository.ErrSpendingLimit):
+			return ErrSpendingLimitExceeded
+		case errors.Is(err, repository.ErrInsufficientFunds):
+			return ErrInsufficientBalance
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return ErrAccountNotFound
+		default:
+			return err
+		}
 	}
-	// Invalidate cached read-only data after balance change.
+	// Invalidate cached read-only data after balance change. Resolve the id from
+	// the number (cache-independent DB read) so BOTH cache keys — account:id:N
+	// AND account:num:S — are dropped; otherwise a read by id (GET
+	// /me/accounts/:id) keeps serving the pre-change balance. This is the path
+	// the OTC premium credit / fee debit (CreditAccount/DebitAccount →
+	// UpdateBalance gRPC) flow through.
 	// NOTE: The authoritative balance check always uses SELECT FOR UPDATE in the
 	// repo — this invalidation only affects display queries via GetAccount/GetAccountByNumber.
-	s.invalidateAccountCache(0, accountNumber)
+	var id uint64
+	_ = s.db.Model(&model.Account{}).Select("id").Where("account_number = ?", accountNumber).Scan(&id).Error
+	s.invalidateAccountCache(id, accountNumber)
 	return nil
 }
 
@@ -323,7 +373,7 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 			return nil, fmt.Errorf("failed to check account name uniqueness: %w", err)
 		}
 		if exists {
-			return nil, fmt.Errorf("CreateBankAccount: an account with name %q already exists for this client: %w", accountName, ErrCompanyDuplicate)
+			return nil, fmt.Errorf("CreateBankAccount: an account with name %q already exists for this client: %w", accountName, ErrAccountNameDuplicate)
 		}
 	}
 
@@ -346,7 +396,35 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 		return nil, err
 	}
 	AccountsCreatedTotal.Inc()
+	// Bank accounts have no human owner, so emitAccountCreated publishes only the
+	// AccountCreated domain event (the notification/email are skipped internally).
+	s.emitAccountCreated(account)
 	return account, nil
+}
+
+// SetAccountCategory stamps an account_category value onto an existing account
+// row. Used by CreateBankAccount to propagate the optional category from the
+// gRPC request after the base create has already committed.
+func (s *AccountService) SetAccountCategory(accountID uint64, category string) error {
+	// Load-modify-save: Account is a versioned model whose BeforeUpdate hook
+	// injects `WHERE version = ?`. A bare db.Model(&Account{}).Update(...) builds
+	// a zero-value struct (Version=0), so the hook adds `WHERE version = 0`, which
+	// matches nothing for any account that has been saved past version 0 — the
+	// update silently no-ops. Load the row, mutate it, then Save the full struct
+	// so the version guard matches and increments. (Mirrors CompanyRepository.Update.)
+	var account model.Account
+	if err := s.db.First(&account, accountID).Error; err != nil {
+		return err
+	}
+	account.AccountCategory = category
+	res := s.db.Save(&account)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return shared.ErrOptimisticLock
+	}
+	return nil
 }
 
 func (s *AccountService) ListBankAccounts() ([]model.Account, error) {
@@ -408,18 +486,42 @@ func (s *AccountService) UpdateSpending(accountNumber string, amount decimal.Dec
 	return s.repo.UpdateSpending(accountNumber, amount)
 }
 
+// ApplyClientLimitPolicy propagates a client's limit policy (SP-5) to every
+// non-bank account the client owns, setting each account's DailyLimit/MonthlyLimit.
+// Zero/non-positive policy values are skipped (UpdateAccountLimits rejects them).
+// Idempotent: re-applying the same values is a no-op-ish safe write.
+func (s *AccountService) ApplyClientLimitPolicy(ctx context.Context, clientID uint64, daily, monthly decimal.Decimal, changedBy int64) error {
+	accounts, err := s.repo.ListNonBankByOwner(clientID)
+	if err != nil {
+		return fmt.Errorf("ApplyClientLimitPolicy(client=%d): list accounts: %w", clientID, err)
+	}
+	var dailyPtr, monthlyPtr *string
+	if daily.IsPositive() {
+		d := daily.StringFixed(4)
+		dailyPtr = &d
+	}
+	if monthly.IsPositive() {
+		m := monthly.StringFixed(4)
+		monthlyPtr = &m
+	}
+	if dailyPtr == nil && monthlyPtr == nil {
+		return nil // nothing positive to apply
+	}
+	var firstErr error
+	for _, acct := range accounts {
+		if err := s.UpdateAccountLimits(acct.ID, dailyPtr, monthlyPtr, changedBy); err != nil {
+			log.Printf("ApplyClientLimitPolicy(client=%d, account=%d): %v", clientID, acct.ID, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr // non-nil if any account failed → consumer retries (idempotent re-apply)
+}
+
 // invalidateAccountCache removes an account from Redis cache by ID and/or number.
 func (s *AccountService) invalidateAccountCache(id uint64, accountNumber string) {
-	if s.cache == nil {
-		return
-	}
-	ctx := context.Background()
-	if id != 0 {
-		_ = s.cache.Delete(ctx, fmt.Sprintf("account:id:%d", id))
-	}
-	if accountNumber != "" {
-		_ = s.cache.Delete(ctx, fmt.Sprintf("account:num:%s", accountNumber))
-	}
+	evictAccountCache(s.cache, id, accountNumber)
 }
 
 // DebitBankAccount atomically debits the bank sentinel account for the given

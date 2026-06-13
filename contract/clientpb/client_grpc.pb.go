@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ClientService_CreateClient_FullMethodName     = "/client.ClientService/CreateClient"
-	ClientService_GetClient_FullMethodName        = "/client.ClientService/GetClient"
-	ClientService_GetClientByEmail_FullMethodName = "/client.ClientService/GetClientByEmail"
-	ClientService_ListClients_FullMethodName      = "/client.ClientService/ListClients"
-	ClientService_UpdateClient_FullMethodName     = "/client.ClientService/UpdateClient"
-	ClientService_ListChangelog_FullMethodName    = "/client.ClientService/ListChangelog"
+	ClientService_CreateClient_FullMethodName      = "/client.ClientService/CreateClient"
+	ClientService_GetClient_FullMethodName         = "/client.ClientService/GetClient"
+	ClientService_GetClientByEmail_FullMethodName  = "/client.ClientService/GetClientByEmail"
+	ClientService_ListClients_FullMethodName       = "/client.ClientService/ListClients"
+	ClientService_UpdateClient_FullMethodName      = "/client.ClientService/UpdateClient"
+	ClientService_ListChangelog_FullMethodName     = "/client.ClientService/ListChangelog"
+	ClientService_ListAllChangelogs_FullMethodName = "/client.ClientService/ListAllChangelogs"
 )
 
 // ClientServiceClient is the client API for ClientService service.
@@ -39,6 +40,10 @@ type ClientServiceClient interface {
 	// Audit-trail reads. Returns changelog rows scoped by entity_type +
 	// entity_id; pagination matches list endpoints (1-based page).
 	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
+	// ListAllChangelogs returns every changelog row for this service (global
+	// audit view, admin-only). Supports optional filters: since/until (unix
+	// seconds), actor_id (changed_by), action string, and pagination.
+	ListAllChangelogs(ctx context.Context, in *ListAllChangelogsRequest, opts ...grpc.CallOption) (*ListAllChangelogsResponse, error)
 }
 
 type clientServiceClient struct {
@@ -109,6 +114,16 @@ func (c *clientServiceClient) ListChangelog(ctx context.Context, in *ListChangel
 	return out, nil
 }
 
+func (c *clientServiceClient) ListAllChangelogs(ctx context.Context, in *ListAllChangelogsRequest, opts ...grpc.CallOption) (*ListAllChangelogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAllChangelogsResponse)
+	err := c.cc.Invoke(ctx, ClientService_ListAllChangelogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClientServiceServer is the server API for ClientService service.
 // All implementations must embed UnimplementedClientServiceServer
 // for forward compatibility.
@@ -121,6 +136,10 @@ type ClientServiceServer interface {
 	// Audit-trail reads. Returns changelog rows scoped by entity_type +
 	// entity_id; pagination matches list endpoints (1-based page).
 	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
+	// ListAllChangelogs returns every changelog row for this service (global
+	// audit view, admin-only). Supports optional filters: since/until (unix
+	// seconds), actor_id (changed_by), action string, and pagination.
+	ListAllChangelogs(context.Context, *ListAllChangelogsRequest) (*ListAllChangelogsResponse, error)
 	mustEmbedUnimplementedClientServiceServer()
 }
 
@@ -148,6 +167,9 @@ func (UnimplementedClientServiceServer) UpdateClient(context.Context, *UpdateCli
 }
 func (UnimplementedClientServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
+}
+func (UnimplementedClientServiceServer) ListAllChangelogs(context.Context, *ListAllChangelogsRequest) (*ListAllChangelogsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAllChangelogs not implemented")
 }
 func (UnimplementedClientServiceServer) mustEmbedUnimplementedClientServiceServer() {}
 func (UnimplementedClientServiceServer) testEmbeddedByValue()                       {}
@@ -278,6 +300,24 @@ func _ClientService_ListChangelog_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClientService_ListAllChangelogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAllChangelogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientServiceServer).ListAllChangelogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClientService_ListAllChangelogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientServiceServer).ListAllChangelogs(ctx, req.(*ListAllChangelogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClientService_ServiceDesc is the grpc.ServiceDesc for ClientService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -308,6 +348,10 @@ var ClientService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListChangelog",
 			Handler:    _ClientService_ListChangelog_Handler,
+		},
+		{
+			MethodName: "ListAllChangelogs",
+			Handler:    _ClientService_ListAllChangelogs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

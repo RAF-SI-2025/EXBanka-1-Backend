@@ -20,6 +20,7 @@ import (
 type authServiceFacade interface {
 	Login(ctx context.Context, email, password, ipAddress, userAgent string) (string, string, error)
 	ValidateToken(token string) (*service.Claims, error)
+	SigningKeys() ([]service.PublicKeyInfo, error)
 	RefreshToken(ctx context.Context, refreshToken, ipAddress, userAgent string) (string, string, error)
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword, confirmPassword string) error
@@ -28,7 +29,6 @@ type authServiceFacade interface {
 	SetAccountStatus(ctx context.Context, principalType string, principalID int64, active bool) error
 	GetAccountStatus(ctx context.Context, principalType string, principalID int64) (string, bool, error)
 	ResendActivationEmail(ctx context.Context, email string) error
-	CreateAccountAndActivationToken(ctx context.Context, principalID int64, email, firstName, principalType string) error
 	GetAccountStatusBatch(ctx context.Context, principalType string, principalIDs []int64) (map[int64]model.Account, error)
 	RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc service.MobileDeviceLookup) (string, string, error)
 	ListSessions(ctx context.Context, userID int64) ([]model.ActiveSession, error)
@@ -103,11 +103,29 @@ func (h *AuthGRPCHandler) ValidateToken(ctx context.Context, req *pb.ValidateTok
 	}, nil
 }
 
+// GetSigningKeys publishes the PUBLIC half of the ES256 access-token signing
+// keys so the api-gateway can verify tokens locally (no per-request hop).
+func (h *AuthGRPCHandler) GetSigningKeys(_ context.Context, _ *pb.GetSigningKeysRequest) (*pb.GetSigningKeysResponse, error) {
+	keys, err := h.authService.SigningKeys()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "signing keys unavailable")
+	}
+	out := make([]*pb.JWK, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, &pb.JWK{Kid: k.Kid, Alg: k.Alg, PemPublicKey: k.PEM, Primary: k.Primary})
+	}
+	return &pb.GetSigningKeysResponse{Keys: out}, nil
+}
+
 func (h *AuthGRPCHandler) RefreshToken(ctx context.Context, req *pb.RefreshTokenRequest) (*pb.RefreshTokenResponse, error) {
 	meta := extractRequestMeta(ctx)
 	access, refresh, err := h.authService.RefreshToken(ctx, req.RefreshToken, meta.IPAddress, meta.UserAgent)
 	if err != nil {
-		return nil, status.Errorf(codes.Unauthenticated, "invalid refresh token")
+		// Service returns wrapped sentinels (ErrTokenExpired, ErrAccountDisabled,
+		// ErrAccountNotFound, ErrInvalidToken…) that resolve to the right gRPC
+		// status via the GRPCStatus interface — pass them through unchanged so a
+		// disabled account is not indistinguishable from a bad token.
+		return nil, err
 	}
 	return &pb.RefreshTokenResponse{
 		AccessToken:  access,
@@ -148,7 +166,7 @@ func (h *AuthGRPCHandler) Logout(ctx context.Context, req *pb.LogoutRequest) (*p
 
 func (h *AuthGRPCHandler) SetAccountStatus(ctx context.Context, req *pb.SetAccountStatusRequest) (*pb.SetAccountStatusResponse, error) {
 	if err := h.authService.SetAccountStatus(ctx, req.PrincipalType, req.PrincipalId, req.Active); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set account status: %v", err)
+		return nil, err // wrapped sentinel → correct gRPC status (see service/errors.go)
 	}
 	return &pb.SetAccountStatusResponse{Success: true}, nil
 }
@@ -156,7 +174,7 @@ func (h *AuthGRPCHandler) SetAccountStatus(ctx context.Context, req *pb.SetAccou
 func (h *AuthGRPCHandler) GetAccountStatus(ctx context.Context, req *pb.GetAccountStatusRequest) (*pb.GetAccountStatusResponse, error) {
 	st, active, err := h.authService.GetAccountStatus(ctx, req.PrincipalType, req.PrincipalId)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err // wrapped sentinel → correct gRPC status (see service/errors.go)
 	}
 	return &pb.GetAccountStatusResponse{Status: st, Active: active}, nil
 }
@@ -170,13 +188,6 @@ func (h *AuthGRPCHandler) ResendActivationEmail(ctx context.Context, req *pb.Res
 		Success: true,
 		Message: "if the email is registered and pending activation, a new activation email has been sent",
 	}, nil
-}
-
-func (h *AuthGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.CreateAccountResponse, error) {
-	if err := h.authService.CreateAccountAndActivationToken(ctx, req.PrincipalId, req.Email, req.FirstName, req.PrincipalType); err != nil {
-		return nil, err
-	}
-	return &pb.CreateAccountResponse{Success: true}, nil
 }
 
 func (h *AuthGRPCHandler) GetAccountStatusBatch(ctx context.Context, req *pb.GetAccountStatusBatchRequest) (*pb.GetAccountStatusBatchResponse, error) {
