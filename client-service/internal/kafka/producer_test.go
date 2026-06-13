@@ -49,3 +49,12 @@ func TestProducer_PublishClientLimitsUpdated_CancelledContext(t *testing.T) {
 	err := p.PublishClientLimitsUpdated(cancelledContext(), kafkamsg.ClientLimitsUpdatedMessage{ClientID: 1})
 	assert.Error(t, err)
 }
+
+func TestProducer_PublishGeneralNotification_CancelledContext(t *testing.T) {
+	p := NewProducer("localhost:9999")
+	defer p.Close()
+	err := p.PublishGeneralNotification(cancelledContext(), kafkamsg.GeneralNotificationMessage{
+		UserID: 1, Type: "LIMIT_CHANGED", RefType: "client_limit", RefID: 1,
+	})
+	assert.Error(t, err)
+}

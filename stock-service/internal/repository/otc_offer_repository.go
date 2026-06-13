@@ -204,7 +204,7 @@ func (r *OTCOfferRepository) getByID(db *gorm.DB, id uint64) (*model.OTCOffer, e
 
 // Save persists a modified offer. Optimistic-locked via the BeforeUpdate hook.
 func (r *OTCOfferRepository) Save(o *model.OTCOffer) error {
-	res := r.db.Save(o)
+	res := r.db.Select("*").Save(o)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -239,7 +239,7 @@ func (r *OTCOfferRepository) LockByIDTx(tx *gorm.DB, id uint64) (*model.OTCOffer
 
 // SaveTx variant for use inside an existing transaction.
 func (r *OTCOfferRepository) SaveTx(tx *gorm.DB, o *model.OTCOffer) error {
-	res := tx.Save(o)
+	res := tx.Select("*").Save(o)
 	if res.Error != nil {
 		return res.Error
 	}

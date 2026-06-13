@@ -83,6 +83,10 @@ type stubOTCOptionsClient struct {
 	getTimelineFn            func(*stockpb.GetOfferTimelineRequest) (*stockpb.GetOfferTimelineResponse, error)
 	openNegotiationFn        func(*stockpb.OpenNegotiationRequest) (*stockpb.OTCNegotiationResponse, error)
 	updateQuantityFn         func(*stockpb.UpdateOTCOfferQuantityRequest) (*stockpb.OTCOfferResponse, error)
+	acceptNegFn              func(*stockpb.OTCAcceptNegotiationRequest) (*stockpb.OTCAcceptNegotiationResponse, error)
+	rejectNegFn              func(*stockpb.RejectNegotiationRequest) (*stockpb.OTCNegotiationResponse, error)
+	cancelNegFn              func(*stockpb.CancelNegotiationRequest) (*stockpb.OTCNegotiationResponse, error)
+	listMyNegFn              func(*stockpb.ListMyNegotiationsRequest) (*stockpb.ListNegotiationsResponse, error)
 }
 
 func (s *stubOTCOptionsClient) CreateOffer(_ context.Context, in *stockpb.CreateOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
@@ -164,13 +168,22 @@ func (s *stubOTCOptionsClient) OpenNegotiation(_ context.Context, in *stockpb.Op
 func (s *stubOTCOptionsClient) CounterNegotiation(_ context.Context, _ *stockpb.CounterNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
 	return &stockpb.OTCNegotiationResponse{}, nil
 }
-func (s *stubOTCOptionsClient) AcceptNegotiationChain(_ context.Context, _ *stockpb.OTCAcceptNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCAcceptNegotiationResponse, error) {
+func (s *stubOTCOptionsClient) AcceptNegotiationChain(_ context.Context, in *stockpb.OTCAcceptNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCAcceptNegotiationResponse, error) {
+	if s.acceptNegFn != nil {
+		return s.acceptNegFn(in)
+	}
 	return &stockpb.OTCAcceptNegotiationResponse{}, nil
 }
-func (s *stubOTCOptionsClient) RejectNegotiation(_ context.Context, _ *stockpb.RejectNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+func (s *stubOTCOptionsClient) RejectNegotiation(_ context.Context, in *stockpb.RejectNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+	if s.rejectNegFn != nil {
+		return s.rejectNegFn(in)
+	}
 	return &stockpb.OTCNegotiationResponse{}, nil
 }
-func (s *stubOTCOptionsClient) CancelNegotiation(_ context.Context, _ *stockpb.CancelNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+func (s *stubOTCOptionsClient) CancelNegotiation(_ context.Context, in *stockpb.CancelNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+	if s.cancelNegFn != nil {
+		return s.cancelNegFn(in)
+	}
 	return &stockpb.OTCNegotiationResponse{}, nil
 }
 func (s *stubOTCOptionsClient) CancelListing(_ context.Context, in *stockpb.CancelListingRequest, _ ...grpc.CallOption) (*stockpb.CancelListingResponse, error) {
@@ -179,7 +192,10 @@ func (s *stubOTCOptionsClient) CancelListing(_ context.Context, in *stockpb.Canc
 	}
 	return &stockpb.CancelListingResponse{OfferId: in.GetOfferId(), Status: "cancelled"}, nil
 }
-func (s *stubOTCOptionsClient) ListMyNegotiations(_ context.Context, _ *stockpb.ListMyNegotiationsRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
+func (s *stubOTCOptionsClient) ListMyNegotiations(_ context.Context, in *stockpb.ListMyNegotiationsRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
+	if s.listMyNegFn != nil {
+		return s.listMyNegFn(in)
+	}
 	return &stockpb.ListNegotiationsResponse{}, nil
 }
 func (s *stubOTCOptionsClient) ListNegotiationsByListing(_ context.Context, in *stockpb.ListNegotiationsByListingRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {

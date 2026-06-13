@@ -65,7 +65,7 @@ func (r *FundRepository) Save(f *model.InvestmentFund) error {
 	if err := r.assertNameAvailable(f.Name, f.ID); err != nil {
 		return err
 	}
-	res := r.db.Save(f)
+	res := r.db.Select("*").Save(f)
 	if res.Error != nil {
 		return res.Error
 	}

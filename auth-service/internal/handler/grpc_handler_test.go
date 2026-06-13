@@ -993,3 +993,41 @@ func TestHandler_GetLoginHistory_Error(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, codes.Internal, status.Code(err))
 }
+
+// ----------------------------------------------------------------------------
+// GetSigningKeys
+// ----------------------------------------------------------------------------
+
+func TestHandler_GetSigningKeys_ReturnsJWKS(t *testing.T) {
+	auth := &stubAuthService{
+		signingKeysFn: func() ([]service.PublicKeyInfo, error) {
+			return []service.PublicKeyInfo{
+				{Kid: "kid-1", Alg: "ES256", PEM: "PEM-1", Primary: true},
+				{Kid: "kid-0", Alg: "ES256", PEM: "PEM-0", Primary: false},
+			}, nil
+		},
+	}
+	h := newHandlerForTest(auth, &stubMobileService{})
+
+	resp, err := h.GetSigningKeys(context.Background(), &pb.GetSigningKeysRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Keys, 2)
+	assert.Equal(t, "kid-1", resp.Keys[0].Kid)
+	assert.Equal(t, "ES256", resp.Keys[0].Alg)
+	assert.Equal(t, "PEM-1", resp.Keys[0].PemPublicKey)
+	assert.True(t, resp.Keys[0].Primary)
+	assert.False(t, resp.Keys[1].Primary)
+}
+
+func TestHandler_GetSigningKeys_Error(t *testing.T) {
+	auth := &stubAuthService{
+		signingKeysFn: func() ([]service.PublicKeyInfo, error) {
+			return nil, errors.New("no key")
+		},
+	}
+	h := newHandlerForTest(auth, &stubMobileService{})
+
+	_, err := h.GetSigningKeys(context.Background(), &pb.GetSigningKeysRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}

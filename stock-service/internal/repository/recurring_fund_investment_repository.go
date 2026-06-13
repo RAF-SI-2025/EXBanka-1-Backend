@@ -29,7 +29,7 @@ func (r *RecurringFundInvestmentRepository) GetByID(id uint64) (*model.Recurring
 }
 
 func (r *RecurringFundInvestmentRepository) Save(row *model.RecurringFundInvestment) error {
-	res := r.db.Save(row)
+	res := r.db.Select("*").Save(row)
 	return CheckRowsAffected(res)
 }
 

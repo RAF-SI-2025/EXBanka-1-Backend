@@ -108,7 +108,10 @@ func (r *CapitalGainRepository) SumByActingEmployee() ([]ActuaryGainRow, error) 
 // Scoped to rows where tax_collection_id IS NULL so a crashed+retried run
 // doesn't clobber a prior collection's marking.
 func (r *CapitalGainRepository) MarkCollected(ownerType model.OwnerType, ownerID *uint64, year, month int, accountID uint64, currency string, taxCollectionID uint64) error {
-	q := r.db.Model(&model.CapitalGain{}).
+	// SkipHooks: BeforeSave validates OwnerType on the zero-value model struct
+	// passed to Model(); a column-targeted Update must skip hooks to avoid that
+	// check (same pattern as FundContributionRepository.UpdateStatus).
+	q := r.db.Session(&gorm.Session{SkipHooks: true}).Model(&model.CapitalGain{}).
 		Where("tax_year = ? AND tax_month = ? AND account_id = ? AND currency = ? AND tax_collection_id IS NULL",
 			year, month, accountID, currency)
 	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)

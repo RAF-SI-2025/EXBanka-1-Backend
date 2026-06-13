@@ -154,6 +154,58 @@ func TestChangelogService_ListChangelog_NegativeEntityID(t *testing.T) {
 	assert.Contains(t, err.Error(), "entity_id must be positive")
 }
 
+func TestChangelogService_ListAllChangelogs_ReturnsAcrossEntities(t *testing.T) {
+	db := newChangelogTestDB(t)
+	repo := repository.NewChangelogRepository(db)
+	svc := NewChangelogService(repo)
+
+	now := time.Now().UTC()
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 1, Action: "create", ChangedBy: 7, ChangedAt: now.Add(-time.Hour)}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan_request", EntityID: 2, Action: "approve", ChangedBy: 8, ChangedAt: now}))
+
+	rows, total, err := svc.ListAllChangelogs(repository.ChangelogFilters{}, 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	require.Len(t, rows, 2)
+	// Most recent first.
+	assert.Equal(t, "approve", rows[0].Action)
+}
+
+func TestChangelogService_ListAllChangelogs_AppliesDefaultsAndCap(t *testing.T) {
+	db := newChangelogTestDB(t)
+	repo := repository.NewChangelogRepository(db)
+	svc := NewChangelogService(repo)
+
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 1, Action: "create", ChangedBy: 1, ChangedAt: time.Now().UTC()}))
+
+	// page=0/pageSize=0 default to 1/50; pageSize>200 caps silently. Neither errors.
+	rows, total, err := svc.ListAllChangelogs(repository.ChangelogFilters{}, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, rows, 1)
+
+	rows, total, err = svc.ListAllChangelogs(repository.ChangelogFilters{}, 1, 1000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, rows, 1)
+}
+
+func TestChangelogService_ListAllChangelogs_FilterByActor(t *testing.T) {
+	db := newChangelogTestDB(t)
+	repo := repository.NewChangelogRepository(db)
+	svc := NewChangelogService(repo)
+
+	now := time.Now().UTC()
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 1, Action: "create", ChangedBy: 7, ChangedAt: now}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 2, Action: "create", ChangedBy: 9, ChangedAt: now}))
+
+	rows, total, err := svc.ListAllChangelogs(repository.ChangelogFilters{ActorID: 9}, 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, rows, 1)
+	assert.Equal(t, int64(9), rows[0].ChangedBy)
+}
+
 func TestChangelogService_ListChangelog_OrdersByChangedAtDesc(t *testing.T) {
 	db := newChangelogTestDB(t)
 	repo := repository.NewChangelogRepository(db)
