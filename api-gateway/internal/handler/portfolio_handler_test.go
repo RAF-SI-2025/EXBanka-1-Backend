@@ -27,6 +27,7 @@ type portfolioStub struct {
 	listTxFn       func(*stockpb.ListHoldingTransactionsRequest) (*stockpb.ListHoldingTransactionsResponse, error)
 	exerciseByIDFn func(*stockpb.ExerciseOptionByOptionIDRequest) (*stockpb.ExerciseResult, error)
 	getHoldingFn   func(*stockpb.GetHoldingRequest) (*stockpb.HoldingWithOwner, error)
+	getUnifiedFn   func(*stockpb.GetUnifiedPortfolioRequest) (*stockpb.UnifiedPortfolioResponse, error)
 }
 
 func (s *portfolioStub) ListHoldings(_ context.Context, in *stockpb.ListHoldingsRequest, _ ...grpc.CallOption) (*stockpb.ListHoldingsResponse, error) {
@@ -60,7 +61,10 @@ func (s *portfolioStub) ExerciseOptionByOptionID(_ context.Context, in *stockpb.
 	return &stockpb.ExerciseResult{}, nil
 }
 
-func (s *portfolioStub) GetUnifiedPortfolio(_ context.Context, _ *stockpb.GetUnifiedPortfolioRequest, _ ...grpc.CallOption) (*stockpb.UnifiedPortfolioResponse, error) {
+func (s *portfolioStub) GetUnifiedPortfolio(_ context.Context, in *stockpb.GetUnifiedPortfolioRequest, _ ...grpc.CallOption) (*stockpb.UnifiedPortfolioResponse, error) {
+	if s.getUnifiedFn != nil {
+		return s.getUnifiedFn(in)
+	}
 	return &stockpb.UnifiedPortfolioResponse{}, nil
 }
 

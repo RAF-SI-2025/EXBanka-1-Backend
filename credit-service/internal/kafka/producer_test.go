@@ -95,3 +95,12 @@ func TestProducer_PublishGeneralNotification_WithCancelledContext(t *testing.T) 
 	err := p.PublishGeneralNotification(cancelledContext(), kafkamsg.GeneralNotificationMessage{Title: "test"})
 	assert.Error(t, err)
 }
+
+func TestProducer_PublishSagaDeadLetter_WithCancelledContext(t *testing.T) {
+	p := NewProducer("localhost:9999")
+	defer p.Close()
+	err := p.PublishSagaDeadLetter(cancelledContext(), kafkamsg.SagaDeadLetterMessage{
+		SagaLogID: 1, SagaID: "loan-disbursement-1", StepName: "debit_bank", RetryCount: 10, LastError: "boom",
+	})
+	assert.Error(t, err)
+}

@@ -38,7 +38,7 @@ func (r *OptionRepository) GetByTicker(ticker string) (*model.Option, error) {
 }
 
 func (r *OptionRepository) Update(o *model.Option) error {
-	result := r.db.Save(o)
+	result := r.db.Select("*").Save(o)
 	if result.Error != nil {
 		return result.Error
 	}

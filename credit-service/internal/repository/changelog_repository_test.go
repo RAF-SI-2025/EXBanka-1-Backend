@@ -146,3 +146,89 @@ func TestChangelogRepo_ListByEntity_NoMatch(t *testing.T) {
 	assert.Equal(t, int64(0), total)
 	assert.Empty(t, got)
 }
+
+func TestChangelogRepo_ListAll_NoFilters(t *testing.T) {
+	db := newChangelogRepoDB(t)
+	repo := NewChangelogRepository(db)
+
+	now := time.Now().UTC()
+	// Mixed entities and actors.
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 1, Action: "create", ChangedBy: 7, ChangedAt: now.Add(-2 * time.Hour)}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan_request", EntityID: 2, Action: "approve", ChangedBy: 8, ChangedAt: now.Add(-1 * time.Hour)}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 3, Action: "update", ChangedBy: 7, ChangedAt: now}))
+
+	got, total, err := repo.ListAll(ChangelogFilters{}, 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	require.Len(t, got, 3)
+	// Ordered by changed_at DESC — most recent first.
+	assert.Equal(t, "update", got[0].Action)
+	assert.Equal(t, "approve", got[1].Action)
+	assert.Equal(t, "create", got[2].Action)
+}
+
+func TestChangelogRepo_ListAll_FiltersByActorAndAction(t *testing.T) {
+	db := newChangelogRepoDB(t)
+	repo := NewChangelogRepository(db)
+
+	now := time.Now().UTC()
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 1, Action: "create", ChangedBy: 7, ChangedAt: now}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 2, Action: "create", ChangedBy: 8, ChangedAt: now}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 3, Action: "update", ChangedBy: 7, ChangedAt: now}))
+
+	// Actor filter only.
+	got, total, err := repo.ListAll(ChangelogFilters{ActorID: 7}, 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, got, 2)
+
+	// Actor + action combined.
+	got, total, err = repo.ListAll(ChangelogFilters{ActorID: 7, Action: "create"}, 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, got, 1)
+	assert.Equal(t, "create", got[0].Action)
+	assert.Equal(t, int64(7), got[0].ChangedBy)
+}
+
+func TestChangelogRepo_ListAll_FiltersBySinceUntil(t *testing.T) {
+	db := newChangelogRepoDB(t)
+	repo := NewChangelogRepository(db)
+
+	// Build ChangedAt timestamps via time.Unix so they share the exact same
+	// (local) rendering as the Since/Until bounds the repository derives with
+	// time.Unix — this avoids UTC-vs-local string-comparison artifacts that
+	// only affect the SQLite test driver, not production Postgres.
+	base := time.Now().Truncate(time.Second).Unix()
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 1, Action: "a", ChangedBy: 1, ChangedAt: time.Unix(base-3*3600, 0)}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 2, Action: "b", ChangedBy: 1, ChangedAt: time.Unix(base-2*3600, 0)}))
+	require.NoError(t, repo.Create(changelog.Entry{EntityType: "loan", EntityID: 3, Action: "c", ChangedBy: 1, ChangedAt: time.Unix(base, 0)}))
+
+	// Window [-2h30m, -1h] should capture only the middle row.
+	got, total, err := repo.ListAll(ChangelogFilters{
+		Since: base - 150*60,
+		Until: base - 3600,
+	}, 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, got, 1)
+	assert.Equal(t, "b", got[0].Action)
+}
+
+func TestChangelogRepo_ListAll_Pagination(t *testing.T) {
+	db := newChangelogRepoDB(t)
+	repo := NewChangelogRepository(db)
+
+	now := time.Now().UTC()
+	for i := 0; i < 5; i++ {
+		require.NoError(t, repo.Create(changelog.Entry{
+			EntityType: "loan", EntityID: int64(i + 1), Action: "create", ChangedBy: 1,
+			ChangedAt: now.Add(time.Duration(i) * time.Second),
+		}))
+	}
+
+	got, total, err := repo.ListAll(ChangelogFilters{}, 2, 3)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), total)
+	assert.Len(t, got, 2, "page 2 of size 3 returns the remaining 2 rows")
+}

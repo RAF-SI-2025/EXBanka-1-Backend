@@ -322,6 +322,56 @@ func TestNewClients(t *testing.T) {
 			}
 			return err
 		}},
+		{"WatchlistClient", func(a string) error {
+			c, conn, err := NewWatchlistClient(a)
+			if err == nil && (c == nil || conn == nil) {
+				t.Fatal("nil client/conn")
+			}
+			if conn != nil {
+				_ = conn.Close()
+			}
+			return err
+		}},
+		{"PriceAlertClient", func(a string) error {
+			c, conn, err := NewPriceAlertClient(a)
+			if err == nil && (c == nil || conn == nil) {
+				t.Fatal("nil client/conn")
+			}
+			if conn != nil {
+				_ = conn.Close()
+			}
+			return err
+		}},
+		{"RecurringOrderClient", func(a string) error {
+			c, conn, err := NewRecurringOrderClient(a)
+			if err == nil && (c == nil || conn == nil) {
+				t.Fatal("nil client/conn")
+			}
+			if conn != nil {
+				_ = conn.Close()
+			}
+			return err
+		}},
+		{"RecurringFundClient", func(a string) error {
+			c, conn, err := NewRecurringFundClient(a)
+			if err == nil && (c == nil || conn == nil) {
+				t.Fatal("nil client/conn")
+			}
+			if conn != nil {
+				_ = conn.Close()
+			}
+			return err
+		}},
+		{"PeerUserServiceClient", func(a string) error {
+			c, conn, err := NewPeerUserServiceClient(a)
+			if err == nil && (c == nil || conn == nil) {
+				t.Fatal("nil client/conn")
+			}
+			if conn != nil {
+				_ = conn.Close()
+			}
+			return err
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

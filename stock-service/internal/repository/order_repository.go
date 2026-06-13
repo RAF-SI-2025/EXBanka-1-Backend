@@ -58,7 +58,7 @@ func (r *OrderRepository) GetByIDWithOwner(id uint64, ownerType model.OwnerType,
 }
 
 func (r *OrderRepository) Update(order *model.Order) error {
-	result := r.db.Save(order)
+	result := r.db.Select("*").Save(order)
 	if result.Error != nil {
 		return result.Error
 	}

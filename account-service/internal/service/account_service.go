@@ -15,6 +15,7 @@ import (
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/contract/changelog"
+	"github.com/exbanka/contract/shared"
 )
 
 const accountCacheTTL = 2 * time.Minute
@@ -405,9 +406,25 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 // row. Used by CreateBankAccount to propagate the optional category from the
 // gRPC request after the base create has already committed.
 func (s *AccountService) SetAccountCategory(accountID uint64, category string) error {
-	return s.db.Model(&model.Account{}).
-		Where("id = ?", accountID).
-		Update("account_category", category).Error
+	// Load-modify-save: Account is a versioned model whose BeforeUpdate hook
+	// injects `WHERE version = ?`. A bare db.Model(&Account{}).Update(...) builds
+	// a zero-value struct (Version=0), so the hook adds `WHERE version = 0`, which
+	// matches nothing for any account that has been saved past version 0 — the
+	// update silently no-ops. Load the row, mutate it, then Save the full struct
+	// so the version guard matches and increments. (Mirrors CompanyRepository.Update.)
+	var account model.Account
+	if err := s.db.First(&account, accountID).Error; err != nil {
+		return err
+	}
+	account.AccountCategory = category
+	res := s.db.Save(&account)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return shared.ErrOptimisticLock
+	}
+	return nil
 }
 
 func (s *AccountService) ListBankAccounts() ([]model.Account, error) {
