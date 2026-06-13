@@ -84,8 +84,14 @@ func TestSign_WithoutHMACKey(t *testing.T) {
 		t.Errorf("X-Api-Key = %q; want %q", got, apiKey)
 	}
 
-	// HMAC bundle headers must NOT be present.
-	for _, h := range []string{"X-Bank-Code", "X-Bank-Signature", "X-Timestamp", "X-Nonce"} {
+	// X-Bank-Code IS now sent even without HMAC — it identifies the sender so a
+	// receiver can disambiguate among peers that share one api_token.
+	if got := req.Header.Get("X-Bank-Code"); got != "111" {
+		t.Errorf("X-Bank-Code = %q; want %q (sender identity, api-key mode)", got, "111")
+	}
+
+	// The HMAC-only headers must still be absent without an HMAC key.
+	for _, h := range []string{"X-Bank-Signature", "X-Timestamp", "X-Nonce"} {
 		if v := req.Header.Get(h); v != "" {
 			t.Errorf("header %s = %q; want absent (no HMAC key)", h, v)
 		}

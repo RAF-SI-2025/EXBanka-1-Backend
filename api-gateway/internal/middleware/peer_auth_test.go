@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +65,56 @@ func TestPeerAuth_APIKeyHappyPath(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// Shared api_token across two peers: token-alone resolution returns an arbitrary
+// peer (here 222), but X-Bank-Code:333 + the shared token must authenticate as 333.
+func TestPeerAuth_APIKey_SharedToken_DisambiguatedByBankCode(t *testing.T) {
+	p222 := &middleware.PeerBankRecord{BankCode: "222", RoutingNumber: 222, APITokenPlaintext: "shared", Active: true}
+	p333 := &middleware.PeerBankRecord{BankCode: "333", RoutingNumber: 333, APITokenPlaintext: "shared", Active: true}
+	res := &stubResolver{
+		byCode:  map[string]*middleware.PeerBankRecord{"222": p222, "333": p333},
+		byToken: map[string]*middleware.PeerBankRecord{"shared": p222}, // first-match → the WRONG peer
+	}
+	r := newTestRouter(res, &stubNonces{})
+
+	req := httptest.NewRequest(http.MethodPost, "/probe", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("X-Api-Key", "shared")
+	req.Header.Set("X-Bank-Code", "333")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"333"`) {
+		t.Errorf("expected authenticated peer 333 (disambiguated by X-Bank-Code), got %s", w.Body.String())
+	}
+}
+
+// X-Bank-Code present but the presented token does NOT match that peer → fall back
+// to token-only resolution (backward compatible) rather than hard-fail.
+func TestPeerAuth_APIKey_BankCodeWrongToken_FallsBackToToken(t *testing.T) {
+	p333 := &middleware.PeerBankRecord{BankCode: "333", RoutingNumber: 333, APITokenPlaintext: "tok-333", Active: true}
+	p222 := &middleware.PeerBankRecord{BankCode: "222", RoutingNumber: 222, APITokenPlaintext: "tok-222", Active: true}
+	res := &stubResolver{
+		byCode:  map[string]*middleware.PeerBankRecord{"333": p333},
+		byToken: map[string]*middleware.PeerBankRecord{"tok-222": p222},
+	}
+	r := newTestRouter(res, &stubNonces{})
+
+	req := httptest.NewRequest(http.MethodPost, "/probe", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("X-Api-Key", "tok-222") // 222's token
+	req.Header.Set("X-Bank-Code", "333")   // claims 333, whose token is tok-333 → mismatch
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"222"`) {
+		t.Errorf("mismatched X-Bank-Code must fall back to token-only (222), got %s", w.Body.String())
 	}
 }
 

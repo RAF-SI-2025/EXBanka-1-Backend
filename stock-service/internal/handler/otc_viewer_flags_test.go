@@ -46,6 +46,30 @@ func TestStampNegotiationViewerFlags_BidderJustBid(t *testing.T) {
 	}
 }
 
+// A REMOTE / cross-bank chain uses the "ongoing" status vocabulary — it must be
+// treated as LIVE so the bidder still gets counter/withdraw (and accept/reject on
+// their turn). Regression: previously "ongoing" was not live, so every cross-bank
+// negotiation came back with no action flags.
+func TestStampNegotiationViewerFlags_RemoteOngoingIsLive(t *testing.T) {
+	// Bidder awaiting on an ongoing chain (the peer moved last).
+	item := &stockpb.OTCNegotiationResponse{Status: "ongoing"}
+	stampNegotiationViewerFlags(item, "bidder", false)
+	if !item.GetCanCounter() || !item.GetCanWithdraw() || !item.GetAwaitingViewer() ||
+		!item.GetCanAccept() || !item.GetCanReject() {
+		t.Errorf("ongoing + awaiting bidder: all action hints expected, got %+v", item)
+	}
+
+	// Bidder who just moved on an ongoing chain: still can counter + withdraw.
+	mine := &stockpb.OTCNegotiationResponse{Status: "ongoing"}
+	stampNegotiationViewerFlags(mine, "bidder", true)
+	if !mine.GetCanCounter() || !mine.GetCanWithdraw() {
+		t.Error("ongoing + last_action_mine bidder: can_counter + can_withdraw must be true")
+	}
+	if mine.GetCanAccept() || mine.GetCanReject() || mine.GetAwaitingViewer() {
+		t.Error("ongoing + last_action_mine: no accept/reject, not awaiting")
+	}
+}
+
 // Poster receiving a client's bid → Accept/Counter/Reject; never Withdraw.
 func TestStampNegotiationViewerFlags_PosterReceivingBid(t *testing.T) {
 	item := &stockpb.OTCNegotiationResponse{Status: "open"}

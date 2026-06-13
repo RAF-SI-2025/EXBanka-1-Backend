@@ -78,7 +78,11 @@ func stampNegotiationViewerFlags(item *stockpb.OTCNegotiationResponse, viewerRol
 		return // read-only / non-party (e.g. an employee browsing a client's listing)
 	}
 	item.LastActionMine = lastActionMine
-	live := item.GetStatus() == "open" || item.GetStatus() == "countered"
+	// A chain is live (actionable) while open/countered (LOCAL vocabulary) OR
+	// ongoing (the REMOTE/cross-bank vocabulary). Omitting "ongoing" left every
+	// cross-bank negotiation with no action flags (can_counter etc. all false),
+	// which is exactly why remote chains showed no buttons.
+	live := item.GetStatus() == "open" || item.GetStatus() == "countered" || item.GetStatus() == "ongoing"
 	// awaiting_viewer: the OTHER side made the latest offer, so it is the viewer's
 	// turn to respond. The party who just moved is NOT awaiting (they wait for a
 	// reply), even though they may still revise their own offer (see can_counter).
