@@ -34,7 +34,7 @@ func sgEnabled(t *testing.T) {
 // exercise: seller buys the stock, lists a sell_initiated offer, buyer accepts.
 // Returns the contract id and the buyer client (the only party allowed to
 // exercise). Skips (not fails) when the market simulator can't seed the holding.
-func sgSetupContract(t *testing.T, adminC *client.APIClient) (contractID int, buyerC *client.APIClient) {
+func sgSetupContract(t *testing.T, adminC *client.APIClient) (contractID int, buyerC *client.APIClient, buyerAcctID uint64) {
 	t.Helper()
 	enableTestingMode(t, adminC)
 
@@ -116,7 +116,7 @@ func sgSetupContract(t *testing.T, adminC *client.APIClient) (contractID int, bu
 	if contractID == 0 {
 		t.Fatalf("accept: could not find contract id in response: %v", acceptResp.Body)
 	}
-	return contractID, buyerCli
+	return contractID, buyerCli, bAcctID
 }
 
 // contractStatus returns the buyer's view of a contract's status (e.g.
@@ -157,7 +157,7 @@ func sgExercise(buyerC *client.APIClient, contractID int, headers map[string]str
 func TestSG01_HappyPath(t *testing.T) {
 	sgEnabled(t)
 	adminC := loginAsAdmin(t)
-	contractID, buyerC := sgSetupContract(t, adminC)
+	contractID, buyerC, _ := sgSetupContract(t, adminC)
 
 	resp, err := sgExercise(buyerC, contractID, nil)
 	if err != nil {
@@ -172,7 +172,7 @@ func TestSG01_HappyPath(t *testing.T) {
 func TestSG02a_NonBuyerRejected(t *testing.T) {
 	sgEnabled(t)
 	adminC := loginAsAdmin(t)
-	contractID, _ := sgSetupContract(t, adminC)
+	contractID, _, _ := sgSetupContract(t, adminC)
 	_, _, strangerC, _ := setupActivatedClient(t, adminC)
 
 	resp, err := sgExercise(strangerC, contractID, nil)
@@ -188,7 +188,7 @@ func TestSG02a_NonBuyerRejected(t *testing.T) {
 func TestSG02b_UnknownContract(t *testing.T) {
 	sgEnabled(t)
 	adminC := loginAsAdmin(t)
-	_, buyerC := sgSetupContract(t, adminC)
+	_, buyerC, _ := sgSetupContract(t, adminC)
 
 	resp, err := sgExercise(buyerC, 999000111, nil)
 	if err != nil {
@@ -204,7 +204,7 @@ func TestSG02b_UnknownContract(t *testing.T) {
 func TestSG05_ForceFailCreditSeller_CompensatesAndRetrySucceeds(t *testing.T) {
 	sgEnabled(t)
 	adminC := loginAsAdmin(t)
-	contractID, buyerC := sgSetupContract(t, adminC)
+	contractID, buyerC, _ := sgSetupContract(t, adminC)
 
 	failResp, err := sgExercise(buyerC, contractID, map[string]string{"X-Saga-Force-Fail": "credit_strike_seller"})
 	if err != nil {
@@ -227,7 +227,7 @@ func TestSG05_ForceFailCreditSeller_CompensatesAndRetrySucceeds(t *testing.T) {
 func TestSG07_ForceFailMarkExercised_FullCompensationAndRetrySucceeds(t *testing.T) {
 	sgEnabled(t)
 	adminC := loginAsAdmin(t)
-	contractID, buyerC := sgSetupContract(t, adminC)
+	contractID, buyerC, _ := sgSetupContract(t, adminC)
 
 	failResp, err := sgExercise(buyerC, contractID, map[string]string{"X-Saga-Force-Fail": "mark_contract_exercised"})
 	if err != nil {
